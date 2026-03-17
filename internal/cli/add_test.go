@@ -399,3 +399,74 @@ I5 = mno
 		t.Error("did not find #_GenKeyTime field in config")
 	}
 }
+
+// TestPresharedKey tests that PresharedKey is generated and stored when adding a peer
+func TestPresharedKey(t *testing.T) {
+	cfgFile = ""
+	addIPAddr = ""
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "awg0.conf")
+
+	initialConfig := `[Interface]
+PrivateKey = abcdefghijklmnopqrstuvwxyz123456789012345=
+Address = 10.8.0.1/24
+ListenPort = 12345
+MTU = 1280
+Jc = 5
+Jmin = 20
+Jmax = 30
+S1 = 1
+S2 = 2
+S3 = 3
+S4 = 4
+H1 = 100
+H2 = 200
+H3 = 300
+H4 = 400
+I1 = abc
+I2 = def
+I3 = ghi
+I4 = jkl
+I5 = mno
+`
+	if err := os.WriteFile(configPath, []byte(initialConfig), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := NewAddCommand()
+	cmd.SetArgs([]string{"--config", configPath, "client-psk"})
+	cfgFile = configPath
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("add command failed: %v", err)
+	}
+
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	configStr := string(content)
+	if !strings.Contains(configStr, "PresharedKey = ") {
+		t.Error("expected PresharedKey field in config")
+	}
+
+	// Verify PSK is a valid base64 string (44 characters for 32 bytes)
+	lines := strings.Split(configStr, "\n")
+	foundPSK := false
+	for _, line := range lines {
+		if strings.Contains(line, "PresharedKey = ") {
+			parts := strings.Split(line, " = ")
+			if len(parts) == 2 {
+				pskStr := strings.TrimSpace(parts[1])
+				if len(pskStr) != 44 {
+					t.Errorf("expected PSK to be 44 characters, got %d", len(pskStr))
+				}
+				foundPSK = true
+			}
+		}
+	}
+
+	if !foundPSK {
+		t.Error("did not find #_PresharedKey field in config")
+	}
+}

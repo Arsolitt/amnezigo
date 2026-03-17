@@ -87,13 +87,17 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	// Generate keypair for client
 	privateKey, publicKey := crypto.GenerateKeyPair()
 
+	// Generate preshared key
+	psk := crypto.GeneratePSK()
+
 	// Create new peer
 	newPeer := config.PeerConfig{
-		Name:       clientName,
-		PrivateKey: privateKey,
-		PublicKey:  publicKey,
-		AllowedIPs: clientIP + "/32",
-		CreatedAt:  time.Now(),
+		Name:         clientName,
+		PrivateKey:   privateKey,
+		PublicKey:    publicKey,
+		PresharedKey: psk,
+		AllowedIPs:   clientIP + "/32",
+		CreatedAt:    time.Now(),
 	}
 
 	// Add peer to config
