@@ -81,7 +81,7 @@ func TestGenerateJunkParams(t *testing.T) {
 }
 
 func TestGenerateConfig(t *testing.T) {
-	cfg := GenerateConfig("random", 1280)
+	cfg := GenerateConfig("random", 1280, 32, 5)
 
 	// Valid Jc range from 0-10
 	if cfg.Jc < 0 || cfg.Jc > 10 {
@@ -154,5 +154,81 @@ func TestGenerateCPSWithProtocol(t *testing.T) {
 		if i1 == "" {
 			t.Errorf("I1 should not be empty for %s protocol", protocol)
 		}
+	}
+}
+
+func TestGenerateConfig_WithMTU(t *testing.T) {
+	tests := []struct {
+		name     string
+		protocol string
+		mtu      int
+		s1       int
+		jc       int
+	}{
+		{
+			name:     "random_protocol",
+			protocol: "random",
+			mtu:      1280,
+			s1:       32,
+			jc:       5,
+		},
+		{
+			name:     "quic_protocol",
+			protocol: "quic",
+			mtu:      1280,
+			s1:       64,
+			jc:       3,
+		},
+		{
+			name:     "dns_protocol",
+			protocol: "dns",
+			mtu:      1280,
+			s1:       64,
+			jc:       4,
+		},
+		{
+			name:     "dtls_protocol",
+			protocol: "dtls",
+			mtu:      1280,
+			s1:       64,
+			jc:       3,
+		},
+		{
+			name:     "stun_protocol",
+			protocol: "stun",
+			mtu:      1280,
+			s1:       64,
+			jc:       4,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := GenerateConfig(tt.protocol, tt.mtu, tt.s1, tt.jc)
+
+			// Verify I1-I4 are generated (I5 may be empty for some protocols)
+			if cfg.I1 == "" {
+				t.Error("I1 should not be empty")
+			}
+			if cfg.I2 == "" {
+				t.Error("I2 should not be empty")
+			}
+			if cfg.I3 == "" {
+				t.Error("I3 should not be empty")
+			}
+			if cfg.I4 == "" {
+				t.Error("I4 should not be empty")
+			}
+
+			// Verify CPS length constraints
+			maxI := calculateMaxISize(tt.mtu, tt.s1, tt.jc)
+			intervals := []string{cfg.I1, cfg.I2, cfg.I3, cfg.I4, cfg.I5}
+			for i, interval := range intervals {
+				if interval != "" && calculateCPSLength(interval) >= maxI {
+					t.Errorf("I%d has length %d, exceeds maxI %d: %q",
+						i+1, calculateCPSLength(interval), maxI, interval)
+				}
+			}
+		})
 	}
 }

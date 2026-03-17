@@ -93,7 +93,13 @@ func runInit(cmd *cobra.Command, args []string) error {
 	// Generate server keypair
 	privateKey, publicKey := crypto.GenerateKeyPair()
 
-	obfConfig := obfuscation.GenerateConfig(initProtocol)
+	// Generate random s1 and jc values for obfuscation config
+	s1Int, _ := rand.Int(rand.Reader, big.NewInt(65))
+	s1 := int(s1Int.Int64())
+	jcInt, _ := rand.Int(rand.Reader, big.NewInt(11))
+	jc := int(jcInt.Int64())
+
+	obfConfig := obfuscation.GenerateConfig(initProtocol, initMTU, s1, jc)
 
 	// Generate iptables rules
 	tunName := "awg0"

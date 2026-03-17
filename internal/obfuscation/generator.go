@@ -119,17 +119,17 @@ func GenerateCPS(protocol string, mtu, s1, jc int) (string, string, string, stri
 }
 
 // GenerateConfig combines all obfuscation parameters into a config
-func GenerateConfig(protocol string, mtu int) config.ObfuscationConfig {
+func GenerateConfig(protocol string, mtu, s1, jc int) config.ObfuscationConfig {
 	h := GenerateHeaders()
 	s := GenerateSPrefixes()
 	j := GenerateJunkParams()
-	i1, i2, i3, i4, i5 := GenerateCPS(protocol, mtu, s.S1, j.Jc)
+	cps := generateCPSConfig(protocol, mtu, s1, jc)
 
 	return config.ObfuscationConfig{
-		Jc:   j.Jc,
+		Jc:   jc,
 		Jmin: j.Jmin,
 		Jmax: j.Jmax,
-		S1:   s.S1,
+		S1:   s1,
 		S2:   s.S2,
 		S3:   s.S3,
 		S4:   s.S4,
@@ -137,10 +137,10 @@ func GenerateConfig(protocol string, mtu int) config.ObfuscationConfig {
 		H2:   h.H2,
 		H3:   h.H3,
 		H4:   h.H4,
-		I1:   i1,
-		I2:   i2,
-		I3:   i3,
-		I4:   i4,
-		I5:   i5,
+		I1:   cps.I1,
+		I2:   cps.I2,
+		I3:   cps.I3,
+		I4:   cps.I4,
+		I5:   cps.I5,
 	}
 }
