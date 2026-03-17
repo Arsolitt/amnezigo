@@ -34,11 +34,21 @@ func WriteServerConfig(w io.Writer, cfg ServerConfig) error {
 	fmt.Fprintf(w, "H2 = %d\n", cfg.Obfuscation.H2)
 	fmt.Fprintf(w, "H3 = %d\n", cfg.Obfuscation.H3)
 	fmt.Fprintf(w, "H4 = %d\n", cfg.Obfuscation.H4)
-	fmt.Fprintf(w, "I1 = %s\n", cfg.Obfuscation.I1)
-	fmt.Fprintf(w, "I2 = %s\n", cfg.Obfuscation.I2)
-	fmt.Fprintf(w, "I3 = %s\n", cfg.Obfuscation.I3)
-	fmt.Fprintf(w, "I4 = %s\n", cfg.Obfuscation.I4)
-	fmt.Fprintf(w, "I5 = %s\n", cfg.Obfuscation.I5)
+	if cfg.Obfuscation.I1 != "" {
+		fmt.Fprintf(w, "I1 = %s\n", cfg.Obfuscation.I1)
+	}
+	if cfg.Obfuscation.I2 != "" {
+		fmt.Fprintf(w, "I2 = %s\n", cfg.Obfuscation.I2)
+	}
+	if cfg.Obfuscation.I3 != "" {
+		fmt.Fprintf(w, "I3 = %s\n", cfg.Obfuscation.I3)
+	}
+	if cfg.Obfuscation.I4 != "" {
+		fmt.Fprintf(w, "I4 = %s\n", cfg.Obfuscation.I4)
+	}
+	if cfg.Obfuscation.I5 != "" {
+		fmt.Fprintf(w, "I5 = %s\n", cfg.Obfuscation.I5)
+	}
 
 	// Write #_PSK (commented)
 	if cfg.PSK != "" {
@@ -85,11 +95,21 @@ func WriteClientConfig(w io.Writer, cfg ClientConfig) error {
 	fmt.Fprintf(w, "H2 = %d\n", cfg.Interface.Obfuscation.H2)
 	fmt.Fprintf(w, "H3 = %d\n", cfg.Interface.Obfuscation.H3)
 	fmt.Fprintf(w, "H4 = %d\n", cfg.Interface.Obfuscation.H4)
-	fmt.Fprintf(w, "I1 = %s\n", cfg.Interface.Obfuscation.I1)
-	fmt.Fprintf(w, "I2 = %s\n", cfg.Interface.Obfuscation.I2)
-	fmt.Fprintf(w, "I3 = %s\n", cfg.Interface.Obfuscation.I3)
-	fmt.Fprintf(w, "I4 = %s\n", cfg.Interface.Obfuscation.I4)
-	fmt.Fprintf(w, "I5 = %s\n", cfg.Interface.Obfuscation.I5)
+	if cfg.Interface.Obfuscation.I1 != "" {
+		fmt.Fprintf(w, "I1 = %s\n", cfg.Interface.Obfuscation.I1)
+	}
+	if cfg.Interface.Obfuscation.I2 != "" {
+		fmt.Fprintf(w, "I2 = %s\n", cfg.Interface.Obfuscation.I2)
+	}
+	if cfg.Interface.Obfuscation.I3 != "" {
+		fmt.Fprintf(w, "I3 = %s\n", cfg.Interface.Obfuscation.I3)
+	}
+	if cfg.Interface.Obfuscation.I4 != "" {
+		fmt.Fprintf(w, "I4 = %s\n", cfg.Interface.Obfuscation.I4)
+	}
+	if cfg.Interface.Obfuscation.I5 != "" {
+		fmt.Fprintf(w, "I5 = %s\n", cfg.Interface.Obfuscation.I5)
+	}
 
 	// Write [Peer] section
 	fmt.Fprintln(w, "")

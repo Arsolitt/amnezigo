@@ -111,7 +111,7 @@ func TestInitCommand_CreatesConfigFile(t *testing.T) {
 		"I2",
 		"I3",
 		"I4",
-		"I5",
+		// I5 is optional - may be empty for some protocols
 		"#_PSK",
 	}
 
