@@ -66,6 +66,9 @@ func WriteServerConfig(w io.Writer, cfg ServerConfig) error {
 			fmt.Fprintf(w, "#_PrivateKey = %s\n", peer.PrivateKey)
 		}
 		fmt.Fprintf(w, "PublicKey = %s\n", peer.PublicKey)
+		if peer.PresharedKey != "" {
+			fmt.Fprintf(w, "PresharedKey = %s\n", peer.PresharedKey)
+		}
 		fmt.Fprintf(w, "AllowedIPs = %s\n", peer.AllowedIPs)
 		if !peer.CreatedAt.IsZero() {
 			fmt.Fprintf(w, "#_GenKeyTime = %s\n", peer.CreatedAt.Format(time.RFC3339))

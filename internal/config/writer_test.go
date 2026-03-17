@@ -121,6 +121,69 @@ func TestWriteServerConfig(t *testing.T) {
 	}
 }
 
+func TestWriteServerConfigWithPresharedKey(t *testing.T) {
+	cfg := ServerConfig{
+		Interface: InterfaceConfig{
+			PrivateKey: "test_priv_key_1",
+			PublicKey:  "test_pub_key_1",
+			Address:    "10.0.0.1/24",
+			ListenPort: 51820,
+			MTU:        1420,
+		},
+		Peers: []PeerConfig{
+			{
+				Name:         "peer1",
+				PrivateKey:   "peer1_priv_key",
+				PublicKey:    "peer1_pub_key",
+				PresharedKey: "peer1_psk_value",
+				AllowedIPs:   "10.0.0.2/32",
+			},
+		},
+	}
+
+	var buf strings.Builder
+	err := WriteServerConfig(&buf, cfg)
+	if err != nil {
+		t.Fatalf("WriteServerConfig failed: %v", err)
+	}
+
+	output := buf.String()
+
+	// Check [Interface] section exists
+	if !strings.Contains(output, "[Interface]") {
+		t.Error("Output should contain [Interface] section")
+	}
+
+	// Check [Peer] section
+	if !strings.Contains(output, "[Peer]") {
+		t.Error("Output should contain [Peer] section")
+	}
+
+	// Check PublicKey is present
+	if !strings.Contains(output, "PublicKey = peer1_pub_key") {
+		t.Error("Output should contain PublicKey")
+	}
+
+	// Check PresharedKey is present
+	if !strings.Contains(output, "PresharedKey = peer1_psk_value") {
+		t.Error("Output should contain PresharedKey")
+	}
+
+	// Check that PresharedKey comes after PublicKey
+	pubKeyIndex := strings.Index(output, "PublicKey = peer1_pub_key")
+	pskIndex := strings.Index(output, "PresharedKey = peer1_psk_value")
+	if pubKeyIndex == -1 || pskIndex == -1 {
+		t.Error("Both PublicKey and PresharedKey should be present")
+	} else if pskIndex < pubKeyIndex {
+		t.Error("PresharedKey should appear after PublicKey")
+	}
+
+	// Check AllowedIPs is present
+	if !strings.Contains(output, "AllowedIPs = 10.0.0.2/32") {
+		t.Error("Output should contain AllowedIPs")
+	}
+}
+
 func TestWriteClientConfig(t *testing.T) {
 	cfg := ClientConfig{
 		Interface: ClientInterfaceConfig{
