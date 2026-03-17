@@ -2,6 +2,8 @@ package obfuscation
 
 import (
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/Arsolitt/amnezigo/internal/obfuscation/protocols"
@@ -98,4 +100,36 @@ func mapTagType(tagType string) string {
 	default:
 		return ""
 	}
+}
+
+// calculateCPSLength calculates the byte length of a CPS string by parsing its tags.
+// It supports:
+// - <b 0xNN>: len(NN)/2 bytes (hex string to bytes)
+// - <r N>, <rc N>, <rd N>: N bytes each
+// - <t>, <c>: 4 bytes each
+func calculateCPSLength(cps string) int {
+	total := 0
+
+	// Match <b 0x...> tags
+	bytesRegex := regexp.MustCompile(`<b\s+0x([0-9a-fA-F]+)>`)
+	matches := bytesRegex.FindAllStringSubmatch(cps, -1)
+	for _, match := range matches {
+		hexValue := match[1]
+		total += len(hexValue) / 2
+	}
+
+	// Match <r N>, <rc N>, <rd N> tags
+	countRegex := regexp.MustCompile(`<r[c|d]?\s+(\d+)>`)
+	matches = countRegex.FindAllStringSubmatch(cps, -1)
+	for _, match := range matches {
+		count, _ := strconv.Atoi(match[1])
+		total += count
+	}
+
+	// Match <t> and <c> tags (4 bytes each)
+	fixedRegex := regexp.MustCompile(`<[tc]>`)
+	matches = fixedRegex.FindAllStringSubmatch(cps, -1)
+	total += len(matches) * 4
+
+	return total
 }

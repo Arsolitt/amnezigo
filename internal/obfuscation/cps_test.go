@@ -143,3 +143,25 @@ func TestCalculateMaxISize(t *testing.T) {
 		}
 	}
 }
+
+func TestCalculateCPSLength(t *testing.T) {
+	tests := []struct {
+		name     string
+		cps      string
+		expected int
+	}{
+		{"bytes_counter_timestamp", "<b 0xdeadbeef><c><t>", 12}, // 4 + 4 + 4
+		{"random_types", "<r 10><rc 5><rd 3>", 18},              // 10 + 5 + 3
+		{"single_byte_and_counter", "<b 0xff><c>", 5},           // 1 + 4
+		{"empty", "", 0},
+		{"only_counter", "<c>", 4},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := calculateCPSLength(tt.cps)
+			if result != tt.expected {
+				t.Errorf("calculateCPSLength(%q) = %d, want %d", tt.cps, result, tt.expected)
+			}
+		})
+	}
+}
