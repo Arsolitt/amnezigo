@@ -70,7 +70,16 @@ type CPSConfig struct {
 }
 
 // generateCPSConfig generates CPS strings for all five intervals based on protocol template
-func generateCPSConfig(protocol string) CPSConfig {
+// or random mode with MTU constraints
+func generateCPSConfig(protocol string, mtu, s1, jc int) CPSConfig {
+	if protocol == "random" {
+		return generateSimpleCPS(mtu, s1, jc)
+	}
+	return generateProtocolCPS(protocol, mtu, s1, jc)
+}
+
+// generateProtocolCPS generates CPS strings from protocol template
+func generateProtocolCPS(protocol string, mtu, s1, jc int) CPSConfig {
 	tmpl := protocols.GetTemplate(protocol)
 
 	return CPSConfig{

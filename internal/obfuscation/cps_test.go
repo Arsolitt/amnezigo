@@ -350,3 +350,14 @@ func TestGenerateSimpleCPSTableDriven(t *testing.T) {
 		})
 	}
 }
+
+func TestGenerateCPSConfig_Random(t *testing.T) {
+	cps := generateCPSConfig("random", 1280, 32, 5)
+	maxI := calculateMaxISize(1280, 32, 5)
+
+	for _, i := range []string{cps.I1, cps.I2, cps.I3, cps.I4, cps.I5} {
+		if calculateCPSLength(i) >= maxI {
+			t.Errorf("CPS %q exceeds maxISize %d", i, maxI)
+		}
+	}
+}

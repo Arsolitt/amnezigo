@@ -81,7 +81,7 @@ func TestGenerateJunkParams(t *testing.T) {
 }
 
 func TestGenerateConfig(t *testing.T) {
-	cfg := GenerateConfig("random")
+	cfg := GenerateConfig("random", 1280)
 
 	// Valid Jc range from 0-10
 	if cfg.Jc < 0 || cfg.Jc > 10 {
@@ -125,7 +125,7 @@ func TestGenerateConfig(t *testing.T) {
 
 func TestGenerateCPSWithProtocol(t *testing.T) {
 	// Test QUIC protocol
-	i1, _, _, _, i5 := GenerateCPS("quic")
+	i1, _, _, _, i5 := GenerateCPS("quic", 1280, 32, 5)
 
 	// Verify I1 is not empty
 	if i1 == "" {
@@ -148,7 +148,7 @@ func TestGenerateCPSWithProtocol(t *testing.T) {
 	// Test different protocols
 	protocols := []string{"quic", "dns", "dtls", "stun"}
 	for _, protocol := range protocols {
-		i1, _, _, _, _ := GenerateCPS(protocol)
+		i1, _, _, _, _ := GenerateCPS(protocol, 1280, 32, 5)
 
 		// All protocols should generate non-empty I1
 		if i1 == "" {

@@ -112,17 +112,18 @@ func GenerateJunkParams() JunkParams {
 }
 
 // GenerateCPS generates I1-I5 custom packet strings based on protocol template
-func GenerateCPS(protocol string) (string, string, string, string, string) {
-	cpsConfig := generateCPSConfig(protocol)
+// or random mode with MTU constraints
+func GenerateCPS(protocol string, mtu, s1, jc int) (string, string, string, string, string) {
+	cpsConfig := generateCPSConfig(protocol, mtu, s1, jc)
 	return cpsConfig.I1, cpsConfig.I2, cpsConfig.I3, cpsConfig.I4, cpsConfig.I5
 }
 
 // GenerateConfig combines all obfuscation parameters into a config
-func GenerateConfig(protocol string) config.ObfuscationConfig {
+func GenerateConfig(protocol string, mtu int) config.ObfuscationConfig {
 	h := GenerateHeaders()
 	s := GenerateSPrefixes()
 	j := GenerateJunkParams()
-	i1, i2, i3, i4, i5 := GenerateCPS(protocol)
+	i1, i2, i3, i4, i5 := GenerateCPS(protocol, mtu, s.S1, j.Jc)
 
 	return config.ObfuscationConfig{
 		Jc:   j.Jc,
