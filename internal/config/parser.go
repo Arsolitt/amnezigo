@@ -39,17 +39,12 @@ func ParseServerConfig(r io.Reader) (ServerConfig, error) {
 		key := strings.TrimSpace(parts[0])
 		value := strings.TrimSpace(parts[1])
 
-		// Handle commented fields (#_Name, #_PrivateKey, #_PSK, etc.)
+		// Handle commented fields (#_Name, #_PrivateKey, etc.)
 		if strings.HasPrefix(key, "#_") {
 			fieldName := strings.TrimPrefix(key, "#_")
 			value = strings.Trim(value, `"'`)
 
-			if currentSection == "[Interface]" {
-				switch fieldName {
-				case "PSK":
-					cfg.PSK = value
-				}
-			} else if currentSection == "[Peer]" {
+			if currentSection == "[Peer]" {
 				switch fieldName {
 				case "Name":
 					currentPeer.Name = value

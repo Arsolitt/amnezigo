@@ -5,7 +5,6 @@ import "time"
 type ServerConfig struct {
 	Interface   InterfaceConfig
 	Peers       []PeerConfig
-	PSK         string
 	Obfuscation ObfuscationConfig
 }
 

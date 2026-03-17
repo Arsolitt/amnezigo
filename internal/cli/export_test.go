@@ -49,7 +49,6 @@ I2 = def
 I3 = ghi
 I4 = jkl
 I5 = mno
-#_PSK = testpsk123
 
 [Peer]
 #_Name = laptop
@@ -181,7 +180,6 @@ I2 = def
 I3 = ghi
 I4 = jkl
 I5 = mno
-#_PSK = testpsk123
 
 [Peer]
 #_Name = laptop
@@ -268,7 +266,6 @@ I2 = def
 I3 = ghi
 I4 = jkl
 I5 = mno
-#_PSK = testpsk
 
 [Peer]
 #_Name = tablet
@@ -346,7 +343,6 @@ I2 = def
 I3 = ghi
 I4 = jkl
 I5 = mno
-#_PSK = testpsk
 
 [Peer]
 #_Name = desktop
@@ -420,7 +416,6 @@ I2 = def
 I3 = ghi
 I4 = jkl
 I5 = mno
-#_PSK = testpsk
 `, serverPriv)
 		if err := os.WriteFile(configPath, []byte(initialConfig), 0644); err != nil {
 			t.Fatal(err)

@@ -112,7 +112,6 @@ func TestInitCommand_CreatesConfigFile(t *testing.T) {
 		"I3",
 		"I4",
 		// I5 is optional - may be empty for some protocols
-		"#_PSK",
 	}
 
 	for _, section := range requiredSections {

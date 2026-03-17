@@ -93,10 +93,6 @@ func runInit(cmd *cobra.Command, args []string) error {
 	// Generate server keypair
 	privateKey, publicKey := crypto.GenerateKeyPair()
 
-	// Generate PSK
-	psk := crypto.GeneratePSK()
-
-	// Generate obfuscation config
 	obfConfig := obfuscation.GenerateConfig(initProtocol)
 
 	// Generate iptables rules
@@ -118,7 +114,6 @@ func runInit(cmd *cobra.Command, args []string) error {
 			TunName:    tunName,
 		},
 		Peers:       []config.PeerConfig{},
-		PSK:         psk,
 		Obfuscation: obfConfig,
 	}
 

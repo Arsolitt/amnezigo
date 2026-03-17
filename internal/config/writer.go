@@ -7,14 +7,12 @@ import (
 )
 
 func WriteServerConfig(w io.Writer, cfg ServerConfig) error {
-	// Write [Interface] section
 	fmt.Fprintln(w, "[Interface]")
 	fmt.Fprintf(w, "PrivateKey = %s\n", cfg.Interface.PrivateKey)
 	fmt.Fprintf(w, "Address = %s\n", cfg.Interface.Address)
 	fmt.Fprintf(w, "ListenPort = %d\n", cfg.Interface.ListenPort)
 	fmt.Fprintf(w, "MTU = %d\n", cfg.Interface.MTU)
 
-	// Write PostUp and PostDown if present
 	if cfg.Interface.PostUp != "" {
 		fmt.Fprintf(w, "PostUp = %s\n", cfg.Interface.PostUp)
 	}
@@ -22,7 +20,6 @@ func WriteServerConfig(w io.Writer, cfg ServerConfig) error {
 		fmt.Fprintf(w, "PostDown = %s\n", cfg.Interface.PostDown)
 	}
 
-	// Write obfuscation parameters
 	fmt.Fprintf(w, "Jc = %d\n", cfg.Obfuscation.Jc)
 	fmt.Fprintf(w, "Jmin = %d\n", cfg.Obfuscation.Jmin)
 	fmt.Fprintf(w, "Jmax = %d\n", cfg.Obfuscation.Jmax)
@@ -50,12 +47,6 @@ func WriteServerConfig(w io.Writer, cfg ServerConfig) error {
 		fmt.Fprintf(w, "I5 = %s\n", cfg.Obfuscation.I5)
 	}
 
-	// Write #_PSK (commented)
-	if cfg.PSK != "" {
-		fmt.Fprintf(w, "#_PSK = %s\n", cfg.PSK)
-	}
-
-	// Write [Peer] sections
 	for _, peer := range cfg.Peers {
 		fmt.Fprintln(w, "")
 		fmt.Fprintln(w, "[Peer]")
@@ -79,14 +70,12 @@ func WriteServerConfig(w io.Writer, cfg ServerConfig) error {
 }
 
 func WriteClientConfig(w io.Writer, cfg ClientConfig) error {
-	// Write [Interface] section
 	fmt.Fprintln(w, "[Interface]")
 	fmt.Fprintf(w, "PrivateKey = %s\n", cfg.Interface.PrivateKey)
 	fmt.Fprintf(w, "Address = %s\n", cfg.Interface.Address)
 	fmt.Fprintf(w, "DNS = %s\n", cfg.Interface.DNS)
 	fmt.Fprintf(w, "MTU = %d\n", cfg.Interface.MTU)
 
-	// Write obfuscation parameters
 	fmt.Fprintf(w, "Jc = %d\n", cfg.Interface.Obfuscation.Jc)
 	fmt.Fprintf(w, "Jmin = %d\n", cfg.Interface.Obfuscation.Jmin)
 	fmt.Fprintf(w, "Jmax = %d\n", cfg.Interface.Obfuscation.Jmax)
@@ -114,7 +103,6 @@ func WriteClientConfig(w io.Writer, cfg ClientConfig) error {
 		fmt.Fprintf(w, "I5 = %s\n", cfg.Interface.Obfuscation.I5)
 	}
 
-	// Write [Peer] section
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "[Peer]")
 	fmt.Fprintf(w, "PublicKey = %s\n", cfg.Peer.PublicKey)

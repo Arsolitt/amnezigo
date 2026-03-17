@@ -24,7 +24,6 @@ func TestWriteServerConfig(t *testing.T) {
 				AllowedIPs: "10.0.0.2/32",
 			},
 		},
-		PSK: "test_psk_value",
 		Obfuscation: ObfuscationConfig{
 			Jc:   50,
 			Jmin: 10,
@@ -96,11 +95,6 @@ func TestWriteServerConfig(t *testing.T) {
 	}
 	if !strings.Contains(output, "I1 = i1_value") {
 		t.Error("Output should contain I1")
-	}
-
-	// Check #_PSK (commented)
-	if !strings.Contains(output, "#_PSK = test_psk_value") {
-		t.Error("Output should contain commented #_PSK")
 	}
 
 	// Check [Peer] section

@@ -154,31 +154,6 @@ AllowedIPs = 10.8.0.3/32
 	}
 }
 
-func TestParsePSK(t *testing.T) {
-	input := `
-[Interface]
-PrivateKey = abc123
-PublicKey = xyz789
-Address = 10.8.0.1/24
-ListenPort = 55424
-#_PSK = mypresharedkey123
-
-[Peer]
-PublicKey = peerpub1
-AllowedIPs = 10.8.0.2/32
-`
-
-	cfg, err := ParseServerConfig(strings.NewReader(input))
-
-	if err != nil {
-		t.Fatalf("ParseServerConfig failed: %v", err)
-	}
-
-	if cfg.PSK != "mypresharedkey123" {
-		t.Errorf("Expected PSK 'mypresharedkey123', got '%s'", cfg.PSK)
-	}
-}
-
 func TestParsePostScripts(t *testing.T) {
 	input := `
 [Interface]
