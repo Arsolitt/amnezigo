@@ -22,11 +22,12 @@ type InterfaceConfig struct {
 }
 
 type PeerConfig struct {
-	Name       string
-	PrivateKey string
-	PublicKey  string
-	AllowedIPs string
-	CreatedAt  time.Time
+	Name         string
+	PrivateKey   string
+	PublicKey    string
+	PresharedKey string
+	AllowedIPs   string
+	CreatedAt    time.Time
 }
 
 type ObfuscationConfig struct {
