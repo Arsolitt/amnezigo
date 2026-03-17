@@ -10,7 +10,6 @@ import (
 
 	"github.com/Arsolitt/amnezigo/internal/config"
 	"github.com/Arsolitt/amnezigo/internal/crypto"
-	"github.com/Arsolitt/amnezigo/internal/network"
 	"github.com/spf13/cobra"
 )
 
@@ -104,15 +103,8 @@ func exportClient(client config.PeerConfig, serverCfg config.ServerConfig, endpo
 	// Extract client IP address from AllowedIPs
 	clientIP := strings.TrimSuffix(client.AllowedIPs, "/32")
 
-	// Get subnet from server address (e.g., "10.8.0.1/24" -> "10.8.0.0/24")
-	_, ipnet, err := net.ParseCIDR(serverCfg.Interface.Address)
-	if err != nil {
-		return fmt.Errorf("invalid server address: %w", err)
-	}
-	subnet := ipnet.String()
-
-	// Calculate AllowedIPs for client (public ranges + AWG subnet)
-	allowedIPs := network.CalculateAllowedIPs(subnet)
+	// Use simple AllowedIPs for IPv4 and IPv6
+	allowedIPs := "0.0.0.0/0, ::/0"
 
 	// Get server PublicKey (derive from PrivateKey if not present)
 	serverPublicKey := serverCfg.Interface.PublicKey

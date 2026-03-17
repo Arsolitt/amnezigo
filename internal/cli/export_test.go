@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/Arsolitt/amnezigo/internal/crypto"
-	"github.com/Arsolitt/amnezigo/internal/network"
 )
 
 func TestExportCommand(t *testing.T) {
@@ -136,8 +135,8 @@ AllowedIPs = 10.8.0.2/32
 			t.Error("expected Endpoint in client config")
 		}
 
-		// Verify AllowedIPs (should include public ranges and AWG subnet)
-		expectedAllowedIPs := network.CalculateAllowedIPs("10.8.0.0/24")
+		// Verify AllowedIPs (should be simple "0.0.0.0/0, ::/0")
+		expectedAllowedIPs := "0.0.0.0/0, ::/0"
 		if !strings.Contains(configStr, "AllowedIPs = "+expectedAllowedIPs) {
 			t.Error("expected AllowedIPs in client config")
 		}
