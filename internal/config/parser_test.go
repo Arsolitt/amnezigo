@@ -211,3 +211,37 @@ AllowedIPs = 10.8.0.2/32
 		t.Errorf("Expected MTU 1420, got %d", cfg.Interface.MTU)
 	}
 }
+
+func TestParsePeerPresharedKey(t *testing.T) {
+	input := `
+[Interface]
+PrivateKey = abc123
+PublicKey = xyz789
+Address = 10.8.0.1/24
+ListenPort = 55424
+
+[Peer]
+PublicKey = peerpub1
+PresharedKey = psk123
+AllowedIPs = 10.8.0.2/32
+`
+
+	cfg, err := ParseServerConfig(strings.NewReader(input))
+
+	if err != nil {
+		t.Fatalf("ParseServerConfig failed: %v", err)
+	}
+
+	if len(cfg.Peers) != 1 {
+		t.Fatalf("Expected 1 peer, got %d", len(cfg.Peers))
+	}
+	if cfg.Peers[0].PublicKey != "peerpub1" {
+		t.Errorf("Expected Peer PublicKey 'peerpub1', got '%s'", cfg.Peers[0].PublicKey)
+	}
+	if cfg.Peers[0].PresharedKey != "psk123" {
+		t.Errorf("Expected Peer PresharedKey 'psk123', got '%s'", cfg.Peers[0].PresharedKey)
+	}
+	if cfg.Peers[0].AllowedIPs != "10.8.0.2/32" {
+		t.Errorf("Expected Peer AllowedIPs '10.8.0.2/32', got '%s'", cfg.Peers[0].AllowedIPs)
+	}
+}

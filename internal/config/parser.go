@@ -144,6 +144,8 @@ func ParseServerConfig(r io.Reader) (ServerConfig, error) {
 			switch key {
 			case "PublicKey":
 				currentPeer.PublicKey = value
+			case "PresharedKey":
+				currentPeer.PresharedKey = value
 			case "AllowedIPs":
 				currentPeer.AllowedIPs = value
 			}
