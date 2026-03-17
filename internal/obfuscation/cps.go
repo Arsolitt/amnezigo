@@ -18,6 +18,9 @@ import (
 func BuildCPSTag(tagType, value string) string {
 	switch tagType {
 	case "b":
+		if !strings.HasPrefix(value, "0x") {
+			value = "0x" + value
+		}
 		return fmt.Sprintf("<b %s>", value)
 	case "r":
 		return fmt.Sprintf("<r %s>", value)
