@@ -191,3 +191,34 @@ func generateRandomTags(minCount, maxCount int) []simpleTag {
 
 	return tags
 }
+
+func generateSimpleCPS(mtu, s1, jc int) CPSConfig {
+	maxI := calculateMaxISize(mtu, s1, jc)
+
+	return CPSConfig{
+		I1: generateSimpleI(maxI),
+		I2: generateSimpleI(maxI),
+		I3: generateSimpleI(maxI),
+		I4: generateSimpleI(maxI),
+		I5: generateSimpleI(maxI),
+	}
+}
+
+func generateSimpleI(maxSize int) string {
+	for attempt := 0; attempt < 100; attempt++ {
+		tags := generateRandomTags(3, 6)
+		cps := tagsToCPS(tags)
+		if calculateCPSLength(cps) < maxSize {
+			return cps
+		}
+	}
+	return "" // fallback if all attempts fail
+}
+
+func tagsToCPS(tags []simpleTag) string {
+	var result []string
+	for _, tag := range tags {
+		result = append(result, BuildCPSTag(tag.Type, tag.Value))
+	}
+	return BuildCPS(result)
+}

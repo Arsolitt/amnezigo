@@ -293,3 +293,19 @@ func TestGenerateRandomTags(t *testing.T) {
 		}
 	})
 }
+
+func TestGenerateSimpleCPS(t *testing.T) {
+	cps := generateSimpleCPS(1280, 32, 5)
+
+	maxI := calculateMaxISize(1280, 32, 5)
+
+	if cps.I1 == "" || cps.I2 == "" || cps.I3 == "" || cps.I4 == "" || cps.I5 == "" {
+		t.Error("All I1-I5 should be non-empty")
+	}
+
+	for _, i := range []string{cps.I1, cps.I2, cps.I3, cps.I4, cps.I5} {
+		if calculateCPSLength(i) >= maxI {
+			t.Errorf("CPS %q exceeds maxISize %d", i, maxI)
+		}
+	}
+}
