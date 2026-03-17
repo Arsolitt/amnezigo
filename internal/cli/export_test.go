@@ -55,6 +55,7 @@ I5 = mno
 #_Name = laptop
 #_PrivateKey = %s
 PublicKey = %s
+PresharedKey = testpsk123
 AllowedIPs = 10.8.0.2/32
 #_GenKeyTime = 2024-03-17T12:00:00Z
 `, serverPriv, clientPriv, clientPub)
@@ -186,6 +187,7 @@ I5 = mno
 #_Name = laptop
 #_PrivateKey = %s
 PublicKey = %s
+PresharedKey = laptop_psk
 AllowedIPs = 10.8.0.2/32
 #_GenKeyTime = 2024-03-17T12:00:00Z
 
@@ -193,6 +195,7 @@ AllowedIPs = 10.8.0.2/32
 #_Name = phone
 #_PrivateKey = %s
 PublicKey = %s
+PresharedKey = phone_psk
 AllowedIPs = 10.8.0.3/32
 #_GenKeyTime = 2024-03-17T12:00:00Z
 `, serverPriv, laptopPriv, laptopPub, phonePriv, phonePub)
@@ -271,6 +274,7 @@ I5 = mno
 #_Name = tablet
 #_PrivateKey = %s
 PublicKey = %s
+PresharedKey = tablet_psk
 AllowedIPs = 10.8.0.4/32
 #_GenKeyTime = 2024-03-17T12:00:00Z
 `, serverPriv, tabletPriv, tabletPub)
@@ -348,6 +352,7 @@ I5 = mno
 #_Name = desktop
 #_PrivateKey = %s
 PublicKey = %s
+PresharedKey = desktop_psk
 AllowedIPs = 10.8.0.5/32
 #_GenKeyTime = 2024-03-17T12:00:00Z
 `, serverPriv, desktopPriv, desktopPub)

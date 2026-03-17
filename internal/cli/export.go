@@ -123,7 +123,7 @@ func exportClient(client config.PeerConfig, serverCfg config.ServerConfig, endpo
 		},
 		Peer: config.ClientPeerConfig{
 			PublicKey:           serverPublicKey,
-			PresharedKey:        serverCfg.PSK,
+			PresharedKey:        client.PresharedKey,
 			Endpoint:            endpoint,
 			AllowedIPs:          allowedIPs,
 			PersistentKeepalive: 25,
