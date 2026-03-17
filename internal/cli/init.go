@@ -149,11 +149,12 @@ func isValidIPAddr(ipaddr string) bool {
 
 // extractSubnet extracts the network address from a CIDR
 func extractSubnet(ipaddr string) string {
-	ip, ipnet, err := net.ParseCIDR(ipaddr)
+	_, ipnet, err := net.ParseCIDR(ipaddr)
 	if err != nil {
 		return ipaddr
 	}
-	return ip.String() + "/" + fmt.Sprint(ipnet.Mask)
+	ones, _ := ipnet.Mask.Size()
+	return ipnet.IP.String() + "/" + fmt.Sprintf("%d", ones)
 }
 
 // generateRandomPort generates a random port between 10000 and 65535
