@@ -1,0 +1,5 @@
+gawg
+build
+bin
+*.conf
+*.config
