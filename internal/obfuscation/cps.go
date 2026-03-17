@@ -7,6 +7,17 @@ import (
 	"github.com/Arsolitt/amnezigo/internal/obfuscation/protocols"
 )
 
+const (
+	reserve       = 28  // IP header 20 + UDP header 8
+	handshakeSize = 148 // fixed handshake size
+)
+
+// calculateMaxISize calculates the maximum I packet size based on MTU constraints.
+// Formula: maxISize = (MTU - reserve - handshakeSize - S1) / (5 + jc)
+func calculateMaxISize(mtu, s1, jc int) int {
+	return (mtu - reserve - handshakeSize - s1) / (5 + jc)
+}
+
 // BuildCPSTag creates a CPS (Custom Packet String) tag from a tag type and value.
 // Supported tag types:
 // - "b" + value → bytes in hex (e.g., "b" + "0xc00000000108" → "<b 0xc00000000108>")

@@ -125,3 +125,21 @@ func TestMapTagType(t *testing.T) {
 		})
 	}
 }
+
+func TestCalculateMaxISize(t *testing.T) {
+	tests := []struct {
+		mtu, s1, jc int
+		expected    int
+	}{
+		{1280, 32, 5, 107}, // (1280 - 28 - 148 - 32) / 10 = 107
+		{1420, 64, 3, 147}, // (1420 - 28 - 148 - 64) / 8 = 147
+		{1280, 0, 0, 220},  // (1280 - 28 - 148 - 0) / 5 = 220
+	}
+	for _, tt := range tests {
+		result := calculateMaxISize(tt.mtu, tt.s1, tt.jc)
+		if result != tt.expected {
+			t.Errorf("calculateMaxISize(%d, %d, %d) = %d, want %d",
+				tt.mtu, tt.s1, tt.jc, result, tt.expected)
+		}
+	}
+}
