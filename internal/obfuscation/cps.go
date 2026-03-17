@@ -76,6 +76,10 @@ func mapTagType(tagType string) string {
 		return "b"
 	case "random":
 		return "r"
+	case "random_chars":
+		return "rc"
+	case "random_digits":
+		return "rd"
 	case "counter":
 		return "c"
 	case "timestamp":

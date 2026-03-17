@@ -100,3 +100,28 @@ func TestBuildCPSEmpty(t *testing.T) {
 		t.Errorf("BuildCPS([]string{}) = %q, want empty string", cps)
 	}
 }
+
+func TestMapTagType(t *testing.T) {
+	tests := []struct {
+		name     string
+		tagType  string
+		expected string
+	}{
+		{"bytes maps to b", "bytes", "b"},
+		{"random maps to r", "random", "r"},
+		{"random_chars maps to rc", "random_chars", "rc"},
+		{"random_digits maps to rd", "random_digits", "rd"},
+		{"counter maps to c", "counter", "c"},
+		{"timestamp maps to t", "timestamp", "t"},
+		{"unknown type returns empty", "unknown", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := mapTagType(tt.tagType)
+			if result != tt.expected {
+				t.Errorf("mapTagType(%q) = %q, want %q", tt.tagType, result, tt.expected)
+			}
+		})
+	}
+}
