@@ -1,6 +1,7 @@
 package obfuscation
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -164,4 +165,131 @@ func TestCalculateCPSLength(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGenerateRandomTags(t *testing.T) {
+	// Valid tag types
+	validTypes := map[string]bool{
+		"b":  true,
+		"r":  true,
+		"rc": true,
+		"rd": true,
+		"t":  true,
+		"c":  true,
+	}
+
+	// Test count is within bounds
+	t.Run("count within bounds", func(t *testing.T) {
+		tags := generateRandomTags(3, 6)
+		if len(tags) < 3 || len(tags) > 6 {
+			t.Errorf("generateRandomTags(3, 6) returned %d tags, want between 3 and 6", len(tags))
+		}
+	})
+
+	// Test all tag types are valid
+	t.Run("all tag types valid", func(t *testing.T) {
+		tags := generateRandomTags(3, 6)
+		for _, tag := range tags {
+			if !validTypes[tag.Type] {
+				t.Errorf("invalid tag type %q", tag.Type)
+			}
+		}
+	})
+
+	// Test randomness by running multiple times
+	t.Run("randomness", func(t *testing.T) {
+		results := make([]string, 10)
+		for i := 0; i < 10; i++ {
+			tags := generateRandomTags(3, 6)
+			var sb strings.Builder
+			for _, tag := range tags {
+				sb.WriteString(tag.Type)
+				sb.WriteString("|")
+			}
+			results[i] = sb.String()
+		}
+
+		// At least 50% of runs should be different
+		unique := make(map[string]bool)
+		for _, r := range results {
+			unique[r] = true
+		}
+		if len(unique) < 5 {
+			t.Errorf("insufficient randomness: only %d unique results out of 10", len(unique))
+		}
+	})
+
+	// Test tag type "b" has hex value
+	t.Run("type b has hex value", func(t *testing.T) {
+		tags := generateRandomTags(3, 6)
+		found := false
+		for _, tag := range tags {
+			if tag.Type == "b" {
+				if !strings.HasPrefix(tag.Value, "0x") {
+					t.Errorf("type 'b' tag has value %q, want hex with 0x prefix", tag.Value)
+				}
+				// Value should be 8-32 hex characters (4-16 bytes)
+				hexLen := len(tag.Value) - 2 // remove "0x"
+				if hexLen < 8 || hexLen > 32 {
+					t.Errorf("type 'b' tag hex length %d, want 8-32", hexLen)
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Skip("no 'b' type tag generated, cannot verify hex value")
+		}
+	})
+
+	// Test tag type "r"/"rc"/"rd" have numeric value
+	t.Run("random types have numeric value", func(t *testing.T) {
+		tags := generateRandomTags(3, 6)
+		found := false
+		for _, tag := range tags {
+			if tag.Type == "r" || tag.Type == "rc" || tag.Type == "rd" {
+				if tag.Value == "" {
+					t.Errorf("type %q tag has empty value, want numeric string", tag.Type)
+				}
+				// Parse as number to verify it's valid
+				var num int
+				_, err := fmt.Sscanf(tag.Value, "%d", &num)
+				if err != nil {
+					t.Errorf("type %q tag has value %q, want numeric: %v", tag.Type, tag.Value, err)
+				}
+				if num < 5 || num > 40 {
+					t.Errorf("type %q tag numeric value %d, want 5-40", tag.Type, num)
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Skip("no 'r'/'rc'/'rd' type tag generated, cannot verify numeric value")
+		}
+	})
+
+	// Test tag type "t"/"c" have empty value
+	t.Run("type t and c have empty value", func(t *testing.T) {
+		tags := generateRandomTags(3, 6)
+		foundT := false
+		foundC := false
+		for _, tag := range tags {
+			if tag.Type == "t" {
+				if tag.Value != "" {
+					t.Errorf("type 't' tag has value %q, want empty string", tag.Value)
+				}
+				foundT = true
+			}
+			if tag.Type == "c" {
+				if tag.Value != "" {
+					t.Errorf("type 'c' tag has value %q, want empty string", tag.Value)
+				}
+				foundC = true
+			}
+		}
+		if !foundT && !foundC {
+			t.Skip("no 't' or 'c' type tag generated, cannot verify empty value")
+		}
+	})
 }

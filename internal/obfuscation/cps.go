@@ -1,7 +1,10 @@
 package obfuscation
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"math/big"
 	"regexp"
 	"strconv"
 	"strings"
@@ -13,6 +16,12 @@ const (
 	reserve       = 28  // IP header 20 + UDP header 8
 	handshakeSize = 148 // fixed handshake size
 )
+
+// simpleTag represents a CPS tag with type and value
+type simpleTag struct {
+	Type  string // "b", "r", "rc", "rd", "t", "c"
+	Value string // hex for "b", number for "r"/"rc"/"rd", empty for "t"/"c"
+}
 
 // calculateMaxISize calculates the maximum I packet size based on MTU constraints.
 // Formula: maxISize = (MTU - reserve - handshakeSize - S1) / (5 + jc)
@@ -132,4 +141,53 @@ func calculateCPSLength(cps string) int {
 	total += len(matches) * 4
 
 	return total
+}
+
+// generateRandomTags generates random CPS tags for simple random mode
+func generateRandomTags(minCount, maxCount int) []simpleTag {
+	tagTypes := []string{"b", "r", "rc", "rd", "t", "c"}
+
+	// Generate random count between minCount and maxCount
+	countRange := maxCount - minCount
+	if countRange < 0 {
+		countRange = 0
+	}
+	n, _ := rand.Int(rand.Reader, big.NewInt(int64(countRange+1)))
+	count := minCount + int(n.Int64())
+
+	tags := make([]simpleTag, count)
+	for i := 0; i < count; i++ {
+		// Random tag type
+		typeIdx, _ := rand.Int(rand.Reader, big.NewInt(int64(len(tagTypes))))
+		tagType := tagTypes[typeIdx.Int64()]
+
+		// Generate value based on tag type
+		var value string
+		switch tagType {
+		case "b":
+			// Random hex 4-16 bytes (8-32 hex chars with 0x prefix)
+			byteLenRange := 16 - 4 // 12 possible values (4-16)
+			byteLenRand, _ := rand.Int(rand.Reader, big.NewInt(int64(byteLenRange+1)))
+			byteLen := 4 + int(byteLenRand.Int64())
+			bytes := make([]byte, byteLen)
+			rand.Read(bytes)
+			value = "0x" + hex.EncodeToString(bytes)
+		case "r", "rc", "rd":
+			// Random 5-40 bytes
+			sizeRange := 40 - 5
+			sizeRand, _ := rand.Int(rand.Reader, big.NewInt(int64(sizeRange+1)))
+			size := 5 + int(sizeRand.Int64())
+			value = fmt.Sprintf("%d", size)
+		case "t", "c":
+			// No value
+			value = ""
+		}
+
+		tags[i] = simpleTag{
+			Type:  tagType,
+			Value: value,
+		}
+	}
+
+	return tags
 }
