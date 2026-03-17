@@ -212,7 +212,7 @@ func generateSimpleI(maxSize int) string {
 			return cps
 		}
 	}
-	return "" // fallback if all attempts fail
+	return "<c>" // guaranteed minimal fallback (4 bytes)
 }
 
 func tagsToCPS(tags []simpleTag) string {

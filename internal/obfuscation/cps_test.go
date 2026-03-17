@@ -309,3 +309,44 @@ func TestGenerateSimpleCPS(t *testing.T) {
 		}
 	}
 }
+
+func TestGenerateSimpleCPSFallback(t *testing.T) {
+	// Force fallback by setting impossible constraints
+	// With maxSize=0, all attempts will fail
+	result := generateSimpleI(0)
+
+	if result == "" {
+		t.Error("generateSimpleI fallback should return non-empty string, got empty string")
+	}
+
+	if result != "<c>" {
+		t.Errorf("generateSimpleI fallback should return '<c>', got %q", result)
+	}
+}
+
+func TestGenerateSimpleCPSTableDriven(t *testing.T) {
+	tests := []struct {
+		name        string
+		mtu, s1, jc int
+	}{
+		{"standard", 1280, 32, 5},
+		{"small_mtu", 500, 10, 3},
+		{"large_s1", 1280, 100, 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cps := generateSimpleCPS(tt.mtu, tt.s1, tt.jc)
+			maxI := calculateMaxISize(tt.mtu, tt.s1, tt.jc)
+
+			for _, i := range []string{cps.I1, cps.I2, cps.I3, cps.I4, cps.I5} {
+				if i == "" {
+					t.Error("CPS should not be empty")
+				}
+				if calculateCPSLength(i) >= maxI {
+					t.Errorf("CPS %q exceeds maxISize %d", i, maxI)
+				}
+			}
+		})
+	}
+}
