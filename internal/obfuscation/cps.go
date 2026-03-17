@@ -78,16 +78,17 @@ func generateCPSConfig(protocol string, mtu, s1, jc int) CPSConfig {
 	return generateProtocolCPS(protocol, mtu, s1, jc)
 }
 
-// generateProtocolCPS generates CPS strings from protocol template
+// generateProtocolCPS generates CPS strings from protocol template with MTU validation
 func generateProtocolCPS(protocol string, mtu, s1, jc int) CPSConfig {
 	tmpl := protocols.GetTemplate(protocol)
+	maxI := calculateMaxISize(mtu, s1, jc)
 
 	return CPSConfig{
-		I1: buildCPSFromTemplate(tmpl.I1),
-		I2: buildCPSFromTemplate(tmpl.I2),
-		I3: buildCPSFromTemplate(tmpl.I3),
-		I4: buildCPSFromTemplate(tmpl.I4),
-		I5: buildCPSFromTemplate(tmpl.I5),
+		I1: buildAndValidateCPS(tmpl.I1, maxI),
+		I2: buildAndValidateCPS(tmpl.I2, maxI),
+		I3: buildAndValidateCPS(tmpl.I3, maxI),
+		I4: buildAndValidateCPS(tmpl.I4, maxI),
+		I5: buildAndValidateCPS(tmpl.I5, maxI),
 	}
 }
 
@@ -98,6 +99,29 @@ func buildCPSFromTemplate(tags []protocols.TagSpec) string {
 		result = append(result, BuildCPSTag(mapTagType(tag.Type), tag.Value))
 	}
 	return BuildCPS(result)
+}
+
+// buildAndValidateCPS builds a CPS from template tags and validates it fits within maxSize.
+// If the CPS exceeds maxSize, it attempts to reduce it by removing tags or falls back to minimal CPS.
+func buildAndValidateCPS(tags []protocols.TagSpec, maxSize int) string {
+	cps := buildCPSFromTemplate(tags)
+
+	// If CPS fits within constraints, return it
+	if calculateCPSLength(cps) < maxSize {
+		return cps
+	}
+
+	// If too large, try progressively smaller versions
+	for len(tags) > 0 {
+		tags = tags[:len(tags)-1] // Remove one tag at a time
+		cps = buildCPSFromTemplate(tags)
+		if calculateCPSLength(cps) < maxSize {
+			return cps
+		}
+	}
+
+	// Fallback to minimal valid CPS
+	return "<c>" // guaranteed minimal fallback (4 bytes)
 }
 
 // mapTagType maps protocol tag types to CPS tag types

@@ -361,3 +361,18 @@ func TestGenerateCPSConfig_Random(t *testing.T) {
 		}
 	}
 }
+
+func TestGenerateCPSConfig_Protocol(t *testing.T) {
+	for _, protocol := range []string{"quic", "dns", "dtls", "stun"} {
+		t.Run(protocol, func(t *testing.T) {
+			cps := generateCPSConfig(protocol, 1280, 32, 5)
+			maxI := calculateMaxISize(1280, 32, 5)
+
+			for _, i := range []string{cps.I1, cps.I2, cps.I3, cps.I4, cps.I5} {
+				if calculateCPSLength(i) >= maxI {
+					t.Errorf("%s: CPS %q exceeds maxISize %d", protocol, i, maxI)
+				}
+			}
+		})
+	}
+}
