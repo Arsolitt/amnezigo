@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"io"
+	"time"
 )
 
 func WriteServerConfig(w io.Writer, cfg ServerConfig) error {
@@ -56,6 +57,9 @@ func WriteServerConfig(w io.Writer, cfg ServerConfig) error {
 		}
 		fmt.Fprintf(w, "PublicKey = %s\n", peer.PublicKey)
 		fmt.Fprintf(w, "AllowedIPs = %s\n", peer.AllowedIPs)
+		if !peer.CreatedAt.IsZero() {
+			fmt.Fprintf(w, "#_GenKeyTime = %s\n", peer.CreatedAt.Format(time.RFC3339))
+		}
 	}
 
 	return nil
