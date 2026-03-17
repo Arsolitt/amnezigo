@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Arsolitt/gawg/internal/config"
-	"github.com/Arsolitt/gawg/internal/crypto"
+	"github.com/Arsolitt/amnezigo/internal/config"
+	"github.com/Arsolitt/amnezigo/internal/crypto"
 	"github.com/spf13/cobra"
 )
 
@@ -26,8 +26,8 @@ Generates a keypair for the client and adds it to the server's peer list.
 IP address can be auto-assigned or manually specified.
 
 Example:
-  gawg add laptop
-  gawg add phone --ipaddr 10.8.0.50
+  amnezigo add laptop
+  amnezigo add phone --ipaddr 10.8.0.50
 `,
 	Args: cobra.ExactArgs(1),
 	RunE: runAdd,

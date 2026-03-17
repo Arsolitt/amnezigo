@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Arsolitt/gawg/internal/crypto"
-	"github.com/Arsolitt/gawg/internal/network"
+	"github.com/Arsolitt/amnezigo/internal/crypto"
+	"github.com/Arsolitt/amnezigo/internal/network"
 )
 
 func TestExportCommand(t *testing.T) {

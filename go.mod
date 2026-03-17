@@ -1,4 +1,4 @@
-module github.com/Arsolitt/gawg
+module github.com/Arsolitt/amnezigo
 
 go 1.22
 

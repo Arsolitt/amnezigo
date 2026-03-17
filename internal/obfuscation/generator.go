@@ -4,7 +4,7 @@ import (
 	"crypto/rand"
 	"math/big"
 
-	"github.com/Arsolitt/gawg/internal/config"
+	"github.com/Arsolitt/amnezigo/internal/config"
 )
 
 // Headers represents H1-H4 obfuscation headers

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Arsolitt/gawg/internal/obfuscation/protocols"
+	"github.com/Arsolitt/amnezigo/internal/obfuscation/protocols"
 )
 
 // BuildCPSTag creates a CPS (Custom Packet String) tag from a tag type and value.

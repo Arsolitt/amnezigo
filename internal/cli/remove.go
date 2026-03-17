@@ -15,7 +15,7 @@ var removeCmd = &cobra.Command{
 Removes the peer with the specified name from the server's peer list.
 
 Example:
-  gawg remove laptop
+  amnezigo remove laptop
 `,
 	Args: cobra.ExactArgs(1),
 	RunE: runRemove,

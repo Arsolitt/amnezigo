@@ -7,10 +7,10 @@ import (
 	"net"
 	"os"
 
-	"github.com/Arsolitt/gawg/internal/config"
-	"github.com/Arsolitt/gawg/internal/crypto"
-	"github.com/Arsolitt/gawg/internal/network"
-	"github.com/Arsolitt/gawg/internal/obfuscation"
+	"github.com/Arsolitt/amnezigo/internal/config"
+	"github.com/Arsolitt/amnezigo/internal/crypto"
+	"github.com/Arsolitt/amnezigo/internal/network"
+	"github.com/Arsolitt/amnezigo/internal/obfuscation"
 	"github.com/spf13/cobra"
 )
 
@@ -32,7 +32,7 @@ Generates:
 - Writes config file
 
 Example:
-  gawg init --ipaddr 10.8.0.1/24 [--port 55424] [--mtu 1280] [--dns "1.1.1.1, 8.8.8.8"] [--keepalive 25] [--protocol random] [--client-to-client] [--iface eth0]
+  amnezigo init --ipaddr 10.8.0.1/24 [--port 55424] [--mtu 1280] [--dns "1.1.1.1, 8.8.8.8"] [--keepalive 25] [--protocol random] [--client-to-client] [--iface eth0]
 `,
 	RunE: runInit,
 }

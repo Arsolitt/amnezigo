@@ -14,7 +14,7 @@ var (
 // NewRootCmd creates the root command for the CLI
 func NewRootCmd() *cobra.Command {
 	rootCmd := &cobra.Command{
-		Use:   "gawg",
+		Use:   "amnezigo",
 		Short: "AmneziaWG v2.0 Configuration Generator for star topology",
 		Long:  `Generate AmneziaWG v2.0 configurations for star topology networks.`,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {

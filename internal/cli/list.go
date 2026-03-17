@@ -18,7 +18,7 @@ var listCmd = &cobra.Command{
 Displays a table with client name, IP address, and creation time.
 
 Example:
-  gawg list
+  amnezigo list
 `,
 	RunE: runList,
 }

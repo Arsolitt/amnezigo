@@ -8,9 +8,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/Arsolitt/gawg/internal/config"
-	"github.com/Arsolitt/gawg/internal/crypto"
-	"github.com/Arsolitt/gawg/internal/network"
+	"github.com/Arsolitt/amnezigo/internal/config"
+	"github.com/Arsolitt/amnezigo/internal/crypto"
+	"github.com/Arsolitt/amnezigo/internal/network"
 	"github.com/spf13/cobra"
 )
 
@@ -28,9 +28,9 @@ If a name is specified, exports only that client's configuration.
 If no name is specified, exports all clients' configurations.
 
 Example:
-  gawg export laptop
-  gawg export --endpoint 1.2.3.4:55424 laptop
-  gawg export
+  amnezigo export laptop
+  amnezigo export --endpoint 1.2.3.4:55424 laptop
+  amnezigo export
 `,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runExport,
