@@ -138,7 +138,7 @@ func TestGenerateCPSWithProtocol(t *testing.T) {
 	}
 
 	// Verify CPS tags are present in I1
-	expectedTags := []string{"<b", "<r", "<c>", "<t>"}
+	expectedTags := []string{"<b", "<r", "<t>"}
 	for _, tag := range expectedTags {
 		if !strings.Contains(i1, tag) {
 			t.Errorf("I1 should contain tag %s for QUIC protocol", tag)

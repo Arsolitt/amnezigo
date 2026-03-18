@@ -19,8 +19,7 @@ func TestBuildAndValidateCPSValidation(t *testing.T) {
 			tags: []protocols.TagSpec{
 				{Type: "random", Value: "50"},  // 50 bytes
 				{Type: "random", Value: "30"},  // 30 bytes
-				{Type: "counter", Value: ""},   // 4 bytes
-				{Type: "timestamp", Value: ""}, // 4 bytes
+				{Type: "timestamp", Value: ""}, // 8 bytes
 			},
 			maxSize:   60, // Should fit after removing timestamp
 			wantEmpty: false,
@@ -29,8 +28,7 @@ func TestBuildAndValidateCPSValidation(t *testing.T) {
 			name: "exact_fit",
 			tags: []protocols.TagSpec{
 				{Type: "random", Value: "20"},  // 20 bytes
-				{Type: "counter", Value: ""},   // 4 bytes
-				{Type: "timestamp", Value: ""}, // 4 bytes
+				{Type: "timestamp", Value: ""}, // 8 bytes
 			},
 			maxSize:   29, // Just enough for 28 bytes
 			wantEmpty: false,
@@ -48,8 +46,7 @@ func TestBuildAndValidateCPSValidation(t *testing.T) {
 			tags: []protocols.TagSpec{
 				{Type: "bytes", Value: "0xdeadbeefdeadbeefdeadbeefdeadbeef"}, // 16 bytes
 				{Type: "random", Value: "100"},                               // 100 bytes
-				{Type: "counter", Value: ""},                                 // 4 bytes
-				{Type: "timestamp", Value: ""},                               // 4 bytes
+				{Type: "timestamp", Value: ""},                               // 8 bytes
 			},
 			maxSize:   10, // Too small for even minimal tags
 			wantEmpty: true,
@@ -130,9 +127,9 @@ func TestGenerateProtocolCPSZeroMaxI(t *testing.T) {
 				if interval == "" {
 					t.Errorf("%s: I%d should not be empty even with zero maxI", protocol, i+1)
 				}
-				// With maxI=0, everything should fallback to <c>
-				if interval != "<c>" {
-					t.Errorf("%s: With maxI=0, I%d should be '<c>', got %q", protocol, i+1, interval)
+				// With maxI=0, everything should fallback to <t>
+				if interval != "<t>" {
+					t.Errorf("%s: With maxI=0, I%d should be '<t>', got %q", protocol, i+1, interval)
 				}
 			}
 		})

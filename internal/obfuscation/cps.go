@@ -121,7 +121,7 @@ func buildAndValidateCPS(tags []protocols.TagSpec, maxSize int) string {
 	}
 
 	// Fallback to minimal valid CPS
-	return "<c>" // guaranteed minimal fallback (4 bytes)
+	return "<t>" // guaranteed minimal fallback (8 bytes)
 }
 
 // mapTagType maps protocol tag types to CPS tag types
@@ -178,7 +178,7 @@ func calculateCPSLength(cps string) int {
 
 // generateRandomTags generates random CPS tags for simple random mode
 func generateRandomTags(minCount, maxCount int) []simpleTag {
-	allTagTypes := []string{"b", "r", "rc", "rd", "t", "c"}
+	allTagTypes := []string{"b", "r", "rc", "rd", "t"}
 	usedUniqueTag := false
 
 	// Generate random count between minCount and maxCount
@@ -194,7 +194,7 @@ func generateRandomTags(minCount, maxCount int) []simpleTag {
 		// Filter out unique tags if one was already used
 		var availableTagTypes []string
 		for _, tagType := range allTagTypes {
-			if (tagType == "t" || tagType == "c") && usedUniqueTag {
+			if tagType == "t" && usedUniqueTag {
 				continue
 			}
 			availableTagTypes = append(availableTagTypes, tagType)
@@ -205,7 +205,7 @@ func generateRandomTags(minCount, maxCount int) []simpleTag {
 		tagType := availableTagTypes[typeIdx.Int64()]
 
 		// Mark if unique tag was used
-		if tagType == "t" || tagType == "c" {
+		if tagType == "t" {
 			usedUniqueTag = true
 		}
 
@@ -226,7 +226,7 @@ func generateRandomTags(minCount, maxCount int) []simpleTag {
 			sizeRand, _ := rand.Int(rand.Reader, big.NewInt(int64(sizeRange+1)))
 			size := 5 + int(sizeRand.Int64())
 			value = fmt.Sprintf("%d", size)
-		case "t", "c":
+		case "t":
 			// No value
 			value = ""
 		}
@@ -260,7 +260,7 @@ func generateSimpleI(maxSize int) string {
 			return cps
 		}
 	}
-	return "<c>" // guaranteed minimal fallback (4 bytes)
+	return "<t>" // guaranteed minimal fallback (8 bytes)
 }
 
 func tagsToCPS(tags []simpleTag) string {

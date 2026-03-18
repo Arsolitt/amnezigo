@@ -12,7 +12,7 @@ package protocols
 // - Payload
 func QUICTemplate() I1I5Template {
 	return I1I5Template{
-		// I1: Long header bytes + random DCID + counter + timestamp + random payload
+		// I1: Long header bytes + random DCID + timestamp + random payload
 		I1: []TagSpec{
 			{Type: "bytes", Value: "c0ff"},     // Long header form with type bits
 			{Type: "bytes", Value: "00000001"}, // Version 1
@@ -23,8 +23,7 @@ func QUICTemplate() I1I5Template {
 			{Type: "bytes", Value: "0040"},     // Length (approx 64 bytes)
 			{Type: "bytes", Value: "00"},       // Packet number length
 			{Type: "bytes", Value: "01"},       // Packet number
-			{Type: "counter", Value: ""},       // Counter field
-			{Type: "timestamp", Value: ""},     // Timestamp in milliseconds
+			{Type: "timestamp", Value: ""},     // Timestamp
 			{Type: "random", Value: "40"},      // Random payload (40 bytes)
 		},
 
@@ -38,7 +37,6 @@ func QUICTemplate() I1I5Template {
 			{Type: "bytes", Value: "00"},       // Token length 0
 			{Type: "bytes", Value: "0020"},     // Length (approx 32 bytes)
 			{Type: "bytes", Value: "01"},       // Packet number
-			{Type: "counter", Value: ""},       // Counter
 			{Type: "timestamp", Value: ""},     // Timestamp
 			{Type: "random", Value: "20"},      // Shorter random payload (20 bytes)
 		},
@@ -53,7 +51,6 @@ func QUICTemplate() I1I5Template {
 			{Type: "bytes", Value: "00"},       // Token length 0
 			{Type: "bytes", Value: "0010"},     // Length (approx 16 bytes)
 			{Type: "bytes", Value: "01"},       // Packet number
-			{Type: "counter", Value: ""},       // Counter
 			{Type: "timestamp", Value: ""},     // Timestamp
 			{Type: "random", Value: "10"},      // Minimal random payload (10 bytes)
 		},
@@ -68,7 +65,6 @@ func QUICTemplate() I1I5Template {
 			{Type: "bytes", Value: "00"},       // Token length 0
 			{Type: "bytes", Value: "0005"},     // Length (approx 5 bytes)
 			{Type: "bytes", Value: "01"},       // Packet number
-			{Type: "counter", Value: ""},       // Counter
 			{Type: "timestamp", Value: ""},     // Timestamp
 			{Type: "random", Value: "5"},       // Tiny payload (5 bytes)
 		},
