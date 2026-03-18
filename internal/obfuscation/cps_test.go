@@ -381,7 +381,7 @@ func TestGenerateCPSConfig_Protocol(t *testing.T) {
 
 func TestGenerateRandomTagsUniqueConstraint(t *testing.T) {
 	// Run many times to catch random duplicates
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 10000; i++ {
 		tags := generateRandomTags(3, 10)
 
 		countT := 0
@@ -400,6 +400,9 @@ func TestGenerateRandomTagsUniqueConstraint(t *testing.T) {
 		}
 		if countC > 1 {
 			t.Errorf("iteration %d: found %d 'c' tags, expected at most 1", i, countC)
+		}
+		if countT > 0 && countC > 0 {
+			t.Errorf("iteration %d: found both 't' and 'c' tags in same I-packet, expected at most one unique tag total", i)
 		}
 	}
 }

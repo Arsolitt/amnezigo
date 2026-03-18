@@ -179,7 +179,7 @@ func calculateCPSLength(cps string) int {
 // generateRandomTags generates random CPS tags for simple random mode
 func generateRandomTags(minCount, maxCount int) []simpleTag {
 	allTagTypes := []string{"b", "r", "rc", "rd", "t", "c"}
-	usedUnique := make(map[string]bool)
+	usedUniqueTag := false
 
 	// Generate random count between minCount and maxCount
 	countRange := maxCount - minCount
@@ -191,11 +191,11 @@ func generateRandomTags(minCount, maxCount int) []simpleTag {
 
 	tags := make([]simpleTag, count)
 	for i := 0; i < count; i++ {
-		// Filter out already-used unique tags
+		// Filter out unique tags if one was already used
 		var availableTagTypes []string
 		for _, tagType := range allTagTypes {
-			if (tagType == "t" || tagType == "c") && usedUnique[tagType] {
-				continue // skip if unique tag already used
+			if (tagType == "t" || tagType == "c") && usedUniqueTag {
+				continue
 			}
 			availableTagTypes = append(availableTagTypes, tagType)
 		}
@@ -204,9 +204,9 @@ func generateRandomTags(minCount, maxCount int) []simpleTag {
 		typeIdx, _ := rand.Int(rand.Reader, big.NewInt(int64(len(availableTagTypes))))
 		tagType := availableTagTypes[typeIdx.Int64()]
 
-		// Mark unique tags as used
+		// Mark if unique tag was used
 		if tagType == "t" || tagType == "c" {
-			usedUnique[tagType] = true
+			usedUniqueTag = true
 		}
 
 		// Generate value based on tag type
