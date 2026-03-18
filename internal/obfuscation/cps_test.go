@@ -151,11 +151,13 @@ func TestCalculateCPSLength(t *testing.T) {
 		cps      string
 		expected int
 	}{
-		{"bytes_counter_timestamp", "<b 0xdeadbeef><c><t>", 12}, // 4 + 4 + 4
+		{"bytes_counter_timestamp", "<b 0xdeadbeef><c><t>", 20}, // 4 + 8 + 8
 		{"random_types", "<r 10><rc 5><rd 3>", 18},              // 10 + 5 + 3
-		{"single_byte_and_counter", "<b 0xff><c>", 5},           // 1 + 4
+		{"single_byte_and_counter", "<b 0xff><c>", 9},           // 1 + 8
 		{"empty", "", 0},
-		{"only_counter", "<c>", 4},
+		{"only_counter", "<c>", 8},           // 8
+		{"only_timestamp", "<t>", 8},         // 8
+		{"mixed", "<b 0x11><c><r 5><t>", 22}, // 1 + 8 + 5 + 8
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

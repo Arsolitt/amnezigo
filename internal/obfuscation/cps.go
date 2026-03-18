@@ -148,7 +148,7 @@ func mapTagType(tagType string) string {
 // It supports:
 // - <b 0xNN>: len(NN)/2 bytes (hex string to bytes)
 // - <r N>, <rc N>, <rd N>: N bytes each
-// - <t>, <c>: 4 bytes each
+// - <t>, <c>: 8 bytes each
 func calculateCPSLength(cps string) int {
 	total := 0
 
@@ -168,10 +168,10 @@ func calculateCPSLength(cps string) int {
 		total += count
 	}
 
-	// Match <t> and <c> tags (4 bytes each)
+	// Match <t> and <c> tags (8 bytes each)
 	fixedRegex := regexp.MustCompile(`<[tc]>`)
 	matches = fixedRegex.FindAllStringSubmatch(cps, -1)
-	total += len(matches) * 4
+	total += len(matches) * 8
 
 	return total
 }
