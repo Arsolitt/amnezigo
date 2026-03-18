@@ -259,6 +259,76 @@ I5 = mno
 			t.Error("expected second auto-assigned IP to be 10.8.0.3/32")
 		}
 	})
+
+	// Test 5: IP allocation with different subnet
+	t.Run("IP allocation with different subnet", func(t *testing.T) {
+		cfgFile = ""
+		addIPAddr = ""
+		tmpDir := t.TempDir()
+		configPath := filepath.Join(tmpDir, "awg0.conf")
+
+		// Use 192.168.100.x subnet instead of 10.8.0.x
+		initialConfig := `[Interface]
+PrivateKey = abcdefghijklmnopqrstuvwxyz123456789012345=
+Address = 192.168.100.1/24
+ListenPort = 12345
+MTU = 1280
+Jc = 5
+Jmin = 20
+Jmax = 30
+S1 = 1
+S2 = 2
+S3 = 3
+S4 = 4
+H1 = 100
+H2 = 200
+H3 = 300
+H4 = 400
+I1 = abc
+I2 = def
+I3 = ghi
+I4 = jkl
+I5 = mno
+`
+		if err := os.WriteFile(configPath, []byte(initialConfig), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		cmd := NewAddCommand()
+		cmd.SetArgs([]string{"--config", configPath, "client-subnet1"})
+		cfgFile = configPath
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("add command failed: %v", err)
+		}
+
+		content, err := os.ReadFile(configPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		configStr := string(content)
+		if !strings.Contains(configStr, `AllowedIPs = 192.168.100.2/32`) {
+			t.Error("expected first auto-assigned IP to be 192.168.100.2/32")
+		}
+
+		// Second client should get .3
+		cmd2 := NewAddCommand()
+		cmd2.SetArgs([]string{"--config", configPath, "client-subnet2"})
+		cfgFile = configPath
+		if err := cmd2.Execute(); err != nil {
+			t.Fatalf("add command failed for second client: %v", err)
+		}
+
+		content, err = os.ReadFile(configPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		configStr = string(content)
+		if !strings.Contains(configStr, `AllowedIPs = 192.168.100.3/32`) {
+			t.Error("expected second auto-assigned IP to be 192.168.100.3/32")
+		}
+	})
 }
 
 // TestFindNextAvailableIP tests the IP allocation logic

@@ -64,12 +64,21 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	// Determine client IP address
 	clientIP := addIPAddr
 	if clientIP == "" {
-		// Collect existing IPs
+		// Extract subnet prefix from server address for filtering
+		_, ipnet, err := net.ParseCIDR(serverCfg.Interface.Address)
+		if err != nil {
+			return fmt.Errorf("invalid server address: %w", err)
+		}
+
+		// Collect existing IPs within the server's subnet
 		existingIPs := make([]string, 0, len(serverCfg.Peers))
 		for _, peer := range serverCfg.Peers {
-			if strings.HasPrefix(peer.AllowedIPs, "10.8.0.") && strings.HasSuffix(peer.AllowedIPs, "/32") {
-				ip := strings.TrimSuffix(peer.AllowedIPs, "/32")
-				existingIPs = append(existingIPs, ip)
+			if strings.HasSuffix(peer.AllowedIPs, "/32") {
+				ipStr := strings.TrimSuffix(peer.AllowedIPs, "/32")
+				peerIP := net.ParseIP(ipStr)
+				if peerIP != nil && ipnet.Contains(peerIP) {
+					existingIPs = append(existingIPs, ipStr)
+				}
 			}
 		}
 
