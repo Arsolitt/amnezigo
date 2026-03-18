@@ -40,18 +40,18 @@ func DTLSTemplate() I1I5Template {
 			{Type: "bytes", Value: "000054"}, // Fragment Length: 84 bytes
 
 			// ClientHello body
-			{Type: "bytes", Value: "fefd"},    // Protocol Version: DTLS 1.2
-			{Type: "timestamp", Value: "sec"}, // Random: first 4 bytes are timestamp
-			{Type: "random", Value: "28"},     // Random: remaining 28 bytes
-			{Type: "bytes", Value: "00"},      // Session ID length: 0
-			{Type: "bytes", Value: "00"},      // Cookie length: 0
-			{Type: "bytes", Value: "0010"},    // Cipher Suites length: 16 bytes
-			{Type: "bytes", Value: "cca8"},    // Cipher Suite 1: TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
-			{Type: "bytes", Value: "cca9"},    // Cipher Suite 2: TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
-			{Type: "bytes", Value: "cc02"},    // Cipher Suite 3: ECDHE_ECDSA_WITH_AES_256_CBC_SHA
-			{Type: "bytes", Value: "cc01"},    // Cipher Suite 4: ECDHE_ECDSA_WITH_AES_128_CBC_SHA
-			{Type: "bytes", Value: "01"},      // Compression Methods length: 1
-			{Type: "bytes", Value: "00"},      // Compression Method: null
+			{Type: "bytes", Value: "fefd"}, // Protocol Version: DTLS 1.2
+			{Type: "timestamp", Value: ""}, // Random: first 4 bytes are timestamp
+			{Type: "random", Value: "28"},  // Random: remaining 28 bytes
+			{Type: "bytes", Value: "00"},   // Session ID length: 0
+			{Type: "bytes", Value: "00"},   // Cookie length: 0
+			{Type: "bytes", Value: "0010"}, // Cipher Suites length: 16 bytes
+			{Type: "bytes", Value: "cca8"}, // Cipher Suite 1: TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+			{Type: "bytes", Value: "cca9"}, // Cipher Suite 2: TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+			{Type: "bytes", Value: "cc02"}, // Cipher Suite 3: ECDHE_ECDSA_WITH_AES_256_CBC_SHA
+			{Type: "bytes", Value: "cc01"}, // Cipher Suite 4: ECDHE_ECDSA_WITH_AES_128_CBC_SHA
+			{Type: "bytes", Value: "01"},   // Compression Methods length: 1
+			{Type: "bytes", Value: "00"},   // Compression Method: null
 		},
 
 		// I2: Shorter DTLS ClientHello
@@ -71,15 +71,15 @@ func DTLSTemplate() I1I5Template {
 			{Type: "bytes", Value: "000034"}, // Fragment Length: 52 bytes
 
 			// ClientHello body
-			{Type: "bytes", Value: "fefd"},    // Version: DTLS 1.2
-			{Type: "timestamp", Value: "sec"}, // Random: timestamp
-			{Type: "random", Value: "28"},     // Random bytes
-			{Type: "bytes", Value: "00"},      // Session ID length: 0
-			{Type: "bytes", Value: "00"},      // Cookie length: 0
-			{Type: "bytes", Value: "0002"},    // Cipher Suites length: 2 bytes
-			{Type: "bytes", Value: "cca8"},    // Cipher Suite: TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
-			{Type: "bytes", Value: "01"},      // Compression Methods length: 1
-			{Type: "bytes", Value: "00"},      // Compression Method: null
+			{Type: "bytes", Value: "fefd"}, // Version: DTLS 1.2
+			{Type: "timestamp", Value: ""}, // Random: timestamp
+			{Type: "random", Value: "28"},  // Random bytes
+			{Type: "bytes", Value: "00"},   // Session ID length: 0
+			{Type: "bytes", Value: "00"},   // Cookie length: 0
+			{Type: "bytes", Value: "0002"}, // Cipher Suites length: 2 bytes
+			{Type: "bytes", Value: "cca8"}, // Cipher Suite: TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+			{Type: "bytes", Value: "01"},   // Compression Methods length: 1
+			{Type: "bytes", Value: "00"},   // Compression Method: null
 		},
 
 		// I3: Minimal DTLS ClientHello
@@ -99,15 +99,15 @@ func DTLSTemplate() I1I5Template {
 			{Type: "bytes", Value: "000024"}, // Fragment Length: 36 bytes
 
 			// ClientHello body
-			{Type: "bytes", Value: "fefd"},    // Version: DTLS 1.2
-			{Type: "timestamp", Value: "sec"}, // Random: timestamp
-			{Type: "random", Value: "28"},     // Random bytes
-			{Type: "bytes", Value: "00"},      // Session ID length: 0
-			{Type: "bytes", Value: "00"},      // Cookie length: 0
-			{Type: "bytes", Value: "0002"},    // Cipher Suites length: 2
-			{Type: "bytes", Value: "c00c"},    // Cipher Suite: TLS_RSA_WITH_AES_128_CBC_SHA
-			{Type: "bytes", Value: "01"},      // Compression Methods length: 1
-			{Type: "bytes", Value: "00"},      // Compression Method: null
+			{Type: "bytes", Value: "fefd"}, // Version: DTLS 1.2
+			{Type: "timestamp", Value: ""}, // Random: timestamp
+			{Type: "random", Value: "28"},  // Random bytes
+			{Type: "bytes", Value: "00"},   // Session ID length: 0
+			{Type: "bytes", Value: "00"},   // Cookie length: 0
+			{Type: "bytes", Value: "0002"}, // Cipher Suites length: 2
+			{Type: "bytes", Value: "c00c"}, // Cipher Suite: TLS_RSA_WITH_AES_128_CBC_SHA
+			{Type: "bytes", Value: "01"},   // Compression Methods length: 1
+			{Type: "bytes", Value: "00"},   // Compression Method: null
 		},
 
 		// I4: Tiny DTLS packet - minimum valid ClientHello
@@ -127,15 +127,15 @@ func DTLSTemplate() I1I5Template {
 			{Type: "bytes", Value: "00001c"}, // Fragment Length: 28 bytes
 
 			// ClientHello body
-			{Type: "bytes", Value: "fefd"},    // Version: DTLS 1.2
-			{Type: "timestamp", Value: "sec"}, // Random: timestamp
-			{Type: "random", Value: "28"},     // Random bytes
-			{Type: "bytes", Value: "00"},      // Session ID length: 0
-			{Type: "bytes", Value: "00"},      // Cookie length: 0
-			{Type: "bytes", Value: "0002"},    // Cipher Suites length: 2
-			{Type: "bytes", Value: "0000"},    // Cipher Suite: SSL_NULL_WITH_NULL_NULL (for simplicity)
-			{Type: "bytes", Value: "01"},      // Compression Methods length: 1
-			{Type: "bytes", Value: "00"},      // Compression Method: null
+			{Type: "bytes", Value: "fefd"}, // Version: DTLS 1.2
+			{Type: "timestamp", Value: ""}, // Random: timestamp
+			{Type: "random", Value: "28"},  // Random bytes
+			{Type: "bytes", Value: "00"},   // Session ID length: 0
+			{Type: "bytes", Value: "00"},   // Cookie length: 0
+			{Type: "bytes", Value: "0002"}, // Cipher Suites length: 2
+			{Type: "bytes", Value: "0000"}, // Cipher Suite: SSL_NULL_WITH_NULL_NULL (for simplicity)
+			{Type: "bytes", Value: "01"},   // Compression Methods length: 1
+			{Type: "bytes", Value: "00"},   // Compression Method: null
 		},
 
 		// I5: Empty
