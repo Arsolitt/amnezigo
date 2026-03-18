@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	reserve       = 28  // IP header 20 + UDP header 8
-	handshakeSize = 148 // fixed handshake size
+	reserve       = 49  // IP header (20 or 40) + UDP header 8 (+ 1 just in case)
+	handshakeSize = 149 // fixed handshake size (148 + 1 just in case)
 )
 
 // simpleTag represents a CPS tag with type and value
@@ -24,9 +24,9 @@ type simpleTag struct {
 }
 
 // calculateMaxISize calculates the maximum I packet size based on MTU constraints.
-// Formula: maxISize = (MTU - reserve - handshakeSize - S1) / (5 + jc)
-func calculateMaxISize(mtu, s1, jc int) int {
-	return (mtu - reserve - handshakeSize - s1) / (5 + jc)
+// Formula: maxISize = MTU - reserve - handshakeSize - S1
+func calculateMaxISize(mtu, s1 int) int {
+	return mtu - reserve - handshakeSize - s1
 }
 
 // BuildCPSTag creates a CPS (Custom Packet String) tag from a tag type and value.
@@ -71,17 +71,17 @@ type CPSConfig struct {
 
 // generateCPSConfig generates CPS strings for all five intervals based on protocol template
 // or random mode with MTU constraints
-func generateCPSConfig(protocol string, mtu, s1, jc int) CPSConfig {
+func generateCPSConfig(protocol string, mtu, s1 int) CPSConfig {
 	if protocol == "random" {
-		return generateSimpleCPS(mtu, s1, jc)
+		return generateSimpleCPS(mtu, s1)
 	}
-	return generateProtocolCPS(protocol, mtu, s1, jc)
+	return generateProtocolCPS(protocol, mtu, s1)
 }
 
 // generateProtocolCPS generates CPS strings from protocol template with MTU validation
-func generateProtocolCPS(protocol string, mtu, s1, jc int) CPSConfig {
+func generateProtocolCPS(protocol string, mtu, s1 int) CPSConfig {
 	tmpl := protocols.GetTemplate(protocol)
-	maxI := calculateMaxISize(mtu, s1, jc)
+	maxI := calculateMaxISize(mtu, s1)
 
 	return CPSConfig{
 		I1: buildAndValidateCPS(tmpl.I1, maxI),
@@ -240,8 +240,8 @@ func generateRandomTags(minCount, maxCount int) []simpleTag {
 	return tags
 }
 
-func generateSimpleCPS(mtu, s1, jc int) CPSConfig {
-	maxI := calculateMaxISize(mtu, s1, jc)
+func generateSimpleCPS(mtu, s1 int) CPSConfig {
+	maxI := calculateMaxISize(mtu, s1)
 
 	return CPSConfig{
 		I1: generateSimpleI(maxI),

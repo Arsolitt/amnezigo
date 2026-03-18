@@ -81,19 +81,18 @@ func TestGenerateProtocolCPSMTUConstraints(t *testing.T) {
 		name string
 		mtu  int
 		s1   int
-		jc   int
 	}{
-		{"standard", 1280, 32, 5},
-		{"small_mtu", 500, 10, 3},
-		{"tiny_mtu", 200, 32, 5},
+		{"standard", 1280, 32},
+		{"small_mtu", 500, 10},
+		{"tiny_mtu", 200, 32},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			for _, protocol := range []string{"quic", "dns", "dtls", "stun"} {
 				t.Run(protocol, func(t *testing.T) {
-					cps := generateProtocolCPS(protocol, tt.mtu, tt.s1, tt.jc)
-					maxI := calculateMaxISize(tt.mtu, tt.s1, tt.jc)
+					cps := generateProtocolCPS(protocol, tt.mtu, tt.s1)
+					maxI := calculateMaxISize(tt.mtu, tt.s1)
 
 					// Validate size constraints (only when maxI > 0 and interval is non-empty)
 					// Note: I5 is intentionally empty for all protocol templates
@@ -118,9 +117,8 @@ func TestGenerateProtocolCPSZeroMaxI(t *testing.T) {
 			// MTU so small that maxI becomes 0
 			mtu := 100
 			s1 := 32
-			jc := 5
 
-			cps := generateProtocolCPS(protocol, mtu, s1, jc)
+			cps := generateProtocolCPS(protocol, mtu, s1)
 
 			// All intervals should be non-empty and fallback to minimal
 			for i, interval := range []string{cps.I1, cps.I2, cps.I3, cps.I4, cps.I5} {

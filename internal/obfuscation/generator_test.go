@@ -221,7 +221,7 @@ func TestGenerateConfig_WithMTU(t *testing.T) {
 			}
 
 			// Verify CPS length constraints
-			maxI := calculateMaxISize(tt.mtu, tt.s1, tt.jc)
+			maxI := calculateMaxISize(tt.mtu, tt.s1)
 			intervals := []string{cfg.I1, cfg.I2, cfg.I3, cfg.I4, cfg.I5}
 			for i, interval := range intervals {
 				if interval != "" && calculateCPSLength(interval) >= maxI {

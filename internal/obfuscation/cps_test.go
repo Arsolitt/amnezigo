@@ -129,18 +129,18 @@ func TestMapTagType(t *testing.T) {
 
 func TestCalculateMaxISize(t *testing.T) {
 	tests := []struct {
-		mtu, s1, jc int
-		expected    int
+		mtu, s1  int
+		expected int
 	}{
-		{1280, 32, 5, 107}, // (1280 - 28 - 148 - 32) / 10 = 107
-		{1420, 64, 3, 147}, // (1420 - 28 - 148 - 64) / 8 = 147
-		{1280, 0, 0, 220},  // (1280 - 28 - 148 - 0) / 5 = 220
+		{1280, 32, 1050}, // 1280 - 49 - 149 - 32 = 1050
+		{1420, 64, 1158}, // 1420 - 49 - 149 - 64 = 1158
+		{1280, 0, 1082},  // 1280 - 49 - 149 - 0 = 1082
 	}
 	for _, tt := range tests {
-		result := calculateMaxISize(tt.mtu, tt.s1, tt.jc)
+		result := calculateMaxISize(tt.mtu, tt.s1)
 		if result != tt.expected {
-			t.Errorf("calculateMaxISize(%d, %d, %d) = %d, want %d",
-				tt.mtu, tt.s1, tt.jc, result, tt.expected)
+			t.Errorf("calculateMaxISize(%d, %d) = %d, want %d",
+				tt.mtu, tt.s1, result, tt.expected)
 		}
 	}
 }
@@ -289,9 +289,9 @@ func TestGenerateRandomTags(t *testing.T) {
 }
 
 func TestGenerateSimpleCPS(t *testing.T) {
-	cps := generateSimpleCPS(1280, 32, 5)
+	cps := generateSimpleCPS(1280, 32)
 
-	maxI := calculateMaxISize(1280, 32, 5)
+	maxI := calculateMaxISize(1280, 32)
 
 	if cps.I1 == "" || cps.I2 == "" || cps.I3 == "" || cps.I4 == "" || cps.I5 == "" {
 		t.Error("All I1-I5 should be non-empty")
@@ -320,18 +320,18 @@ func TestGenerateSimpleCPSFallback(t *testing.T) {
 
 func TestGenerateSimpleCPSTableDriven(t *testing.T) {
 	tests := []struct {
-		name        string
-		mtu, s1, jc int
+		name    string
+		mtu, s1 int
 	}{
-		{"standard", 1280, 32, 5},
-		{"small_mtu", 500, 10, 3},
-		{"large_s1", 1280, 100, 2},
+		{"standard", 1280, 32},
+		{"small_mtu", 500, 10},
+		{"large_s1", 1280, 100},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cps := generateSimpleCPS(tt.mtu, tt.s1, tt.jc)
-			maxI := calculateMaxISize(tt.mtu, tt.s1, tt.jc)
+			cps := generateSimpleCPS(tt.mtu, tt.s1)
+			maxI := calculateMaxISize(tt.mtu, tt.s1)
 
 			for _, i := range []string{cps.I1, cps.I2, cps.I3, cps.I4, cps.I5} {
 				if i == "" {
@@ -346,8 +346,8 @@ func TestGenerateSimpleCPSTableDriven(t *testing.T) {
 }
 
 func TestGenerateCPSConfig_Random(t *testing.T) {
-	cps := generateCPSConfig("random", 1280, 32, 5)
-	maxI := calculateMaxISize(1280, 32, 5)
+	cps := generateCPSConfig("random", 1280, 32)
+	maxI := calculateMaxISize(1280, 32)
 
 	for _, i := range []string{cps.I1, cps.I2, cps.I3, cps.I4, cps.I5} {
 		if calculateCPSLength(i) >= maxI {
@@ -359,8 +359,8 @@ func TestGenerateCPSConfig_Random(t *testing.T) {
 func TestGenerateCPSConfig_Protocol(t *testing.T) {
 	for _, protocol := range []string{"quic", "dns", "dtls", "stun"} {
 		t.Run(protocol, func(t *testing.T) {
-			cps := generateCPSConfig(protocol, 1280, 32, 5)
-			maxI := calculateMaxISize(1280, 32, 5)
+			cps := generateCPSConfig(protocol, 1280, 32)
+			maxI := calculateMaxISize(1280, 32)
 
 			for _, i := range []string{cps.I1, cps.I2, cps.I3, cps.I4, cps.I5} {
 				if calculateCPSLength(i) >= maxI {
