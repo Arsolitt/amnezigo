@@ -378,3 +378,28 @@ func TestGenerateCPSConfig_Protocol(t *testing.T) {
 		})
 	}
 }
+
+func TestGenerateRandomTagsUniqueConstraint(t *testing.T) {
+	// Run many times to catch random duplicates
+	for i := 0; i < 100; i++ {
+		tags := generateRandomTags(3, 10)
+
+		countT := 0
+		countC := 0
+		for _, tag := range tags {
+			if tag.Type == "t" {
+				countT++
+			}
+			if tag.Type == "c" {
+				countC++
+			}
+		}
+
+		if countT > 1 {
+			t.Errorf("iteration %d: found %d 't' tags, expected at most 1", i, countT)
+		}
+		if countC > 1 {
+			t.Errorf("iteration %d: found %d 'c' tags, expected at most 1", i, countC)
+		}
+	}
+}
