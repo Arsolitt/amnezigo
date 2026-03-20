@@ -122,8 +122,7 @@ func ParseServerConfig(r io.Reader) (ServerConfig, error) {
 					cfg.Obfuscation.S4 = s
 				}
 			case "H1":
-				// TODO: Parse as HeaderRange (min,max) format
-				if parts := strings.Split(value, ","); len(parts) == 2 {
+				if parts := strings.Split(value, "-"); len(parts) == 2 {
 					if min, err1 := strconv.ParseUint(strings.TrimSpace(parts[0]), 10, 32); err1 == nil {
 						if max, err2 := strconv.ParseUint(strings.TrimSpace(parts[1]), 10, 32); err2 == nil {
 							cfg.Obfuscation.H1 = HeaderRange{Min: uint32(min), Max: uint32(max)}
@@ -131,8 +130,7 @@ func ParseServerConfig(r io.Reader) (ServerConfig, error) {
 					}
 				}
 			case "H2":
-				// TODO: Parse as HeaderRange (min,max) format
-				if parts := strings.Split(value, ","); len(parts) == 2 {
+				if parts := strings.Split(value, "-"); len(parts) == 2 {
 					if min, err1 := strconv.ParseUint(strings.TrimSpace(parts[0]), 10, 32); err1 == nil {
 						if max, err2 := strconv.ParseUint(strings.TrimSpace(parts[1]), 10, 32); err2 == nil {
 							cfg.Obfuscation.H2 = HeaderRange{Min: uint32(min), Max: uint32(max)}
@@ -140,8 +138,7 @@ func ParseServerConfig(r io.Reader) (ServerConfig, error) {
 					}
 				}
 			case "H3":
-				// TODO: Parse as HeaderRange (min,max) format
-				if parts := strings.Split(value, ","); len(parts) == 2 {
+				if parts := strings.Split(value, "-"); len(parts) == 2 {
 					if min, err1 := strconv.ParseUint(strings.TrimSpace(parts[0]), 10, 32); err1 == nil {
 						if max, err2 := strconv.ParseUint(strings.TrimSpace(parts[1]), 10, 32); err2 == nil {
 							cfg.Obfuscation.H3 = HeaderRange{Min: uint32(min), Max: uint32(max)}
@@ -149,8 +146,7 @@ func ParseServerConfig(r io.Reader) (ServerConfig, error) {
 					}
 				}
 			case "H4":
-				// TODO: Parse as HeaderRange (min,max) format
-				if parts := strings.Split(value, ","); len(parts) == 2 {
+				if parts := strings.Split(value, "-"); len(parts) == 2 {
 					if min, err1 := strconv.ParseUint(strings.TrimSpace(parts[0]), 10, 32); err1 == nil {
 						if max, err2 := strconv.ParseUint(strings.TrimSpace(parts[1]), 10, 32); err2 == nil {
 							cfg.Obfuscation.H4 = HeaderRange{Min: uint32(min), Max: uint32(max)}
