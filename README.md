@@ -150,10 +150,10 @@ S1 = 15
 S2 = 16
 S3 = 45
 S4 = 10
-H1 = 215083456
-H2 = 476298123
-H3 = 892041374
-H4 = 1972835492
+H1 = 191091632-238083235
+H2 = 469298095-484308427
+H3 = 490129542-1366070158
+H4 = 1959094164-1989726207
 I1 = <b 0xc0000000><r 16>
 I2 = <b 0x40000000><r 12>
 I3 = <b 0x80000000><t>
@@ -174,7 +174,7 @@ AmneziaWG uses several parameters to obfuscate WireGuard traffic:
 
 - **Jc, Jmin, Jmax** - Junk packet parameters
 - **S1-S4** - Size prefixes
-- **H1-H4** - Header value ranges (stored as min-max in server config, single random value in client config)
+- **H1-H4** - Header value ranges (stored as min-max format in both server and client configs)
 - **I1-I5** - Custom Packet Strings (CPS) generated per-client at export time based on selected protocol
 
 ### Protocols

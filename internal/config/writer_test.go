@@ -255,10 +255,9 @@ func TestWriteClientConfig(t *testing.T) {
 	if !strings.Contains(output, "Jc = 50") {
 		t.Error("Output should contain Jc")
 	}
-	// Client config writes H1-H4 as single values (picked from range)
-	// Should NOT contain dash in H1 value (that would indicate range format)
-	if strings.Contains(output, "H1 = 1-100") {
-		t.Error("Client config should write H1 as single value, not range")
+	// Client config writes H1-H4 as ranges (same as server)
+	if !strings.Contains(output, "H1 = 1-100") {
+		t.Error("Client config should write H1 as range")
 	}
 	if !strings.Contains(output, "I1 = i1_value") {
 		t.Error("Output should contain I1")

@@ -1,21 +1,10 @@
 package config
 
 import (
-	"crypto/rand"
 	"fmt"
 	"io"
-	"math/big"
 	"time"
 )
-
-// randInRange returns a random number in the range [min, max]
-func randInRange(min, max uint32) uint32 {
-	if min >= max {
-		return min
-	}
-	n, _ := rand.Int(rand.Reader, big.NewInt(int64(max-min+1)))
-	return min + uint32(n.Uint64())
-}
 
 func WriteServerConfig(w io.Writer, cfg ServerConfig) error {
 	fmt.Fprintln(w, "[Interface]")
@@ -95,11 +84,11 @@ func WriteClientConfig(w io.Writer, cfg ClientConfig) error {
 	fmt.Fprintf(w, "S2 = %d\n", cfg.Interface.Obfuscation.S2)
 	fmt.Fprintf(w, "S3 = %d\n", cfg.Interface.Obfuscation.S3)
 	fmt.Fprintf(w, "S4 = %d\n", cfg.Interface.Obfuscation.S4)
-	// Write H1-H4 as single values picked from range
-	fmt.Fprintf(w, "H1 = %d\n", randInRange(cfg.Interface.Obfuscation.H1.Min, cfg.Interface.Obfuscation.H1.Max))
-	fmt.Fprintf(w, "H2 = %d\n", randInRange(cfg.Interface.Obfuscation.H2.Min, cfg.Interface.Obfuscation.H2.Max))
-	fmt.Fprintf(w, "H3 = %d\n", randInRange(cfg.Interface.Obfuscation.H3.Min, cfg.Interface.Obfuscation.H3.Max))
-	fmt.Fprintf(w, "H4 = %d\n", randInRange(cfg.Interface.Obfuscation.H4.Min, cfg.Interface.Obfuscation.H4.Max))
+	// Write H1-H4 as ranges (same as server)
+	fmt.Fprintf(w, "H1 = %d-%d\n", cfg.Interface.Obfuscation.H1.Min, cfg.Interface.Obfuscation.H1.Max)
+	fmt.Fprintf(w, "H2 = %d-%d\n", cfg.Interface.Obfuscation.H2.Min, cfg.Interface.Obfuscation.H2.Max)
+	fmt.Fprintf(w, "H3 = %d-%d\n", cfg.Interface.Obfuscation.H3.Min, cfg.Interface.Obfuscation.H3.Max)
+	fmt.Fprintf(w, "H4 = %d-%d\n", cfg.Interface.Obfuscation.H4.Min, cfg.Interface.Obfuscation.H4.Max)
 	// Write I1-I5 in a loop
 	iValues := []struct {
 		name  string
