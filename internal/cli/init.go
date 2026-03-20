@@ -235,8 +235,15 @@ func saveMainConfigPath(path string) error {
 
 // getEndpointV4 gets the IPv4 endpoint
 func getEndpointV4(port int) string {
-	ip, err := getExternalIP()
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get("https://ipv4.icanhazip.com")
 	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	ip := strings.TrimSpace(string(body))
+	if net.ParseIP(ip) == nil {
 		return ""
 	}
 	return fmt.Sprintf("%s:%d", ip, port)
@@ -252,7 +259,8 @@ func getEndpointV6(port int) string {
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	ip := strings.TrimSpace(string(body))
-	if net.ParseIP(ip) == nil {
+	parsedIP := net.ParseIP(ip)
+	if parsedIP == nil || parsedIP.To4() != nil {
 		return ""
 	}
 	return fmt.Sprintf("[%s]:%d", ip, port)
