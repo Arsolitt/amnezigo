@@ -115,11 +115,13 @@ func exportClient(client config.PeerConfig, serverCfg config.ServerConfig, endpo
 	// Build client config
 	clientConfig := config.ClientConfig{
 		Interface: config.ClientInterfaceConfig{
-			PrivateKey:  client.PrivateKey,
-			Address:     clientIP + "/32",
-			DNS:         "1.1.1.1, 8.8.8.8",
-			MTU:         serverCfg.Interface.MTU,
-			Obfuscation: serverCfg.Obfuscation,
+			PrivateKey: client.PrivateKey,
+			Address:    clientIP + "/32",
+			DNS:        "1.1.1.1, 8.8.8.8",
+			MTU:        serverCfg.Interface.MTU,
+			Obfuscation: config.ClientObfuscationConfig{
+				ServerObfuscationConfig: serverCfg.Obfuscation,
+			},
 		},
 		Peer: config.ClientPeerConfig{
 			PublicKey:           serverPublicKey,

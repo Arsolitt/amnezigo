@@ -120,7 +120,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 			TunName:    tunName,
 		},
 		Peers:       []config.PeerConfig{},
-		Obfuscation: obfConfig,
+		Obfuscation: obfConfig.ServerObfuscationConfig,
 	}
 
 	// Write config file
