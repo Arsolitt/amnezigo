@@ -65,15 +65,10 @@ S1 = 1
 S2 = 2
 S3 = 3
 S4 = 4
-H1 = 1020325451
-H2 = 2020325452
-H3 = 3020325453
-H4 = 4020325454
-I1 = <b 0xc00000000108><r 8>
-I2 = <b 0xc00000000108><r 9>
-I3 = <b 0xc00000000108><r 10>
-I4 = <b 0xc00000000108><r 11>
-I5 = <b 0xc00000000108><r 12>
+H1 = 1020325451,1020325451
+H2 = 2020325452,2020325452
+H3 = 3020325453,3020325453
+H4 = 4020325454,4020325454
 `
 
 	cfg, err := ParseServerConfig(strings.NewReader(input))
@@ -95,12 +90,10 @@ I5 = <b 0xc00000000108><r 12>
 	if cfg.Obfuscation.S1 != 1 {
 		t.Errorf("Expected S1 1, got %d", cfg.Obfuscation.S1)
 	}
-	if cfg.Obfuscation.H1 != 1020325451 {
-		t.Errorf("Expected H1 1020325451, got %d", cfg.Obfuscation.H1)
+	if cfg.Obfuscation.H1.Min != 1020325451 || cfg.Obfuscation.H1.Max != 1020325451 {
+		t.Errorf("Expected H1 {1020325451,1020325451}, got {%d,%d}", cfg.Obfuscation.H1.Min, cfg.Obfuscation.H1.Max)
 	}
-	if cfg.Obfuscation.I1 != "<b 0xc00000000108><r 8>" {
-		t.Errorf("Expected I1 '<b 0xc00000000108><r 8>', got '%s'", cfg.Obfuscation.I1)
-	}
+	// I1-I5 are client-only fields, not in ServerObfuscationConfig
 }
 
 func TestParseMultiplePeers(t *testing.T) {
