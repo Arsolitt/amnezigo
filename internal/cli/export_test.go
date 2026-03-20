@@ -33,7 +33,6 @@ PrivateKey = %s
 Address = 10.8.0.1/24
 ListenPort = 55424
 MTU = 1280
-EndpointV4 = 1.2.3.4:55424
 Jc = 3
 Jmin = 64
 Jmax = 64
@@ -45,6 +44,7 @@ H1 = 100
 H2 = 200
 H3 = 300
 H4 = 400
+#_EndpointV4 = 1.2.3.4:55424
 
 [Peer]
 #_Name = laptop
@@ -107,6 +107,7 @@ AllowedIPs = 10.8.0.2/32
 
 		// Verify obfuscation parameters
 		if !strings.Contains(configStr, "Jc = 3") || !strings.Contains(configStr, "Jmin = 64") {
+			t.Logf("Generated config:\n%s", configStr)
 			t.Error("expected obfuscation parameters in client config")
 		}
 
@@ -160,7 +161,6 @@ PrivateKey = %s
 Address = 10.8.0.1/24
 ListenPort = 55424
 MTU = 1280
-EndpointV4 = 1.2.3.4:55424
 Jc = 3
 Jmin = 64
 Jmax = 64
@@ -172,6 +172,7 @@ H1 = 100
 H2 = 200
 H3 = 300
 H4 = 400
+#_EndpointV4 = 1.2.3.4:55424
 
 [Peer]
 #_Name = laptop
@@ -242,7 +243,6 @@ PrivateKey = %s
 Address = 10.8.0.1/24
 ListenPort = 55424
 MTU = 1280
-EndpointV4 = 5.6.7.8:9999
 Jc = 3
 Jmin = 64
 Jmax = 64
@@ -254,6 +254,7 @@ H1 = 100
 H2 = 200
 H3 = 300
 H4 = 400
+#_EndpointV4 = 5.6.7.8:9999
 
 [Peer]
 #_Name = tablet
@@ -409,7 +410,6 @@ PrivateKey = %s
 Address = 10.8.0.1/24
 ListenPort = 55424
 MTU = 1280
-EndpointV4 = 1.2.3.4:55424
 Jc = 3
 Jmin = 64
 Jmax = 64
@@ -421,6 +421,7 @@ H1 = 100
 H2 = 200
 H3 = 300
 H4 = 400
+#_EndpointV4 = 1.2.3.4:55424
 
 [Peer]
 #_Name = laptop
@@ -441,9 +442,9 @@ AllowedIPs = 10.8.0.2/32
 			t.Fatal(err)
 		}
 
-		// Execute export command with protocol flag
+		// Execute export command with protocol flag (using "random" to get all I1-I5)
 		cmd := NewExportCommand()
-		cmd.SetArgs([]string{"--config", configPath, "--protocol", "quic", "laptop"})
+		cmd.SetArgs([]string{"--config", configPath, "--protocol", "random", "laptop"})
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("export command failed: %v", err)
 		}
@@ -460,6 +461,7 @@ AllowedIPs = 10.8.0.2/32
 		if !strings.Contains(configStr, "I1 =") || !strings.Contains(configStr, "I2 =") ||
 			!strings.Contains(configStr, "I3 =") || !strings.Contains(configStr, "I4 =") ||
 			!strings.Contains(configStr, "I5 =") {
+			t.Logf("Generated config:\n%s", configStr)
 			t.Error("expected I1-I5 custom packet strings in client config")
 		}
 
@@ -485,8 +487,6 @@ PrivateKey = %s
 Address = 10.8.0.1/24
 ListenPort = 55424
 MTU = 1280
-EndpointV4 = 203.0.113.5:55424
-EndpointV6 = [2001:db8::5]:55424
 Jc = 3
 Jmin = 64
 Jmax = 64
@@ -498,6 +498,8 @@ H1 = 100
 H2 = 200
 H3 = 300
 H4 = 400
+#_EndpointV4 = 203.0.113.5:55424
+#_EndpointV6 = [2001:db8::5]:55424
 
 [Peer]
 #_Name = desktop
@@ -556,7 +558,6 @@ PrivateKey = %s
 Address = 10.8.0.1/24
 ListenPort = 55424
 MTU = 1280
-EndpointV6 = [2001:db8::10]:55424
 Jc = 3
 Jmin = 64
 Jmax = 64
@@ -568,6 +569,7 @@ H1 = 100
 H2 = 200
 H3 = 300
 H4 = 400
+#_EndpointV6 = [2001:db8::10]:55424
 
 [Peer]
 #_Name = tablet

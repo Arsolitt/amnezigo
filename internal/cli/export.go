@@ -1,10 +1,8 @@
 package cli
 
 import (
-	"crypto/rand"
 	"fmt"
 	"io"
-	"math/big"
 	"net"
 	"net/http"
 	"os"
@@ -118,14 +116,18 @@ func exportClient(client config.PeerConfig, serverCfg config.ServerConfig, endpo
 		serverPublicKey = crypto.DerivePublicKey(serverCfg.Interface.PrivateKey)
 	}
 
-	// Generate random s1 and jc values for obfuscation config
-	s1Int, _ := rand.Int(rand.Reader, big.NewInt(65))
-	s1 := int(s1Int.Int64())
-	jcInt, _ := rand.Int(rand.Reader, big.NewInt(11))
-	jc := int(jcInt.Int64())
+	// Generate I1-I5 using the specified protocol
+	i1, i2, i3, i4, i5 := obfuscation.GenerateCPS(exportProtocol, serverCfg.Interface.MTU, serverCfg.Obfuscation.S1, serverCfg.Obfuscation.Jc)
 
-	// Generate client obfuscation config with I1-I5 using the specified protocol
-	obfConfig := obfuscation.GenerateConfig(exportProtocol, serverCfg.Interface.MTU, s1, jc)
+	// Build client obfuscation config using server parameters + generated I1-I5
+	obfConfig := config.ClientObfuscationConfig{
+		ServerObfuscationConfig: serverCfg.Obfuscation,
+		I1:                      i1,
+		I2:                      i2,
+		I3:                      i3,
+		I4:                      i4,
+		I5:                      i5,
+	}
 
 	// Build client config
 	clientConfig := config.ClientConfig{
