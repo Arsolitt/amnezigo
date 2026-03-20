@@ -107,11 +107,7 @@ func TestInitCommand_CreatesConfigFile(t *testing.T) {
 		"H2",
 		"H3",
 		"H4",
-		"I1",
-		"I2",
-		"I3",
-		"I4",
-		// I5 is optional - may be empty for some protocols
+		// I1-I5 are client-only fields, not in server config
 	}
 
 	for _, section := range requiredSections {
@@ -188,7 +184,6 @@ func TestInitCommand_WithOptionalFlags(t *testing.T) {
 		"--mtu", "1420",
 		"--dns", "1.1.1.1,8.8.8.8",
 		"--keepalive", "30",
-		"--protocol", "random",
 		"--iface", "eth0",
 	})
 

@@ -91,7 +91,6 @@ AllowedIPs = 10.8.0.3/32
 	// Test 2: Error when client not found
 	t.Run("error when client not found", func(t *testing.T) {
 		cfgFile = ""
-		configPath = ""
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, "awg0.conf")
 

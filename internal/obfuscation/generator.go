@@ -216,3 +216,24 @@ func GenerateHeaderRanges() [4]HeaderRange {
 
 	panic("failed to generate non-overlapping header ranges after 1000 attempts")
 }
+
+// GenerateServerConfig generates server obfuscation config (without I1-I5)
+func GenerateServerConfig(mtu, s1, jc int) config.ServerObfuscationConfig {
+	h := GenerateHeaderRanges()
+	s := GenerateSPrefixes()
+	j := GenerateJunkParams()
+
+	return config.ServerObfuscationConfig{
+		Jc:   jc,
+		Jmin: j.Jmin,
+		Jmax: j.Jmax,
+		S1:   s1,
+		S2:   s.S2,
+		S3:   s.S3,
+		S4:   s.S4,
+		H1:   config.HeaderRange{Min: h[0].Min, Max: h[0].Max},
+		H2:   config.HeaderRange{Min: h[1].Min, Max: h[1].Max},
+		H3:   config.HeaderRange{Min: h[2].Min, Max: h[2].Max},
+		H4:   config.HeaderRange{Min: h[3].Min, Max: h[3].Max},
+	}
+}

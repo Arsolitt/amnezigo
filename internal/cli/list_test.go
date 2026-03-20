@@ -12,10 +12,8 @@ import (
 func TestListCommand(t *testing.T) {
 	// Reset global state before each subtest
 	oldCfgFile := cfgFile
-	oldConfigPath := configPath
 	defer func() {
 		cfgFile = oldCfgFile
-		configPath = oldConfigPath
 	}()
 
 	// Test 1: List multiple clients
@@ -261,14 +259,11 @@ AllowedIPs = 10.8.0.2/32
 func TestListTimestampFormat(t *testing.T) {
 	// Reset global state
 	oldCfgFile := cfgFile
-	oldConfigPath := configPath
 	defer func() {
 		cfgFile = oldCfgFile
-		configPath = oldConfigPath
 	}()
 
 	cfgFile = ""
-	configPath = ""
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "awg0.conf")
 

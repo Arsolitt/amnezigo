@@ -33,6 +33,7 @@ PrivateKey = %s
 Address = 10.8.0.1/24
 ListenPort = 55424
 MTU = 1280
+EndpointV4 = 1.2.3.4:55424
 Jc = 3
 Jmin = 64
 Jmax = 64
@@ -44,11 +45,6 @@ H1 = 100
 H2 = 200
 H3 = 300
 H4 = 400
-I1 = abc
-I2 = def
-I3 = ghi
-I4 = jkl
-I5 = mno
 
 [Peer]
 #_Name = laptop
@@ -71,7 +67,7 @@ AllowedIPs = 10.8.0.2/32
 
 		// Execute export command for single client
 		cmd := NewExportCommand()
-		cmd.SetArgs([]string{"--config", configPath, "--endpoint", "1.2.3.4:55424", "laptop"})
+		cmd.SetArgs([]string{"--config", configPath, "laptop"})
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("export command failed: %v", err)
 		}
@@ -164,6 +160,7 @@ PrivateKey = %s
 Address = 10.8.0.1/24
 ListenPort = 55424
 MTU = 1280
+EndpointV4 = 1.2.3.4:55424
 Jc = 3
 Jmin = 64
 Jmax = 64
@@ -175,11 +172,6 @@ H1 = 100
 H2 = 200
 H3 = 300
 H4 = 400
-I1 = abc
-I2 = def
-I3 = ghi
-I4 = jkl
-I5 = mno
 
 [Peer]
 #_Name = laptop
@@ -210,7 +202,7 @@ AllowedIPs = 10.8.0.3/32
 
 		// Execute export command for all clients (no name specified)
 		cmd := NewExportCommand()
-		cmd.SetArgs([]string{"--config", configPath, "--endpoint", "1.2.3.4:55424"})
+		cmd.SetArgs([]string{"--config", configPath})
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("export command failed: %v", err)
 		}
@@ -235,8 +227,8 @@ AllowedIPs = 10.8.0.3/32
 		}
 	})
 
-	// Test 3: Export with custom endpoint
-	t.Run("export with custom endpoint", func(t *testing.T) {
+	// Test 3: Export rejects --endpoint flag (removed feature)
+	t.Run("export rejects --endpoint flag", func(t *testing.T) {
 		cfgFile = ""
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, "awg0.conf")
@@ -250,6 +242,7 @@ PrivateKey = %s
 Address = 10.8.0.1/24
 ListenPort = 55424
 MTU = 1280
+EndpointV4 = 5.6.7.8:9999
 Jc = 3
 Jmin = 64
 Jmax = 64
@@ -261,11 +254,6 @@ H1 = 100
 H2 = 200
 H3 = 300
 H4 = 400
-I1 = abc
-I2 = def
-I3 = ghi
-I4 = jkl
-I5 = mno
 
 [Peer]
 #_Name = tablet
@@ -279,34 +267,18 @@ AllowedIPs = 10.8.0.4/32
 			t.Fatal(err)
 		}
 
-		// Change to tmpDir so exported files are created there
-		oldWd, _ := os.Getwd()
-		defer os.Chdir(oldWd)
-		if err := os.Chdir(tmpDir); err != nil {
-			t.Fatal(err)
-		}
-
-		// Execute export command with custom endpoint
+		// Execute export command with --endpoint flag (should fail)
 		cmd := NewExportCommand()
-		cmd.SetArgs([]string{"--config", configPath, "--endpoint", "5.6.7.8:9999", "tablet"})
-		if err := cmd.Execute(); err != nil {
-			t.Fatalf("export command failed: %v", err)
-		}
+		cmd.SetArgs([]string{"--config", configPath, "--endpoint", "1.2.3.4:55424", "tablet"})
 
-		// Verify endpoint in client config
-		clientConfigPath := filepath.Join(tmpDir, "tablet.conf")
-		content, err := os.ReadFile(clientConfigPath)
-		if err != nil {
-			t.Fatalf("failed to read client config: %v", err)
-		}
-
-		if !strings.Contains(string(content), "Endpoint = 5.6.7.8:9999") {
-			t.Error("expected custom endpoint in client config")
+		// Should fail because --endpoint flag is removed
+		if err := cmd.Execute(); err == nil {
+			t.Error("expected error when using --endpoint flag (removed)")
 		}
 	})
 
-	// Test 4: Export with auto-detected external IP
-	t.Run("export with auto-detected endpoint", func(t *testing.T) {
+	// Test 4: Export with auto-detected external IP (fallback when no endpoints configured)
+	t.Run("export with auto-detected endpoint (fallback)", func(t *testing.T) {
 		cfgFile = ""
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, "awg0.conf")
@@ -338,11 +310,6 @@ H1 = 100
 H2 = 200
 H3 = 300
 H4 = 400
-I1 = abc
-I2 = def
-I3 = ghi
-I4 = jkl
-I5 = mno
 
 [Peer]
 #_Name = desktop
@@ -363,7 +330,7 @@ AllowedIPs = 10.8.0.5/32
 			t.Fatal(err)
 		}
 
-		// Execute export command without endpoint (should auto-detect)
+		// Execute export command without endpoint config (should auto-detect)
 		cmd := NewExportCommand()
 		cmd.SetArgs([]string{"--config", configPath, "desktop"})
 
@@ -411,11 +378,6 @@ H1 = 100
 H2 = 200
 H3 = 300
 H4 = 400
-I1 = abc
-I2 = def
-I3 = ghi
-I4 = jkl
-I5 = mno
 `, serverPriv)
 		if err := os.WriteFile(configPath, []byte(initialConfig), 0644); err != nil {
 			t.Fatal(err)
@@ -423,11 +385,225 @@ I5 = mno
 
 		// Execute export command for non-existent client
 		cmd := NewExportCommand()
-		cmd.SetArgs([]string{"--config", configPath, "--endpoint", "1.2.3.4:55424", "nonexistent"})
+		cmd.SetArgs([]string{"--config", configPath, "nonexistent"})
 
 		// Should fail with an error
 		if err := cmd.Execute(); err == nil {
 			t.Error("expected error when exporting non-existent client")
+		}
+	})
+
+	// Test 6: Export with protocol flag
+	t.Run("export with protocol flag", func(t *testing.T) {
+		cfgFile = ""
+		tmpDir := t.TempDir()
+		configPath := filepath.Join(tmpDir, "awg0.conf")
+
+		// Generate valid keys
+		serverPriv, _ := crypto.GenerateKeyPair()
+		clientPriv, clientPub := crypto.GenerateKeyPair()
+
+		// Create config without I1-I5 (they should be generated during export)
+		initialConfig := fmt.Sprintf(`[Interface]
+PrivateKey = %s
+Address = 10.8.0.1/24
+ListenPort = 55424
+MTU = 1280
+EndpointV4 = 1.2.3.4:55424
+Jc = 3
+Jmin = 64
+Jmax = 64
+S1 = 1
+S2 = 2
+S3 = 3
+S4 = 4
+H1 = 100
+H2 = 200
+H3 = 300
+H4 = 400
+
+[Peer]
+#_Name = laptop
+#_PrivateKey = %s
+PublicKey = %s
+PresharedKey = testpsk123
+AllowedIPs = 10.8.0.2/32
+#_GenKeyTime = 2024-03-17T12:00:00Z
+`, serverPriv, clientPriv, clientPub)
+		if err := os.WriteFile(configPath, []byte(initialConfig), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		// Change to tmpDir so exported files are created there
+		oldWd, _ := os.Getwd()
+		defer os.Chdir(oldWd)
+		if err := os.Chdir(tmpDir); err != nil {
+			t.Fatal(err)
+		}
+
+		// Execute export command with protocol flag
+		cmd := NewExportCommand()
+		cmd.SetArgs([]string{"--config", configPath, "--protocol", "quic", "laptop"})
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("export command failed: %v", err)
+		}
+
+		// Verify client config file was created with I1-I5 generated
+		clientConfigPath := filepath.Join(tmpDir, "laptop.conf")
+		content, err := os.ReadFile(clientConfigPath)
+		if err != nil {
+			t.Fatalf("failed to read client config: %v", err)
+		}
+		configStr := string(content)
+
+		// Verify obfuscation parameters including I1-I5 are present
+		if !strings.Contains(configStr, "I1 =") || !strings.Contains(configStr, "I2 =") ||
+			!strings.Contains(configStr, "I3 =") || !strings.Contains(configStr, "I4 =") ||
+			!strings.Contains(configStr, "I5 =") {
+			t.Error("expected I1-I5 custom packet strings in client config")
+		}
+
+		// Verify Endpoint from server config is used
+		if !strings.Contains(configStr, "Endpoint = 1.2.3.4:55424") {
+			t.Error("expected Endpoint from server config (EndpointV4)")
+		}
+	})
+
+	// Test 7: Export using EndpointV4 from server config
+	t.Run("export using EndpointV4 from server config", func(t *testing.T) {
+		cfgFile = ""
+		tmpDir := t.TempDir()
+		configPath := filepath.Join(tmpDir, "awg0.conf")
+
+		// Generate valid keys
+		serverPriv, _ := crypto.GenerateKeyPair()
+		clientPriv, clientPub := crypto.GenerateKeyPair()
+
+		// Create config with EndpointV4
+		initialConfig := fmt.Sprintf(`[Interface]
+PrivateKey = %s
+Address = 10.8.0.1/24
+ListenPort = 55424
+MTU = 1280
+EndpointV4 = 203.0.113.5:55424
+EndpointV6 = [2001:db8::5]:55424
+Jc = 3
+Jmin = 64
+Jmax = 64
+S1 = 1
+S2 = 2
+S3 = 3
+S4 = 4
+H1 = 100
+H2 = 200
+H3 = 300
+H4 = 400
+
+[Peer]
+#_Name = desktop
+#_PrivateKey = %s
+PublicKey = %s
+PresharedKey = testpsk123
+AllowedIPs = 10.8.0.6/32
+#_GenKeyTime = 2024-03-17T12:00:00Z
+`, serverPriv, clientPriv, clientPub)
+		if err := os.WriteFile(configPath, []byte(initialConfig), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		// Change to tmpDir so exported files are created there
+		oldWd, _ := os.Getwd()
+		defer os.Chdir(oldWd)
+		if err := os.Chdir(tmpDir); err != nil {
+			t.Fatal(err)
+		}
+
+		// Execute export command (should prefer IPv4 endpoint)
+		cmd := NewExportCommand()
+		cmd.SetArgs([]string{"--config", configPath, "desktop"})
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("export command failed: %v", err)
+		}
+
+		// Verify EndpointV4 is used (preferred over IPv6)
+		clientConfigPath := filepath.Join(tmpDir, "desktop.conf")
+		content, err := os.ReadFile(clientConfigPath)
+		if err != nil {
+			t.Fatalf("failed to read client config: %v", err)
+		}
+
+		if !strings.Contains(string(content), "Endpoint = 203.0.113.5:55424") {
+			t.Error("expected EndpointV4 to be preferred over EndpointV6")
+		}
+		if strings.Contains(string(content), "[2001:db8::5]:55424") {
+			t.Error("expected EndpointV4, not EndpointV6")
+		}
+	})
+
+	// Test 8: Export using EndpointV6 from server config (when no EndpointV4)
+	t.Run("export using EndpointV6 from server config", func(t *testing.T) {
+		cfgFile = ""
+		tmpDir := t.TempDir()
+		configPath := filepath.Join(tmpDir, "awg0.conf")
+
+		// Generate valid keys
+		serverPriv, _ := crypto.GenerateKeyPair()
+		clientPriv, clientPub := crypto.GenerateKeyPair()
+
+		// Create config with only EndpointV6 (no EndpointV4)
+		initialConfig := fmt.Sprintf(`[Interface]
+PrivateKey = %s
+Address = 10.8.0.1/24
+ListenPort = 55424
+MTU = 1280
+EndpointV6 = [2001:db8::10]:55424
+Jc = 3
+Jmin = 64
+Jmax = 64
+S1 = 1
+S2 = 2
+S3 = 3
+S4 = 4
+H1 = 100
+H2 = 200
+H3 = 300
+H4 = 400
+
+[Peer]
+#_Name = tablet
+#_PrivateKey = %s
+PublicKey = %s
+PresharedKey = testpsk123
+AllowedIPs = 10.8.0.7/32
+#_GenKeyTime = 2024-03-17T12:00:00Z
+`, serverPriv, clientPriv, clientPub)
+		if err := os.WriteFile(configPath, []byte(initialConfig), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		// Change to tmpDir so exported files are created there
+		oldWd, _ := os.Getwd()
+		defer os.Chdir(oldWd)
+		if err := os.Chdir(tmpDir); err != nil {
+			t.Fatal(err)
+		}
+
+		// Execute export command (should use IPv6 endpoint)
+		cmd := NewExportCommand()
+		cmd.SetArgs([]string{"--config", configPath, "tablet"})
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("export command failed: %v", err)
+		}
+
+		// Verify EndpointV6 is used
+		clientConfigPath := filepath.Join(tmpDir, "tablet.conf")
+		content, err := os.ReadFile(clientConfigPath)
+		if err != nil {
+			t.Fatalf("failed to read client config: %v", err)
+		}
+
+		if !strings.Contains(string(content), "Endpoint = [2001:db8::10]:55424") {
+			t.Error("expected EndpointV6 to be used when no EndpointV4 available")
 		}
 	})
 }

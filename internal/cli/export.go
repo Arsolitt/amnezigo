@@ -1,8 +1,10 @@
 package cli
 
 import (
+	"crypto/rand"
 	"fmt"
 	"io"
+	"math/big"
 	"net"
 	"net/http"
 	"os"
@@ -10,11 +12,12 @@ import (
 
 	"github.com/Arsolitt/amnezigo/internal/config"
 	"github.com/Arsolitt/amnezigo/internal/crypto"
+	"github.com/Arsolitt/amnezigo/internal/obfuscation"
 	"github.com/spf13/cobra"
 )
 
 var (
-	exportEndpoint string
+	exportProtocol string
 )
 
 // exportCmd represents the export command
@@ -28,7 +31,7 @@ If no name is specified, exports all clients' configurations.
 
 Example:
   amnezigo export laptop
-  amnezigo export --endpoint 1.2.3.4:55424 laptop
+  amnezigo export --protocol quic laptop
   amnezigo export
 `,
 	Args: cobra.MaximumNArgs(1),
@@ -36,7 +39,7 @@ Example:
 }
 
 func init() {
-	exportCmd.Flags().StringVar(&exportEndpoint, "endpoint", "", "Server endpoint (e.g., 1.2.3.4:55424)")
+	exportCmd.Flags().StringVar(&exportProtocol, "protocol", "random", "Obfuscation protocol")
 	exportCmd.Flags().StringVar(&cfgFile, "config", "awg0.conf", "config file path")
 }
 
@@ -55,15 +58,18 @@ func runExport(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load server config: %w", err)
 	}
 
-	// Determine endpoint
-	endpoint := exportEndpoint
+	// Determine endpoint from server config (prefer IPv4, then IPv6, then fallback to external IP)
+	endpoint := serverCfg.Interface.EndpointV4
 	if endpoint == "" {
-		// Get external IP if endpoint not specified
-		externalIP, err := getExternalIP()
-		if err != nil {
-			externalIP = "YOUR_SERVER_IP"
+		endpoint = serverCfg.Interface.EndpointV6
+		if endpoint == "" {
+			// Fallback to external IP if neither configured
+			externalIP, err := getExternalIP()
+			if err != nil {
+				externalIP = "YOUR_SERVER_IP"
+			}
+			endpoint = fmt.Sprintf("%s:%d", externalIP, serverCfg.Interface.ListenPort)
 		}
-		endpoint = fmt.Sprintf("%s:%d", externalIP, serverCfg.Interface.ListenPort)
 	}
 
 	// Determine which clients to export
@@ -112,16 +118,23 @@ func exportClient(client config.PeerConfig, serverCfg config.ServerConfig, endpo
 		serverPublicKey = crypto.DerivePublicKey(serverCfg.Interface.PrivateKey)
 	}
 
+	// Generate random s1 and jc values for obfuscation config
+	s1Int, _ := rand.Int(rand.Reader, big.NewInt(65))
+	s1 := int(s1Int.Int64())
+	jcInt, _ := rand.Int(rand.Reader, big.NewInt(11))
+	jc := int(jcInt.Int64())
+
+	// Generate client obfuscation config with I1-I5 using the specified protocol
+	obfConfig := obfuscation.GenerateConfig(exportProtocol, serverCfg.Interface.MTU, s1, jc)
+
 	// Build client config
 	clientConfig := config.ClientConfig{
 		Interface: config.ClientInterfaceConfig{
-			PrivateKey: client.PrivateKey,
-			Address:    clientIP + "/32",
-			DNS:        "1.1.1.1, 8.8.8.8",
-			MTU:        serverCfg.Interface.MTU,
-			Obfuscation: config.ClientObfuscationConfig{
-				ServerObfuscationConfig: serverCfg.Obfuscation,
-			},
+			PrivateKey:  client.PrivateKey,
+			Address:     clientIP + "/32",
+			DNS:         "1.1.1.1, 8.8.8.8",
+			MTU:         serverCfg.Interface.MTU,
+			Obfuscation: obfConfig,
 		},
 		Peer: config.ClientPeerConfig{
 			PublicKey:           serverPublicKey,
