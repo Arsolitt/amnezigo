@@ -8,13 +8,17 @@ import (
 func TestWriteServerConfig(t *testing.T) {
 	cfg := ServerConfig{
 		Interface: InterfaceConfig{
-			PrivateKey: "test_priv_key_1",
-			PublicKey:  "test_pub_key_1",
-			Address:    "10.0.0.1/24",
-			ListenPort: 51820,
-			MTU:        1420,
-			PostUp:     "iptables -A FORWARD -i %i -j ACCEPT; iptables -A FORWARD -o %i -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE",
-			PostDown:   "iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE",
+			PrivateKey:     "test_priv_key_1",
+			PublicKey:      "test_pub_key_1",
+			Address:        "10.0.0.1/24",
+			ListenPort:     51820,
+			MTU:            1420,
+			PostUp:         "iptables -A FORWARD -i %i -j ACCEPT; iptables -A FORWARD -o %i -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE",
+			PostDown:       "iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE",
+			EndpointV4:     "1.2.3.4:51820",
+			EndpointV6:     "[2001:db8::1]:51820",
+			TunName:        "wg0",
+			ClientToClient: true,
 		},
 		Peers: []PeerConfig{
 			{
@@ -24,7 +28,7 @@ func TestWriteServerConfig(t *testing.T) {
 				AllowedIPs: "10.0.0.2/32",
 			},
 		},
-		Obfuscation: ObfuscationConfig{
+		Obfuscation: ServerObfuscationConfig{
 			Jc:   50,
 			Jmin: 10,
 			Jmax: 30,
@@ -32,15 +36,10 @@ func TestWriteServerConfig(t *testing.T) {
 			S2:   200,
 			S3:   300,
 			S4:   400,
-			H1:   1,
-			H2:   2,
-			H3:   3,
-			H4:   4,
-			I1:   "i1_value",
-			I2:   "i2_value",
-			I3:   "i3_value",
-			I4:   "i4_value",
-			I5:   "i5_value",
+			H1:   HeaderRange{Min: 1, Max: 100},
+			H2:   HeaderRange{Min: 2, Max: 200},
+			H3:   HeaderRange{Min: 3, Max: 300},
+			H4:   HeaderRange{Min: 4, Max: 400},
 		},
 	}
 
@@ -90,11 +89,23 @@ func TestWriteServerConfig(t *testing.T) {
 	if !strings.Contains(output, "S1 = 100") {
 		t.Error("Output should contain S1")
 	}
-	if !strings.Contains(output, "H1 = 1") {
-		t.Error("Output should contain H1")
+	if !strings.Contains(output, "H1 = 1,100") {
+		t.Error("Output should contain H1 range")
 	}
-	if !strings.Contains(output, "I1 = i1_value") {
-		t.Error("Output should contain I1")
+	// Server config does not write I1-I5 (they are client-only)
+
+	// Check metadata comments
+	if !strings.Contains(output, "#_EndpointV4 = 1.2.3.4:51820") {
+		t.Error("Output should contain #_EndpointV4 comment")
+	}
+	if !strings.Contains(output, "#_EndpointV6 = [2001:db8::1]:51820") {
+		t.Error("Output should contain #_EndpointV6 comment")
+	}
+	if !strings.Contains(output, "#_ClientToClient = true") {
+		t.Error("Output should contain #_ClientToClient comment")
+	}
+	if !strings.Contains(output, "#_TunName = wg0") {
+		t.Error("Output should contain #_TunName comment")
 	}
 
 	// Check [Peer] section
@@ -185,23 +196,25 @@ func TestWriteClientConfig(t *testing.T) {
 			Address:    "10.0.0.2/32",
 			DNS:        "1.1.1.1",
 			MTU:        1420,
-			Obfuscation: ObfuscationConfig{
-				Jc:   50,
-				Jmin: 10,
-				Jmax: 30,
-				S1:   100,
-				S2:   200,
-				S3:   300,
-				S4:   400,
-				H1:   1,
-				H2:   2,
-				H3:   3,
-				H4:   4,
-				I1:   "i1_value",
-				I2:   "i2_value",
-				I3:   "i3_value",
-				I4:   "i4_value",
-				I5:   "i5_value",
+			Obfuscation: ClientObfuscationConfig{
+				ServerObfuscationConfig: ServerObfuscationConfig{
+					Jc:   50,
+					Jmin: 10,
+					Jmax: 30,
+					S1:   100,
+					S2:   200,
+					S3:   300,
+					S4:   400,
+					H1:   HeaderRange{Min: 1, Max: 100},
+					H2:   HeaderRange{Min: 2, Max: 200},
+					H3:   HeaderRange{Min: 3, Max: 300},
+					H4:   HeaderRange{Min: 4, Max: 400},
+				},
+				I1: "i1_value",
+				I2: "i2_value",
+				I3: "i3_value",
+				I4: "i4_value",
+				I5: "i5_value",
 			},
 		},
 		Peer: ClientPeerConfig{
@@ -241,6 +254,11 @@ func TestWriteClientConfig(t *testing.T) {
 	// Check obfuscation params
 	if !strings.Contains(output, "Jc = 50") {
 		t.Error("Output should contain Jc")
+	}
+	// Client config writes H1-H4 as single values (picked from range)
+	// Should NOT contain comma in H1 value (that would indicate range format)
+	if strings.Contains(output, "H1 = 1,100") {
+		t.Error("Client config should write H1 as single value, not range")
 	}
 	if !strings.Contains(output, "I1 = i1_value") {
 		t.Error("Output should contain I1")

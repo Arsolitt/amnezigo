@@ -1,10 +1,21 @@
 package config
 
 import (
+	"crypto/rand"
 	"fmt"
 	"io"
+	"math/big"
 	"time"
 )
+
+// randInRange returns a random number in the range [min, max]
+func randInRange(min, max uint32) uint32 {
+	if min >= max {
+		return min
+	}
+	n, _ := rand.Int(rand.Reader, big.NewInt(int64(max-min+1)))
+	return min + uint32(n.Uint64())
+}
 
 func WriteServerConfig(w io.Writer, cfg ServerConfig) error {
 	fmt.Fprintln(w, "[Interface]")
@@ -32,21 +43,18 @@ func WriteServerConfig(w io.Writer, cfg ServerConfig) error {
 	fmt.Fprintf(w, "H3 = %d,%d\n", cfg.Obfuscation.H3.Min, cfg.Obfuscation.H3.Max)
 	fmt.Fprintf(w, "H4 = %d,%d\n", cfg.Obfuscation.H4.Min, cfg.Obfuscation.H4.Max)
 	// I1-I5 are client-only fields, not in ServerObfuscationConfig
-	// if cfg.Obfuscation.I1 != "" {
-	// 	fmt.Fprintf(w, "I1 = %s\n", cfg.Obfuscation.I1)
-	// }
-	// if cfg.Obfuscation.I2 != "" {
-	// 	fmt.Fprintf(w, "I2 = %s\n", cfg.Obfuscation.I2)
-	// }
-	// if cfg.Obfuscation.I3 != "" {
-	// 	fmt.Fprintf(w, "I3 = %s\n", cfg.Obfuscation.I3)
-	// }
-	// if cfg.Obfuscation.I4 != "" {
-	// 	fmt.Fprintf(w, "I4 = %s\n", cfg.Obfuscation.I4)
-	// }
-	// if cfg.Obfuscation.I5 != "" {
-	// 	fmt.Fprintf(w, "I5 = %s\n", cfg.Obfuscation.I5)
-	// }
+
+	// Write metadata comments
+	if cfg.Interface.EndpointV4 != "" {
+		fmt.Fprintf(w, "#_EndpointV4 = %s\n", cfg.Interface.EndpointV4)
+	}
+	if cfg.Interface.EndpointV6 != "" {
+		fmt.Fprintf(w, "#_EndpointV6 = %s\n", cfg.Interface.EndpointV6)
+	}
+	fmt.Fprintf(w, "#_ClientToClient = %v\n", cfg.Interface.ClientToClient)
+	if cfg.Interface.TunName != "" {
+		fmt.Fprintf(w, "#_TunName = %s\n", cfg.Interface.TunName)
+	}
 
 	for _, peer := range cfg.Peers {
 		fmt.Fprintln(w, "")
@@ -84,24 +92,26 @@ func WriteClientConfig(w io.Writer, cfg ClientConfig) error {
 	fmt.Fprintf(w, "S2 = %d\n", cfg.Interface.Obfuscation.S2)
 	fmt.Fprintf(w, "S3 = %d\n", cfg.Interface.Obfuscation.S3)
 	fmt.Fprintf(w, "S4 = %d\n", cfg.Interface.Obfuscation.S4)
-	fmt.Fprintf(w, "H1 = %d\n", cfg.Interface.Obfuscation.H1)
-	fmt.Fprintf(w, "H2 = %d\n", cfg.Interface.Obfuscation.H2)
-	fmt.Fprintf(w, "H3 = %d\n", cfg.Interface.Obfuscation.H3)
-	fmt.Fprintf(w, "H4 = %d\n", cfg.Interface.Obfuscation.H4)
-	if cfg.Interface.Obfuscation.I1 != "" {
-		fmt.Fprintf(w, "I1 = %s\n", cfg.Interface.Obfuscation.I1)
+	// Write H1-H4 as single values picked from range
+	fmt.Fprintf(w, "H1 = %d\n", randInRange(cfg.Interface.Obfuscation.H1.Min, cfg.Interface.Obfuscation.H1.Max))
+	fmt.Fprintf(w, "H2 = %d\n", randInRange(cfg.Interface.Obfuscation.H2.Min, cfg.Interface.Obfuscation.H2.Max))
+	fmt.Fprintf(w, "H3 = %d\n", randInRange(cfg.Interface.Obfuscation.H3.Min, cfg.Interface.Obfuscation.H3.Max))
+	fmt.Fprintf(w, "H4 = %d\n", randInRange(cfg.Interface.Obfuscation.H4.Min, cfg.Interface.Obfuscation.H4.Max))
+	// Write I1-I5 in a loop
+	iValues := []struct {
+		name  string
+		value string
+	}{
+		{"I1", cfg.Interface.Obfuscation.I1},
+		{"I2", cfg.Interface.Obfuscation.I2},
+		{"I3", cfg.Interface.Obfuscation.I3},
+		{"I4", cfg.Interface.Obfuscation.I4},
+		{"I5", cfg.Interface.Obfuscation.I5},
 	}
-	if cfg.Interface.Obfuscation.I2 != "" {
-		fmt.Fprintf(w, "I2 = %s\n", cfg.Interface.Obfuscation.I2)
-	}
-	if cfg.Interface.Obfuscation.I3 != "" {
-		fmt.Fprintf(w, "I3 = %s\n", cfg.Interface.Obfuscation.I3)
-	}
-	if cfg.Interface.Obfuscation.I4 != "" {
-		fmt.Fprintf(w, "I4 = %s\n", cfg.Interface.Obfuscation.I4)
-	}
-	if cfg.Interface.Obfuscation.I5 != "" {
-		fmt.Fprintf(w, "I5 = %s\n", cfg.Interface.Obfuscation.I5)
+	for _, iv := range iValues {
+		if iv.value != "" {
+			fmt.Fprintf(w, "%s = %s\n", iv.name, iv.value)
+		}
 	}
 
 	fmt.Fprintln(w, "")
