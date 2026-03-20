@@ -27,25 +27,26 @@ func WriteServerConfig(w io.Writer, cfg ServerConfig) error {
 	fmt.Fprintf(w, "S2 = %d\n", cfg.Obfuscation.S2)
 	fmt.Fprintf(w, "S3 = %d\n", cfg.Obfuscation.S3)
 	fmt.Fprintf(w, "S4 = %d\n", cfg.Obfuscation.S4)
-	fmt.Fprintf(w, "H1 = %d\n", cfg.Obfuscation.H1)
-	fmt.Fprintf(w, "H2 = %d\n", cfg.Obfuscation.H2)
-	fmt.Fprintf(w, "H3 = %d\n", cfg.Obfuscation.H3)
-	fmt.Fprintf(w, "H4 = %d\n", cfg.Obfuscation.H4)
-	if cfg.Obfuscation.I1 != "" {
-		fmt.Fprintf(w, "I1 = %s\n", cfg.Obfuscation.I1)
-	}
-	if cfg.Obfuscation.I2 != "" {
-		fmt.Fprintf(w, "I2 = %s\n", cfg.Obfuscation.I2)
-	}
-	if cfg.Obfuscation.I3 != "" {
-		fmt.Fprintf(w, "I3 = %s\n", cfg.Obfuscation.I3)
-	}
-	if cfg.Obfuscation.I4 != "" {
-		fmt.Fprintf(w, "I4 = %s\n", cfg.Obfuscation.I4)
-	}
-	if cfg.Obfuscation.I5 != "" {
-		fmt.Fprintf(w, "I5 = %s\n", cfg.Obfuscation.I5)
-	}
+	fmt.Fprintf(w, "H1 = %d,%d\n", cfg.Obfuscation.H1.Min, cfg.Obfuscation.H1.Max)
+	fmt.Fprintf(w, "H2 = %d,%d\n", cfg.Obfuscation.H2.Min, cfg.Obfuscation.H2.Max)
+	fmt.Fprintf(w, "H3 = %d,%d\n", cfg.Obfuscation.H3.Min, cfg.Obfuscation.H3.Max)
+	fmt.Fprintf(w, "H4 = %d,%d\n", cfg.Obfuscation.H4.Min, cfg.Obfuscation.H4.Max)
+	// I1-I5 are client-only fields, not in ServerObfuscationConfig
+	// if cfg.Obfuscation.I1 != "" {
+	// 	fmt.Fprintf(w, "I1 = %s\n", cfg.Obfuscation.I1)
+	// }
+	// if cfg.Obfuscation.I2 != "" {
+	// 	fmt.Fprintf(w, "I2 = %s\n", cfg.Obfuscation.I2)
+	// }
+	// if cfg.Obfuscation.I3 != "" {
+	// 	fmt.Fprintf(w, "I3 = %s\n", cfg.Obfuscation.I3)
+	// }
+	// if cfg.Obfuscation.I4 != "" {
+	// 	fmt.Fprintf(w, "I4 = %s\n", cfg.Obfuscation.I4)
+	// }
+	// if cfg.Obfuscation.I5 != "" {
+	// 	fmt.Fprintf(w, "I5 = %s\n", cfg.Obfuscation.I5)
+	// }
 
 	for _, peer := range cfg.Peers {
 		fmt.Fprintln(w, "")

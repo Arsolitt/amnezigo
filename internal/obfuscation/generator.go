@@ -3,9 +3,15 @@ package obfuscation
 import (
 	"crypto/rand"
 	"math/big"
+	"sort"
 
 	"github.com/Arsolitt/amnezigo/internal/config"
 )
+
+// HeaderRange represents a min-max range for obfuscation
+type HeaderRange struct {
+	Min, Max uint32
+}
 
 // Headers represents H1-H4 obfuscation headers
 type Headers struct {
@@ -119,28 +125,94 @@ func GenerateCPS(protocol string, mtu, s1, jc int) (string, string, string, stri
 }
 
 // GenerateConfig combines all obfuscation parameters into a config
-func GenerateConfig(protocol string, mtu, s1, jc int) config.ObfuscationConfig {
+func GenerateConfig(protocol string, mtu, s1, jc int) config.ClientObfuscationConfig {
 	h := GenerateHeaders()
 	s := GenerateSPrefixes()
 	j := GenerateJunkParams()
 	cps := generateCPSConfig(protocol, mtu, s1)
 
-	return config.ObfuscationConfig{
-		Jc:   jc,
-		Jmin: j.Jmin,
-		Jmax: j.Jmax,
-		S1:   s1,
-		S2:   s.S2,
-		S3:   s.S3,
-		S4:   s.S4,
-		H1:   h.H1,
-		H2:   h.H2,
-		H3:   h.H3,
-		H4:   h.H4,
-		I1:   cps.I1,
-		I2:   cps.I2,
-		I3:   cps.I3,
-		I4:   cps.I4,
-		I5:   cps.I5,
+	return config.ClientObfuscationConfig{
+		ServerObfuscationConfig: config.ServerObfuscationConfig{
+			Jc:   jc,
+			Jmin: j.Jmin,
+			Jmax: j.Jmax,
+			S1:   s1,
+			S2:   s.S2,
+			S3:   s.S3,
+			S4:   s.S4,
+			H1:   config.HeaderRange{Min: h.H1, Max: h.H1}, // TODO: Use ranges instead
+			H2:   config.HeaderRange{Min: h.H2, Max: h.H2}, // TODO: Use ranges instead
+			H3:   config.HeaderRange{Min: h.H3, Max: h.H3}, // TODO: Use ranges instead
+			H4:   config.HeaderRange{Min: h.H4, Max: h.H4}, // TODO: Use ranges instead
+		},
+		I1: cps.I1,
+		I2: cps.I2,
+		I3: cps.I3,
+		I4: cps.I4,
+		I5: cps.I5,
 	}
+}
+
+// GenerateHeaderRanges generates 4 non-overlapping H1-H4 ranges
+func GenerateHeaderRanges() [4]HeaderRange {
+	const (
+		minValue    = uint32(5)
+		maxValue    = uint32(2147483647)
+		minRange    = uint32(10000000)
+		maxAttempts = 1000
+	)
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		ranges := [4]HeaderRange{}
+
+		// Generate 4 random ranges
+		for i := 0; i < 4; i++ {
+			// Calculate available space after reserving minRange for remaining ranges
+			minRangeVal := big.NewInt(int64(maxValue - minValue - minRange*3))
+			if minRangeVal.Int64() <= 0 {
+				minRangeVal = big.NewInt(1)
+			}
+
+			minRand, _ := rand.Int(rand.Reader, minRangeVal)
+			ranges[i].Min = minValue + uint32(minRand.Uint64())
+
+			// Calculate available space for Max
+			maxRangeVal := big.NewInt(int64(maxValue - ranges[i].Min - minRange))
+			if maxRangeVal.Int64() < int64(minRange) {
+				maxRangeVal = big.NewInt(int64(minRange))
+			}
+
+			maxRand, _ := rand.Int(rand.Reader, maxRangeVal)
+			ranges[i].Max = ranges[i].Min + minRange + uint32(maxRand.Uint64())
+
+			if ranges[i].Max > maxValue {
+				ranges[i].Max = maxValue
+			}
+		}
+
+		// Sort ranges by Min value
+		sortedRanges := ranges[:]
+		sort.Slice(sortedRanges, func(i, j int) bool {
+			return sortedRanges[i].Min < sortedRanges[j].Min
+		})
+
+		// Check for overlaps
+		valid := true
+		for i := 0; i < 3; i++ {
+			if sortedRanges[i].Max >= sortedRanges[i+1].Min {
+				valid = false
+				break
+			}
+		}
+
+		if valid {
+			// Return sorted ranges
+			for i := 0; i < 4; i++ {
+				ranges[i] = sortedRanges[i]
+			}
+			return ranges
+		}
+	}
+
+	panic("failed to generate non-overlapping header ranges after 1000 attempts")
 }

@@ -109,31 +109,52 @@ func ParseServerConfig(r io.Reader) (ServerConfig, error) {
 					cfg.Obfuscation.S4 = s
 				}
 			case "H1":
-				if h, err := strconv.ParseUint(value, 10, 32); err == nil {
-					cfg.Obfuscation.H1 = uint32(h)
+				// TODO: Parse as HeaderRange (min,max) format
+				if parts := strings.Split(value, ","); len(parts) == 2 {
+					if min, err1 := strconv.ParseUint(strings.TrimSpace(parts[0]), 10, 32); err1 == nil {
+						if max, err2 := strconv.ParseUint(strings.TrimSpace(parts[1]), 10, 32); err2 == nil {
+							cfg.Obfuscation.H1 = HeaderRange{Min: uint32(min), Max: uint32(max)}
+						}
+					}
 				}
 			case "H2":
-				if h, err := strconv.ParseUint(value, 10, 32); err == nil {
-					cfg.Obfuscation.H2 = uint32(h)
+				// TODO: Parse as HeaderRange (min,max) format
+				if parts := strings.Split(value, ","); len(parts) == 2 {
+					if min, err1 := strconv.ParseUint(strings.TrimSpace(parts[0]), 10, 32); err1 == nil {
+						if max, err2 := strconv.ParseUint(strings.TrimSpace(parts[1]), 10, 32); err2 == nil {
+							cfg.Obfuscation.H2 = HeaderRange{Min: uint32(min), Max: uint32(max)}
+						}
+					}
 				}
 			case "H3":
-				if h, err := strconv.ParseUint(value, 10, 32); err == nil {
-					cfg.Obfuscation.H3 = uint32(h)
+				// TODO: Parse as HeaderRange (min,max) format
+				if parts := strings.Split(value, ","); len(parts) == 2 {
+					if min, err1 := strconv.ParseUint(strings.TrimSpace(parts[0]), 10, 32); err1 == nil {
+						if max, err2 := strconv.ParseUint(strings.TrimSpace(parts[1]), 10, 32); err2 == nil {
+							cfg.Obfuscation.H3 = HeaderRange{Min: uint32(min), Max: uint32(max)}
+						}
+					}
 				}
 			case "H4":
-				if h, err := strconv.ParseUint(value, 10, 32); err == nil {
-					cfg.Obfuscation.H4 = uint32(h)
+				// TODO: Parse as HeaderRange (min,max) format
+				if parts := strings.Split(value, ","); len(parts) == 2 {
+					if min, err1 := strconv.ParseUint(strings.TrimSpace(parts[0]), 10, 32); err1 == nil {
+						if max, err2 := strconv.ParseUint(strings.TrimSpace(parts[1]), 10, 32); err2 == nil {
+							cfg.Obfuscation.H4 = HeaderRange{Min: uint32(min), Max: uint32(max)}
+						}
+					}
 				}
-			case "I1":
-				cfg.Obfuscation.I1 = value
-			case "I2":
-				cfg.Obfuscation.I2 = value
-			case "I3":
-				cfg.Obfuscation.I3 = value
-			case "I4":
-				cfg.Obfuscation.I4 = value
-			case "I5":
-				cfg.Obfuscation.I5 = value
+				// I1-I5 are client-only fields, should be in ParseClientConfig
+				// case "I1":
+				// 	cfg.Obfuscation.I1 = value
+				// case "I2":
+				// 	cfg.Obfuscation.I2 = value
+				// case "I3":
+				// 	cfg.Obfuscation.I3 = value
+				// case "I4":
+				// 	cfg.Obfuscation.I4 = value
+				// case "I5":
+				// 	cfg.Obfuscation.I5 = value
 			}
 		} else if currentSection == "[Peer]" {
 			switch key {

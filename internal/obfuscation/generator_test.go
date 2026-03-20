@@ -88,9 +88,19 @@ func TestGenerateConfig(t *testing.T) {
 		t.Errorf("Jc must be in range 0-10, got %d", cfg.Jc)
 	}
 
-	// All headers must be non-zero
-	if cfg.H1 == 0 || cfg.H2 == 0 || cfg.H3 == 0 || cfg.H4 == 0 {
-		t.Error("All headers (H1-H4) must be non-zero")
+	// All header ranges must be valid
+	// TODO: Update to require Min < Max once GenerateConfig uses GenerateHeaderRanges
+	if cfg.H1.Min == 0 || cfg.H1.Max == 0 {
+		t.Error("H1 must have non-zero Min and Max")
+	}
+	if cfg.H2.Min == 0 || cfg.H2.Max == 0 {
+		t.Error("H2 must have non-zero Min and Max")
+	}
+	if cfg.H3.Min == 0 || cfg.H3.Max == 0 {
+		t.Error("H3 must have non-zero Min and Max")
+	}
+	if cfg.H4.Min == 0 || cfg.H4.Max == 0 {
+		t.Error("H4 must have non-zero Min and Max")
 	}
 
 	// S1-S3: 0-64, S4: 0-32
@@ -230,5 +240,42 @@ func TestGenerateConfig_WithMTU(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestGenerateHeaderRanges(t *testing.T) {
+	ranges := GenerateHeaderRanges()
+
+	// Must return 4 ranges
+	if len(ranges) != 4 {
+		t.Fatalf("expected 4 ranges, got %d", len(ranges))
+	}
+
+	// Each range must be at least 10,000,000 in size
+	minSize := uint32(10000000)
+	for i, r := range ranges {
+		size := r.Max - r.Min
+		if size < minSize {
+			t.Errorf("H%d range too small: %d (min %d)", i+1, size, minSize)
+		}
+		if r.Min < 5 {
+			t.Errorf("H%d Min below 5: %d", i+1, r.Min)
+		}
+		if r.Max > 2147483647 {
+			t.Errorf("H%d Max above 2147483647: %d", i+1, r.Max)
+		}
+		if r.Min >= r.Max {
+			t.Errorf("H%d Min >= Max: %d >= %d", i+1, r.Min, r.Max)
+		}
+	}
+
+	// Check non-overlapping
+	for i := 0; i < 4; i++ {
+		for j := i + 1; j < 4; j++ {
+			if ranges[i].Max >= ranges[j].Min && ranges[i].Min <= ranges[j].Max {
+				t.Errorf("H%d and H%d overlap: [%d-%d] vs [%d-%d]",
+					i+1, j+1, ranges[i].Min, ranges[i].Max, ranges[j].Min, ranges[j].Max)
+			}
+		}
 	}
 }
