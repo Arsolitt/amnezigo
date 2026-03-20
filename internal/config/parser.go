@@ -65,6 +65,8 @@ func ParseServerConfig(r io.Reader) (ServerConfig, error) {
 					cfg.Interface.ClientToClient = value == "true"
 				case "TunName":
 					cfg.Interface.TunName = value
+				case "MainIface":
+					cfg.Interface.MainIface = value
 				}
 			}
 			continue

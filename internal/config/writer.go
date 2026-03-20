@@ -55,6 +55,9 @@ func WriteServerConfig(w io.Writer, cfg ServerConfig) error {
 	if cfg.Interface.TunName != "" {
 		fmt.Fprintf(w, "#_TunName = %s\n", cfg.Interface.TunName)
 	}
+	if cfg.Interface.MainIface != "" {
+		fmt.Fprintf(w, "#_MainIface = %s\n", cfg.Interface.MainIface)
+	}
 
 	for _, peer := range cfg.Peers {
 		fmt.Fprintln(w, "")
