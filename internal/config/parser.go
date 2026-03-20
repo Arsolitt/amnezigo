@@ -91,14 +91,6 @@ func ParseServerConfig(r io.Reader) (ServerConfig, error) {
 				cfg.Interface.PostUp = value
 			case "PostDown":
 				cfg.Interface.PostDown = value
-			case "EndpointV4":
-				cfg.Interface.EndpointV4 = value
-			case "EndpointV6":
-				cfg.Interface.EndpointV6 = value
-			case "ClientToClient":
-				cfg.Interface.ClientToClient = value == "true"
-			case "TunName":
-				cfg.Interface.TunName = value
 			case "Jc":
 				if jc, err := strconv.Atoi(value); err == nil {
 					cfg.Obfuscation.Jc = jc
