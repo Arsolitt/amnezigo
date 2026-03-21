@@ -9,10 +9,9 @@ func GeneratePostUp(tunName, mainIface, subnet string, clientToClient bool) stri
 
 	// Accept traffic on tunnel interface
 	rules = append(rules, "iptables -A INPUT -i "+tunName+" -j ACCEPT")
-	rules = append(rules, "iptables -A FORWARD -i "+tunName+" -j ACCEPT")
 	rules = append(rules, "iptables -A OUTPUT -o "+tunName+" -j ACCEPT")
 
-	// Forward traffic from tunnel to main interface
+	// Forward traffic from tunnel to main interface (for internet access)
 	rules = append(rules, "iptables -A FORWARD -i "+tunName+" -o "+mainIface+" -s "+subnet+" -j ACCEPT")
 
 	// Allow established/related connections (for return traffic)
@@ -39,7 +38,6 @@ func GeneratePostDown(tunName, mainIface, subnet string, clientToClient bool) st
 
 	// Accept traffic on tunnel interface
 	rules = append(rules, "iptables -D INPUT -i "+tunName+" -j ACCEPT")
-	rules = append(rules, "iptables -D FORWARD -i "+tunName+" -j ACCEPT")
 	rules = append(rules, "iptables -D OUTPUT -o "+tunName+" -j ACCEPT")
 
 	// Forward traffic from tunnel to main interface

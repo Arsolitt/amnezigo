@@ -12,11 +12,12 @@ func TestGeneratePostUp(t *testing.T) {
 	if !strings.Contains(rules, "iptables -A INPUT -i awg0 -j ACCEPT") {
 		t.Errorf("Missing INPUT rule")
 	}
-	if !strings.Contains(rules, "iptables -A FORWARD -i awg0 -j ACCEPT") {
-		t.Errorf("Missing FORWARD rule")
-	}
 	if !strings.Contains(rules, "iptables -A OUTPUT -o awg0 -j ACCEPT") {
 		t.Errorf("Missing OUTPUT rule")
+	}
+	// Verify permissive FORWARD rule is NOT present (client-to-client should be blocked)
+	if strings.Contains(rules, "iptables -A FORWARD -i awg0 -j ACCEPT") {
+		t.Errorf("Permissive FORWARD rule should not be present - it allows client-to-client")
 	}
 	if !strings.Contains(rules, "iptables -A FORWARD -i awg0 -o eth0 -s 10.8.0.0/24 -j ACCEPT") {
 		t.Errorf("Missing FORWARD tunnel to main interface rule")
@@ -28,15 +29,15 @@ func TestGeneratePostUp(t *testing.T) {
 		t.Errorf("Missing MASQUERADE rule")
 	}
 
-	// Verify rules are joined with "; "
-	rulesArray := strings.Split(rules, "; ")
-	if len(rulesArray) != 7 {
-		t.Errorf("Expected 7 rules, got %d", len(rulesArray))
-	}
-
 	// Verify clientToClient rule is NOT present when false
 	if strings.Contains(rules, "-i awg0 -o awg0") {
 		t.Errorf("Client-to-client rule should not be present when clientToClient is false")
+	}
+
+	// Verify rules are joined with "; "
+	rulesArray := strings.Split(rules, "; ")
+	if len(rulesArray) != 6 {
+		t.Errorf("Expected 6 rules, got %d", len(rulesArray))
 	}
 }
 
@@ -47,19 +48,16 @@ func TestGeneratePostUpClientToClient(t *testing.T) {
 	if !strings.Contains(rules, "iptables -A INPUT -i awg0 -j ACCEPT") {
 		t.Errorf("Missing INPUT rule")
 	}
-	if !strings.Contains(rules, "iptables -A FORWARD -i awg0 -j ACCEPT") {
-		t.Errorf("Missing FORWARD rule")
-	}
 
 	// Verify client-to-client rule is present when true
 	if !strings.Contains(rules, "iptables -A FORWARD -i awg0 -o awg0 -j ACCEPT") {
 		t.Errorf("Missing client-to-client rule when clientToClient is true")
 	}
 
-	// Verify we have 8 rules when clientToClient is true
+	// Verify we have 7 rules when clientToClient is true
 	rulesArray := strings.Split(rules, "; ")
-	if len(rulesArray) != 8 {
-		t.Errorf("Expected 8 rules with clientToClient, got %d", len(rulesArray))
+	if len(rulesArray) != 7 {
+		t.Errorf("Expected 7 rules with clientToClient, got %d", len(rulesArray))
 	}
 }
 
@@ -75,11 +73,12 @@ func TestGeneratePostDown(t *testing.T) {
 	if !strings.Contains(rules, "iptables -D INPUT -i awg0 -j ACCEPT") {
 		t.Errorf("Missing INPUT delete rule")
 	}
-	if !strings.Contains(rules, "iptables -D FORWARD -i awg0 -j ACCEPT") {
-		t.Errorf("Missing FORWARD delete rule")
-	}
 	if !strings.Contains(rules, "iptables -D OUTPUT -o awg0 -j ACCEPT") {
 		t.Errorf("Missing OUTPUT delete rule")
+	}
+	// Verify permissive FORWARD rule is NOT present
+	if strings.Contains(rules, "iptables -D FORWARD -i awg0 -j ACCEPT") {
+		t.Errorf("Permissive FORWARD delete rule should not be present")
 	}
 	if !strings.Contains(rules, "iptables -D FORWARD -i awg0 -o eth0 -s 10.8.0.0/24 -j ACCEPT") {
 		t.Errorf("Missing FORWARD tunnel to main interface delete rule")
@@ -93,8 +92,8 @@ func TestGeneratePostDown(t *testing.T) {
 
 	// Verify rules are joined with "; "
 	rulesArray := strings.Split(rules, "; ")
-	if len(rulesArray) != 7 {
-		t.Errorf("Expected 7 rules, got %d", len(rulesArray))
+	if len(rulesArray) != 6 {
+		t.Errorf("Expected 6 rules, got %d", len(rulesArray))
 	}
 }
 
@@ -106,9 +105,9 @@ func TestGeneratePostDownClientToClient(t *testing.T) {
 		t.Errorf("Missing client-to-client delete rule when clientToClient is true")
 	}
 
-	// Verify we have 8 rules when clientToClient is true
+	// Verify we have 7 rules when clientToClient is true
 	rulesArray := strings.Split(rules, "; ")
-	if len(rulesArray) != 8 {
-		t.Errorf("Expected 8 rules with clientToClient, got %d", len(rulesArray))
+	if len(rulesArray) != 7 {
+		t.Errorf("Expected 7 rules with clientToClient, got %d", len(rulesArray))
 	}
 }
