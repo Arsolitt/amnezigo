@@ -1,6 +1,6 @@
 module github.com/Arsolitt/amnezigo
 
-go 1.22
+go 1.26.1
 
 require (
 	github.com/spf13/cobra v1.8.0
