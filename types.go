@@ -56,7 +56,8 @@ type ClientObfuscationConfig struct {
 	I3 string
 	I4 string
 	I5 string
-	ServerObfuscationConfig
+
+	ServerObfuscationConfig //nolint:embeddedstructfieldcheck // ordering conflicts with govet fieldalignment
 }
 
 // ClientConfig represents the full WireGuard client configuration.

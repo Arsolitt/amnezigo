@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Arsolitt/amnezigo"
 )
 
 func TestAddCommand(t *testing.T) {
@@ -365,7 +367,7 @@ func TestFindNextAvailableIP(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ip, err := findNextAvailableIP(tt.serverAddress, tt.existingIPs)
+			ip, err := amnezigo.FindNextAvailableIP(tt.serverAddress, tt.existingIPs)
 
 			if tt.expectError {
 				if err == nil {

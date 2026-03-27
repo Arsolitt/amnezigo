@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Arsolitt/amnezigo/internal/crypto"
+	"github.com/Arsolitt/amnezigo"
 )
 
 //nolint:gocyclo,cyclop // table-driven test with multiple scenarios
@@ -25,8 +25,8 @@ func TestExportCommand(t *testing.T) {
 		configPath := filepath.Join(tmpDir, "awg0.conf")
 
 		// Generate valid keys for server and client
-		serverPriv, _ := crypto.GenerateKeyPair()
-		clientPriv, clientPub := crypto.GenerateKeyPair()
+		serverPriv, _ := amnezigo.GenerateKeyPair()
+		clientPriv, clientPub := amnezigo.GenerateKeyPair()
 
 		// Create initial config with server interface and one client
 		initialConfig := fmt.Sprintf(`[Interface]
@@ -114,7 +114,7 @@ AllowedIPs = 10.8.0.2/32
 		}
 
 		// Verify Server PublicKey (derived from server PrivateKey)
-		serverPub := crypto.DerivePublicKey(serverPriv)
+		serverPub := amnezigo.DerivePublicKey(serverPriv)
 		if !strings.Contains(configStr, fmt.Sprintf("PublicKey = %s", serverPub)) {
 			t.Error("expected server PublicKey in client config")
 		}
@@ -148,9 +148,9 @@ AllowedIPs = 10.8.0.2/32
 		configPath := filepath.Join(tmpDir, "awg0.conf")
 
 		// Generate valid keys
-		serverPriv, _ := crypto.GenerateKeyPair()
-		laptopPriv, laptopPub := crypto.GenerateKeyPair()
-		phonePriv, phonePub := crypto.GenerateKeyPair()
+		serverPriv, _ := amnezigo.GenerateKeyPair()
+		laptopPriv, laptopPub := amnezigo.GenerateKeyPair()
+		phonePriv, phonePub := amnezigo.GenerateKeyPair()
 
 		// Create initial config with server interface and multiple clients
 		initialConfig := fmt.Sprintf(`[Interface]
@@ -228,8 +228,8 @@ AllowedIPs = 10.8.0.3/32
 		configPath := filepath.Join(tmpDir, "awg0.conf")
 
 		// Generate valid keys
-		serverPriv, _ := crypto.GenerateKeyPair()
-		tabletPriv, tabletPub := crypto.GenerateKeyPair()
+		serverPriv, _ := amnezigo.GenerateKeyPair()
+		tabletPriv, tabletPub := amnezigo.GenerateKeyPair()
 
 		initialConfig := fmt.Sprintf(`[Interface]
 PrivateKey = %s
@@ -278,8 +278,8 @@ AllowedIPs = 10.8.0.4/32
 		configPath := filepath.Join(tmpDir, "awg0.conf")
 
 		// Generate valid keys
-		serverPriv, _ := crypto.GenerateKeyPair()
-		desktopPriv, desktopPub := crypto.GenerateKeyPair()
+		serverPriv, _ := amnezigo.GenerateKeyPair()
+		desktopPriv, desktopPub := amnezigo.GenerateKeyPair()
 
 		// Create mock HTTP server to simulate icanhazip.com
 		mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -350,7 +350,7 @@ AllowedIPs = 10.8.0.5/32
 		configPath := filepath.Join(tmpDir, "awg0.conf")
 
 		// Generate valid keys
-		serverPriv, _ := crypto.GenerateKeyPair()
+		serverPriv, _ := amnezigo.GenerateKeyPair()
 
 		initialConfig := fmt.Sprintf(`[Interface]
 PrivateKey = %s
@@ -390,8 +390,8 @@ H4 = 400
 		configPath := filepath.Join(tmpDir, "awg0.conf")
 
 		// Generate valid keys
-		serverPriv, _ := crypto.GenerateKeyPair()
-		clientPriv, clientPub := crypto.GenerateKeyPair()
+		serverPriv, _ := amnezigo.GenerateKeyPair()
+		clientPriv, clientPub := amnezigo.GenerateKeyPair()
 
 		// Create config without I1-I5 (they should be generated during export)
 		initialConfig := fmt.Sprintf(`[Interface]
@@ -463,8 +463,8 @@ AllowedIPs = 10.8.0.2/32
 		configPath := filepath.Join(tmpDir, "awg0.conf")
 
 		// Generate valid keys
-		serverPriv, _ := crypto.GenerateKeyPair()
-		clientPriv, clientPub := crypto.GenerateKeyPair()
+		serverPriv, _ := amnezigo.GenerateKeyPair()
+		clientPriv, clientPub := amnezigo.GenerateKeyPair()
 
 		// Create config with EndpointV4
 		initialConfig := fmt.Sprintf(`[Interface]
@@ -530,8 +530,8 @@ AllowedIPs = 10.8.0.6/32
 		configPath := filepath.Join(tmpDir, "awg0.conf")
 
 		// Generate valid keys
-		serverPriv, _ := crypto.GenerateKeyPair()
-		clientPriv, clientPub := crypto.GenerateKeyPair()
+		serverPriv, _ := amnezigo.GenerateKeyPair()
+		clientPriv, clientPub := amnezigo.GenerateKeyPair()
 
 		// Create config with only EndpointV6 (no EndpointV4)
 		initialConfig := fmt.Sprintf(`[Interface]
