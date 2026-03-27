@@ -9,6 +9,7 @@
 - Run tests with coverage: `go test -cover ./...`
 - Lint code: `golangci-lint run`
 - Lint and auto-fix: `golangci-lint run --fix`
+- Always run `golangci-lint run --fix` first to auto-resolve issues before fixing remaining ones manually
 
 ## Code Style Guidelines
 

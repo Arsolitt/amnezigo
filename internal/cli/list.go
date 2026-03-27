@@ -9,6 +9,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const (
+	tabPadding     = 3
+	separatorWidth = 76
+)
+
 // listCmd represents the list command.
 var listCmd = &cobra.Command{
 	Use:   "list",
@@ -62,11 +67,11 @@ func runList(_ *cobra.Command, _ []string) error {
 	}
 
 	// Create table writer
-	writer := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
+	writer := tabwriter.NewWriter(os.Stdout, 0, 0, tabPadding, ' ', 0)
 
 	// Write header
 	fmt.Fprintln(writer, "NAME\tIP\tCREATED")
-	fmt.Fprintln(writer, strings.Repeat("-", 76))
+	fmt.Fprintln(writer, strings.Repeat("-", separatorWidth))
 
 	// Write each client
 	for _, peer := range serverCfg.Peers {
@@ -79,7 +84,7 @@ func runList(_ *cobra.Command, _ []string) error {
 		fmt.Fprintf(writer, "%s\t%s\t%s\n", peer.Name, peer.AllowedIPs, timestamp)
 	}
 
-	//nolint:errcheck // tabwriter.Flush to stdout cannot fail meaningfully
+	//nolint:gosec // tabwriter.Flush to stdout cannot fail meaningfully
 	writer.Flush()
 
 	return nil

@@ -8,6 +8,8 @@ import (
 	"golang.org/x/crypto/curve25519"
 )
 
+const keyLength = 32
+
 // GenerateKeyPair generates an X25519 key pair and returns base64 encoded strings.
 // Both keys are 44 characters (base64 encoded 32 bytes with padding).
 func GenerateKeyPair() (string, string) {
@@ -35,7 +37,7 @@ func DerivePublicKey(privateKey string) string {
 	if err != nil {
 		panic("crypto: invalid base64 private key: " + err.Error())
 	}
-	if len(priv) != 32 {
+	if len(priv) != keyLength {
 		panic("crypto: private key must be 32 bytes")
 	}
 	var privArr [32]byte

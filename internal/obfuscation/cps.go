@@ -15,6 +15,16 @@ import (
 const (
 	reserve       = 49  // IP header (20 or 40) + UDP header 8 (+ 1 just in case)
 	handshakeSize = 149 // fixed handshake size (148 + 1 just in case)
+
+	hexBytesPerChar = 2
+	bitsPerByte     = 8
+	maxByteLen      = 16
+	minByteLen      = 4
+	maxSize         = 40
+	minSize         = 5
+	maxTagCount     = 6
+	minTagCount     = 3
+	tagTerminate    = "<t>"
 )
 
 // simpleTag represents a CPS tag with type and value.
@@ -53,7 +63,7 @@ func BuildCPSTag(tagType, value string) string {
 	case "c":
 		return "<c>"
 	case "t":
-		return "<t>"
+		return tagTerminate
 	default:
 		return ""
 	}
@@ -121,7 +131,7 @@ func buildAndValidateCPS(tags []protocols.TagSpec, maxSize int) string {
 	}
 
 	// Fallback to minimal valid CPS
-	return "<t>" // guaranteed minimal fallback (8 bytes)
+	return tagTerminate // guaranteed minimal fallback (8 bytes)
 }
 
 // mapTagType maps protocol tag types to CPS tag types.
@@ -157,7 +167,7 @@ func calculateCPSLength(cps string) int {
 	matches := bytesRegex.FindAllStringSubmatch(cps, -1)
 	for _, match := range matches {
 		hexValue := match[1]
-		total += len(hexValue) / 2
+		total += len(hexValue) / hexBytesPerChar
 	}
 
 	// Match <r N>, <rc N>, <rd N> tags
@@ -171,21 +181,19 @@ func calculateCPSLength(cps string) int {
 	// Match <t> and <c> tags (8 bytes each)
 	fixedRegex := regexp.MustCompile(`<[tc]>`)
 	matches = fixedRegex.FindAllStringSubmatch(cps, -1)
-	total += len(matches) * 8
+	total += len(matches) * bitsPerByte
 
 	return total
 }
 
 // generateRandomTags generates random CPS tags for simple random mode.
-func generateRandomTags(minCount, _ int) []simpleTag {
+func generateRandomTags() []simpleTag {
 	allTagTypes := []string{"b", "r", "rc", "rd", "t"}
 	usedUniqueTag := false
 
-	// Generate random count between minCount and maxCount
-	const maxTagCount = 6
-	countRange := max(maxTagCount-minCount, 0)
+	countRange := max(maxTagCount-minTagCount, 0)
 	n, _ := rand.Int(rand.Reader, big.NewInt(int64(countRange+1)))
-	count := minCount + int(n.Int64())
+	count := minTagCount + int(n.Int64())
 
 	tags := make([]simpleTag, count)
 	for i := range count {
@@ -211,18 +219,16 @@ func generateRandomTags(minCount, _ int) []simpleTag {
 		var value string
 		switch tagType {
 		case "b":
-			// Random hex 4-16 bytes (8-32 hex chars with 0x prefix)
-			byteLenRange := 16 - 4 // 12 possible values (4-16)
+			byteLenRange := maxByteLen - minByteLen
 			byteLenRand, _ := rand.Int(rand.Reader, big.NewInt(int64(byteLenRange+1)))
-			byteLen := 4 + int(byteLenRand.Int64())
+			byteLen := minByteLen + int(byteLenRand.Int64())
 			bytes := make([]byte, byteLen)
 			rand.Read(bytes)
 			value = "0x" + hex.EncodeToString(bytes)
 		case "r", "rc", "rd":
-			// Random 5-40 bytes
-			sizeRange := 40 - 5
+			sizeRange := maxSize - minSize
 			sizeRand, _ := rand.Int(rand.Reader, big.NewInt(int64(sizeRange+1)))
-			size := 5 + int(sizeRand.Int64())
+			size := minSize + int(sizeRand.Int64())
 			value = strconv.Itoa(size)
 		case "t":
 			// No value
@@ -252,13 +258,13 @@ func generateSimpleCPS(mtu, s1 int) CPSConfig {
 
 func generateSimpleI(maxSize int) string {
 	for range 100 {
-		tags := generateRandomTags(3, 6)
+		tags := generateRandomTags()
 		cps := tagsToCPS(tags)
 		if calculateCPSLength(cps) < maxSize {
 			return cps
 		}
 	}
-	return "<t>" // guaranteed minimal fallback (8 bytes)
+	return tagTerminate // guaranteed minimal fallback (8 bytes)
 }
 
 func tagsToCPS(tags []simpleTag) string {

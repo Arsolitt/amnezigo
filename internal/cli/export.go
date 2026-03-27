@@ -150,7 +150,7 @@ func exportClient(client config.PeerConfig, serverCfg config.ServerConfig, endpo
 			PresharedKey:        client.PresharedKey,
 			Endpoint:            endpoint,
 			AllowedIPs:          allowedIPs,
-			PersistentKeepalive: 25,
+			PersistentKeepalive: defaultKeepalive,
 		},
 	}
 

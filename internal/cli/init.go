@@ -31,6 +31,11 @@ var (
 
 const (
 	defaultHTTPTimeout = 5 * time.Second
+	defaultMTU         = 1280
+	defaultKeepalive   = 25
+	s1Range            = 65
+	jcRange            = 11
+	minPort            = 10000
 )
 
 // initCmd represents the init command.
@@ -66,9 +71,9 @@ func init() {
 	// Add init command to root command (will be done in cli.go)
 	initCmd.Flags().StringVar(&initIPAddr, "ipaddr", "", "Server IP address with subnet (e.g., 10.8.0.1/24) [required]")
 	initCmd.Flags().IntVar(&initPort, "port", 0, "Listen port (default: random 10000-65535)")
-	initCmd.Flags().IntVar(&initMTU, "mtu", 1280, "MTU size (default: 1280)")
+	initCmd.Flags().IntVar(&initMTU, "mtu", defaultMTU, "MTU size (default: 1280)")
 	initCmd.Flags().StringVar(&initDNS, "dns", "1.1.1.1, 8.8.8.8", "DNS servers (comma-separated)")
-	initCmd.Flags().IntVar(&initKeepalive, "keepalive", 25, "Persistent keepalive interval in seconds")
+	initCmd.Flags().IntVar(&initKeepalive, "keepalive", defaultKeepalive, "Persistent keepalive interval in seconds")
 	initCmd.Flags().BoolVar(&initClientToClient, "client-to-client", false, "Allow client-to-client traffic")
 	initCmd.Flags().StringVar(&initIface, "iface", "", "Main network interface (default: auto-detect)")
 	initCmd.Flags().StringVar(&initIfaceName, "iface-name", "awg0", "Tunnel interface name")
@@ -76,7 +81,8 @@ func init() {
 	initCmd.Flags().StringVar(&initEndpointV6, "endpoint-v6", "", "IPv6 endpoint (optional)")
 	initCmd.Flags().StringVar(&initConfigPath, "config", "awg0.conf", "Server config file path")
 
-	initCmd.MarkFlagRequired("ipaddr") //nolint:errcheck
+	//nolint:gosec,errcheck // required by Cobra, error only occurs on misconfiguration
+	initCmd.MarkFlagRequired("ipaddr")
 }
 
 // runInit executes the init command.
@@ -122,9 +128,9 @@ func runInit(_ *cobra.Command, _ []string) error {
 	privateKey, publicKey := crypto.GenerateKeyPair()
 
 	// Generate random s1 and jc values for obfuscation config
-	s1Int, _ := rand.Int(rand.Reader, big.NewInt(65))
+	s1Int, _ := rand.Int(rand.Reader, big.NewInt(s1Range))
 	s1 := int(s1Int.Int64())
-	jcInt, _ := rand.Int(rand.Reader, big.NewInt(11))
+	jcInt, _ := rand.Int(rand.Reader, big.NewInt(jcRange))
 	jc := int(jcInt.Int64())
 
 	obfConfig := obfuscation.GenerateServerConfig(initMTU, s1, jc)
@@ -196,13 +202,13 @@ func extractSubnet(ipaddr string) string {
 
 // generateRandomPort generates a random port between 10000 and 65535.
 func generateRandomPort() (int, error) {
-	const portRange = 55536 // 65535 - 10000 + 1
+	const portRange = 55536 // 65535 - minPort + 1
 	maxPort := big.NewInt(portRange)
 	n, err := rand.Int(rand.Reader, maxPort)
 	if err != nil {
 		return 0, err
 	}
-	return int(n.Int64()) + 10000, nil
+	return int(n.Int64()) + minPort, nil
 }
 
 // detectMainInterface attempts to detect the main network interface.

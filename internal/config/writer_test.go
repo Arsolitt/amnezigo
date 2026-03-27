@@ -1,3 +1,4 @@
+//nolint:cyclop // config package is inherently complex with parsing and writing
 package config
 
 import (

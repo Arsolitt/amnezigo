@@ -181,15 +181,15 @@ func TestGenerateRandomTags(t *testing.T) {
 
 	// Test count is within bounds
 	t.Run("count within bounds", func(t *testing.T) {
-		tags := generateRandomTags(3, 6)
+		tags := generateRandomTags()
 		if len(tags) < 3 || len(tags) > 6 {
-			t.Errorf("generateRandomTags(3, 6) returned %d tags, want between 3 and 6", len(tags))
+			t.Errorf("generateRandomTags() returned %d tags, want between 3 and 6", len(tags))
 		}
 	})
 
 	// Test all tag types are valid
 	t.Run("all tag types valid", func(t *testing.T) {
-		tags := generateRandomTags(3, 6)
+		tags := generateRandomTags()
 		for _, tag := range tags {
 			if !validTypes[tag.Type] {
 				t.Errorf("invalid tag type %q", tag.Type)
@@ -201,7 +201,7 @@ func TestGenerateRandomTags(t *testing.T) {
 	t.Run("randomness", func(t *testing.T) {
 		results := make([]string, 10)
 		for i := range 10 {
-			tags := generateRandomTags(3, 6)
+			tags := generateRandomTags()
 			var sb strings.Builder
 			for _, tag := range tags {
 				sb.WriteString(tag.Type)
@@ -222,7 +222,7 @@ func TestGenerateRandomTags(t *testing.T) {
 
 	// Test tag type "b" has hex value
 	t.Run("type b has hex value", func(t *testing.T) {
-		tags := generateRandomTags(3, 6)
+		tags := generateRandomTags()
 		found := false
 		for _, tag := range tags {
 			if tag.Type == "b" {
@@ -245,7 +245,7 @@ func TestGenerateRandomTags(t *testing.T) {
 
 	// Test tag type "r"/"rc"/"rd" have numeric value
 	t.Run("random types have numeric value", func(t *testing.T) {
-		tags := generateRandomTags(3, 6)
+		tags := generateRandomTags()
 		found := false
 		for _, tag := range tags {
 			if tag.Type == "r" || tag.Type == "rc" || tag.Type == "rd" {
@@ -272,7 +272,7 @@ func TestGenerateRandomTags(t *testing.T) {
 
 	// Test tag type "t" has empty value
 	t.Run("type t has empty value", func(t *testing.T) {
-		tags := generateRandomTags(3, 6)
+		tags := generateRandomTags()
 		foundT := false
 		for _, tag := range tags {
 			if tag.Type == "t" {
@@ -374,7 +374,7 @@ func TestGenerateCPSConfig_Protocol(t *testing.T) {
 func TestGenerateRandomTagsUniqueConstraint(t *testing.T) {
 	// Run many times to catch random duplicates
 	for i := range 10000 {
-		tags := generateRandomTags(3, 10)
+		tags := generateRandomTags()
 
 		countT := 0
 		for _, tag := range tags {

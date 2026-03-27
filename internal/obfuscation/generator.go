@@ -20,6 +20,10 @@ const (
 	headerMaxValue    = uint32(2147483647)
 	headerMinRange    = uint32(10000000)
 	headerMaxAttempts = 1000
+
+	headerRegion2Start = uint32(0x40000000)
+	headerRegion3Start = uint32(0x80000000)
+	headerRegion4Start = uint32(0xC0000000)
 )
 
 // HeaderRange represents a min-max range for obfuscation.
@@ -51,16 +55,16 @@ func GenerateHeaders() Headers {
 	// Region 4: 0xC0000000 - 0xFFFFFFFF
 
 	h1, _ := rand.Int(rand.Reader, big.NewInt(headerRegion1Max))
-	h1Val := uint32(h1.Uint64()) + 1
+	h1Val := uint32(h1.Uint64()) + 1 //nolint:gosec // G115: values bounded by crypto/rand Int ranges
 
 	h2, _ := rand.Int(rand.Reader, big.NewInt(headerRegion23Max))
-	h2Val := uint32(h2.Uint64()) + 0x40000000
+	h2Val := uint32(h2.Uint64()) + headerRegion2Start //nolint:gosec // G115: bounded by crypto/rand range
 
 	h3, _ := rand.Int(rand.Reader, big.NewInt(headerRegion23Max))
-	h3Val := uint32(h3.Uint64()) + 0x80000000
+	h3Val := uint32(h3.Uint64()) + headerRegion3Start //nolint:gosec // G115: bounded by crypto/rand range
 
 	h4, _ := rand.Int(rand.Reader, big.NewInt(headerRegion23Max))
-	h4Val := uint32(h4.Uint64()) + 0xC0000000
+	h4Val := uint32(h4.Uint64()) + headerRegion4Start //nolint:gosec // G115: bounded by crypto/rand range
 
 	return Headers{
 		H1: h1Val,
@@ -181,6 +185,7 @@ func GenerateHeaderRanges() [4]HeaderRange {
 			}
 
 			minRand, _ := rand.Int(rand.Reader, minRangeVal)
+			//nolint:gosec // G115: bounded by crypto/rand range
 			ranges[i].Min = headerMinValue + uint32(minRand.Uint64())
 
 			// Calculate available space for Max
@@ -190,6 +195,7 @@ func GenerateHeaderRanges() [4]HeaderRange {
 			}
 
 			maxRand, _ := rand.Int(rand.Reader, maxRangeVal)
+			//nolint:gosec // G115: bounded by crypto/rand range
 			ranges[i].Max = min(ranges[i].Min+headerMinRange+uint32(maxRand.Uint64()), headerMaxValue)
 		}
 

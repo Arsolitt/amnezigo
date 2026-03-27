@@ -1,3 +1,4 @@
+//nolint:cyclop // config parsing is inherently complex with many fields
 package config
 
 import (
@@ -9,10 +10,12 @@ import (
 )
 
 const (
+	maxSplitParts    = 2
 	sectionInterface = "[Interface]"
 	sectionPeer      = "[Peer]"
 )
 
+//nolint:funlen,gocognit,gocyclo // parser with many config fields
 func ParseServerConfig(r io.Reader) (ServerConfig, error) {
 	var cfg ServerConfig
 	var currentSection string
@@ -37,8 +40,8 @@ func ParseServerConfig(r io.Reader) (ServerConfig, error) {
 		}
 
 		// Key-value pairs
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) != 2 {
+		parts := strings.SplitN(line, "=", maxSplitParts)
+		if len(parts) != maxSplitParts {
 			continue
 		}
 		key := strings.TrimSpace(parts[0])
@@ -174,7 +177,7 @@ func ParseServerConfig(r io.Reader) (ServerConfig, error) {
 
 func parseHeaderRange(value string) HeaderRange {
 	parts := strings.Split(value, "-")
-	if len(parts) != 2 {
+	if len(parts) != maxSplitParts {
 		return HeaderRange{}
 	}
 	minVal, err1 := strconv.ParseUint(strings.TrimSpace(parts[0]), 10, 32)

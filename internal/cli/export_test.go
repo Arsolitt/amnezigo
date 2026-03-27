@@ -12,6 +12,7 @@ import (
 	"github.com/Arsolitt/amnezigo/internal/crypto"
 )
 
+//nolint:gocyclo,cyclop // table-driven test with multiple scenarios
 func TestExportCommand(t *testing.T) {
 	// Reset global state before each subtest
 	oldCfgFile := cfgFile

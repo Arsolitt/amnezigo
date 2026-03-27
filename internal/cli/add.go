@@ -65,6 +65,7 @@ func runAdd(_ *cobra.Command, args []string) error {
 
 	// Determine client IP address
 	clientIP := addIPAddr
+	//nolint:nestif // straightforward nil/empty checks
 	if clientIP == "" {
 		// Extract subnet prefix from server address for filtering
 		_, ipnet, err := net.ParseCIDR(serverCfg.Interface.Address)
@@ -147,13 +148,13 @@ func saveServerConfig(path string, cfg config.ServerConfig) error {
 	}
 
 	if err := config.WriteServerConfig(file, cfg); err != nil {
-		//nolint:errcheck // Best effort cleanup on error
+		//nolint:gosec // Best effort cleanup on error
 		file.Close()
-		//nolint:errcheck // Best effort cleanup on error
+		//nolint:gosec // Best effort cleanup on error
 		os.Remove(tmpPath)
 		return err
 	}
-	//nolint:errcheck // Write completed successfully, Close should not fail meaningfully
+	//nolint:gosec // Write completed successfully, Close should not fail meaningfully
 	file.Close()
 
 	// Rename temporary file to actual file (atomic operation)

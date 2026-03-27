@@ -7,8 +7,8 @@ type HeaderRange struct {
 }
 
 type ServerConfig struct {
-	Interface   InterfaceConfig
 	Peers       []PeerConfig
+	Interface   InterfaceConfig
 	Obfuscation ServerObfuscationConfig
 }
 
@@ -53,15 +53,15 @@ type ClientObfuscationConfig struct {
 }
 
 type ClientConfig struct {
-	Interface ClientInterfaceConfig
 	Peer      ClientPeerConfig
+	Interface ClientInterfaceConfig
 }
 
 type ClientInterfaceConfig struct {
-	Obfuscation ClientObfuscationConfig
 	PrivateKey  string
 	Address     string
 	DNS         string
+	Obfuscation ClientObfuscationConfig
 	MTU         int
 }
 
