@@ -32,21 +32,32 @@ func (m *Manager) Save(cfg ServerConfig) error {
 	return SaveServerConfig(m.ConfigPath, cfg)
 }
 
+// isNameTaken checks whether a name is already used by any peer (client or edge).
+func isNameTaken(name string, cfg ServerConfig) bool {
+	for _, peer := range cfg.Clients {
+		if peer.Name == name {
+			return true
+		}
+	}
+	for _, edge := range cfg.Edges {
+		if edge.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 // AddClient creates a new WireGuard peer with generated keys and optional
 // explicit IP address. If ip is empty, the next available IP in the server
 // subnet is assigned automatically.
-//
-//nolint:dupl // intentionally mirrors AddEdge for the Clients slice
 func (m *Manager) AddClient(name, ip string) (PeerConfig, error) {
 	serverCfg, err := m.Load()
 	if err != nil {
 		return PeerConfig{}, fmt.Errorf("failed to load server config: %w", err)
 	}
 
-	for _, peer := range serverCfg.Clients {
-		if peer.Name == name {
-			return PeerConfig{}, fmt.Errorf("client with name '%s' already exists", name)
-		}
+	if isNameTaken(name, serverCfg) {
+		return PeerConfig{}, fmt.Errorf("peer with name '%s' already exists", name)
 	}
 
 	clientIP, err := m.resolveClientIP(ip, serverCfg)
@@ -275,18 +286,14 @@ func SaveServerConfig(path string, cfg ServerConfig) error {
 // AddEdge creates a new edge peer with generated keys and optional
 // explicit IP address. If ip is empty, the next available IP in the server
 // subnet is assigned automatically.
-//
-//nolint:dupl // intentionally mirrors AddClient for the Edges slice
 func (m *Manager) AddEdge(name, ip string) (PeerConfig, error) {
 	serverCfg, err := m.Load()
 	if err != nil {
 		return PeerConfig{}, fmt.Errorf("failed to load server config: %w", err)
 	}
 
-	for _, edge := range serverCfg.Edges {
-		if edge.Name == name {
-			return PeerConfig{}, fmt.Errorf("edge with name '%s' already exists", name)
-		}
+	if isNameTaken(name, serverCfg) {
+		return PeerConfig{}, fmt.Errorf("peer with name '%s' already exists", name)
 	}
 
 	edgeIP, err := m.resolveClientIP(ip, serverCfg)

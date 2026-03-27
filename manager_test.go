@@ -146,6 +146,66 @@ func TestManagerAddClientDuplicate(t *testing.T) {
 	}
 }
 
+func TestManagerAddClientDuplicateEdgeName(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.conf")
+
+	cfg := ServerConfig{
+		Interface: InterfaceConfig{
+			PrivateKey: "priv=", Address: "10.8.0.1/24",
+			ListenPort: 12345, MTU: 1280,
+		},
+		Obfuscation: ServerObfuscationConfig{
+			Jc: 5, Jmin: 100, Jmax: 200, S1: 10, S2: 20, S3: 30, S4: 5,
+			H1: HeaderRange{Min: 100, Max: 200},
+			H2: HeaderRange{Min: 300, Max: 400},
+			H3: HeaderRange{Min: 500, Max: 600},
+			H4: HeaderRange{Min: 700, Max: 800},
+		},
+		Edges: []PeerConfig{
+			{Name: "shared", Role: RoleEdge, PublicKey: "pub1", AllowedIPs: "10.8.0.2/32"},
+		},
+	}
+
+	mgr := NewManager(path)
+	_ = mgr.Save(cfg)
+
+	_, err := mgr.AddClient("shared", "")
+	if err == nil {
+		t.Fatal("expected error when client name conflicts with existing edge name")
+	}
+}
+
+func TestManagerAddEdgeDuplicateClientName(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.conf")
+
+	cfg := ServerConfig{
+		Interface: InterfaceConfig{
+			PrivateKey: "priv=", Address: "10.8.0.1/24",
+			ListenPort: 12345, MTU: 1280,
+		},
+		Obfuscation: ServerObfuscationConfig{
+			Jc: 5, Jmin: 100, Jmax: 200, S1: 10, S2: 20, S3: 30, S4: 5,
+			H1: HeaderRange{Min: 100, Max: 200},
+			H2: HeaderRange{Min: 300, Max: 400},
+			H3: HeaderRange{Min: 500, Max: 600},
+			H4: HeaderRange{Min: 700, Max: 800},
+		},
+		Clients: []PeerConfig{
+			{Name: "shared", Role: RoleClient, PublicKey: "pub1", AllowedIPs: "10.8.0.2/32"},
+		},
+	}
+
+	mgr := NewManager(path)
+	_ = mgr.Save(cfg)
+
+	_, err := mgr.AddEdge("shared", "")
+	if err == nil {
+		t.Fatal("expected error when edge name conflicts with existing client name")
+	}
+}
+
 func TestManagerAddClientWithIP(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.conf")

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -217,15 +218,14 @@ func writeClientConfigs(mgr *amnezigo.Manager, clients []amnezigo.PeerConfig, en
 			return fmt.Errorf("failed to export client '%s': %w", client.Name, err)
 		}
 
-		configPath := client.Name + ".conf"
-		file, err := os.Create(configPath)
-		if err != nil {
-			return fmt.Errorf("failed to create config file: %w", err)
-		}
-		defer file.Close()
-
-		if err := amnezigo.WriteClientConfig(file, clientCfg); err != nil {
+		var buf bytes.Buffer
+		if err := amnezigo.WriteClientConfig(&buf, clientCfg); err != nil {
 			return fmt.Errorf("failed to write client config: %w", err)
+		}
+
+		configPath := client.Name + ".conf"
+		if err := os.WriteFile(configPath, buf.Bytes(), 0600); err != nil {
+			return fmt.Errorf("failed to write config file: %w", err)
 		}
 
 		fmt.Printf("Exported client '%s' to %s.conf\n", client.Name, client.Name)
