@@ -31,6 +31,7 @@ PostDown = iptables -D INPUT -i awg0 -j ACCEPT; iptables -D FORWARD -i awg0 -j A
 
 [Peer]
 #_Name = laptop
+#_Role = client
 PublicKey = testPublicKey123456789012345678
 PresharedKey = testPSK123456789012345678
 AllowedIPs = 10.8.0.2/32
@@ -136,6 +137,7 @@ PostDown = iptables -D INPUT -i awg0 -j ACCEPT; iptables -D FORWARD -i awg0 -j A
 
 [Peer]
 #_Name = laptop
+#_Role = client
 PublicKey = testPublicKey123456789012345678
 PresharedKey = testPSK123456789012345678
 AllowedIPs = 10.8.0.2/32
@@ -207,6 +209,7 @@ PostDown = iptables -D INPUT -i awg0 -j ACCEPT
 
 [Peer]
 #_Name = laptop
+#_Role = client
 PublicKey = testPublicKey123456789012345678
 PresharedKey = testPSK123456789012345678
 AllowedIPs = 10.8.0.2/32

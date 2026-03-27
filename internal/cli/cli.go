@@ -7,6 +7,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const (
+	tabPadding     = 3
+	separatorWidth = 76
+)
+
 var (
 	cfgFile string
 )
@@ -19,13 +24,10 @@ func NewRootCmd() *cobra.Command {
 		Long:  `Generate AmneziaWG v2.0 configurations for star topology networks.`,
 	}
 
-	// Add subcommands
 	rootCmd.AddCommand(initCmd)
-	rootCmd.AddCommand(addCmd)
-	rootCmd.AddCommand(removeCmd)
-	rootCmd.AddCommand(listCmd)
-	rootCmd.AddCommand(exportCmd)
 	rootCmd.AddCommand(editCmd)
+	rootCmd.AddCommand(NewClientCommand())
+	rootCmd.AddCommand(NewEdgeCommand())
 
 	return rootCmd
 }

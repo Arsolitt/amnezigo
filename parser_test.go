@@ -15,6 +15,7 @@ Address = 10.8.0.1/24
 ListenPort = 55424
 
 [Peer]
+#_Role = client
 #_Name = client1
 PublicKey = peerpub1
 AllowedIPs = 10.8.0.2/32
@@ -41,17 +42,17 @@ AllowedIPs = 10.8.0.2/32
 	}
 
 	// Verify Peer section
-	if len(cfg.Peers) != 1 {
-		t.Fatalf("Expected 1 peer, got %d", len(cfg.Peers))
+	if len(cfg.Clients) != 1 {
+		t.Fatalf("Expected 1 peer, got %d", len(cfg.Clients))
 	}
-	if cfg.Peers[0].Name != "client1" {
-		t.Errorf("Expected Peer Name 'client1', got '%s'", cfg.Peers[0].Name)
+	if cfg.Clients[0].Name != "client1" {
+		t.Errorf("Expected Peer Name 'client1', got '%s'", cfg.Clients[0].Name)
 	}
-	if cfg.Peers[0].PublicKey != "peerpub1" {
-		t.Errorf("Expected Peer PublicKey 'peerpub1', got '%s'", cfg.Peers[0].PublicKey)
+	if cfg.Clients[0].PublicKey != "peerpub1" {
+		t.Errorf("Expected Peer PublicKey 'peerpub1', got '%s'", cfg.Clients[0].PublicKey)
 	}
-	if cfg.Peers[0].AllowedIPs != "10.8.0.2/32" {
-		t.Errorf("Expected Peer AllowedIPs '10.8.0.2/32', got '%s'", cfg.Peers[0].AllowedIPs)
+	if cfg.Clients[0].AllowedIPs != "10.8.0.2/32" {
+		t.Errorf("Expected Peer AllowedIPs '10.8.0.2/32', got '%s'", cfg.Clients[0].AllowedIPs)
 	}
 }
 
@@ -105,12 +106,14 @@ Address = 10.8.0.1/24
 ListenPort = 55424
 
 [Peer]
+#_Role = client
 #_Name = client1
 PublicKey = peerpub1
 AllowedIPs = 10.8.0.2/32
 #_GenKeyTime = 2024-01-15T10:30:00Z
 
 [Peer]
+#_Role = client
 #_Name = client2
 PublicKey = peerpub2
 AllowedIPs = 10.8.0.3/32
@@ -124,26 +127,26 @@ AllowedIPs = 10.8.0.3/32
 	}
 
 	// Verify two peers
-	if len(cfg.Peers) != 2 {
-		t.Fatalf("Expected 2 peers, got %d", len(cfg.Peers))
+	if len(cfg.Clients) != 2 {
+		t.Fatalf("Expected 2 peers, got %d", len(cfg.Clients))
 	}
 
 	// First peer
-	if cfg.Peers[0].Name != "client1" {
-		t.Errorf("Expected Peer[0] Name 'client1', got '%s'", cfg.Peers[0].Name)
+	if cfg.Clients[0].Name != "client1" {
+		t.Errorf("Expected Peer[0] Name 'client1', got '%s'", cfg.Clients[0].Name)
 	}
 	expectedTime1, _ := time.Parse(time.RFC3339, "2024-01-15T10:30:00Z")
-	if !cfg.Peers[0].CreatedAt.Equal(expectedTime1) {
-		t.Errorf("Expected Peer[0] CreatedAt %v, got %v", expectedTime1, cfg.Peers[0].CreatedAt)
+	if !cfg.Clients[0].CreatedAt.Equal(expectedTime1) {
+		t.Errorf("Expected Peer[0] CreatedAt %v, got %v", expectedTime1, cfg.Clients[0].CreatedAt)
 	}
 
 	// Second peer
-	if cfg.Peers[1].Name != "client2" {
-		t.Errorf("Expected Peer[1] Name 'client2', got '%s'", cfg.Peers[1].Name)
+	if cfg.Clients[1].Name != "client2" {
+		t.Errorf("Expected Peer[1] Name 'client2', got '%s'", cfg.Clients[1].Name)
 	}
 	expectedTime2, _ := time.Parse(time.RFC3339, "2024-01-16T11:45:00Z")
-	if !cfg.Peers[1].CreatedAt.Equal(expectedTime2) {
-		t.Errorf("Expected Peer[1] CreatedAt %v, got %v", expectedTime2, cfg.Peers[1].CreatedAt)
+	if !cfg.Clients[1].CreatedAt.Equal(expectedTime2) {
+		t.Errorf("Expected Peer[1] CreatedAt %v, got %v", expectedTime2, cfg.Clients[1].CreatedAt)
 	}
 }
 
@@ -159,6 +162,7 @@ PostDown = iptables -D FORWARD -i wg0 -j ACCEPT
 MTU = 1420
 
 [Peer]
+#_Role = client
 PublicKey = peerpub1
 AllowedIPs = 10.8.0.2/32
 `
@@ -189,6 +193,7 @@ Address = 10.8.0.1/24
 ListenPort = 55424
 
 [Peer]
+#_Role = client
 PublicKey = peerpub1
 PresharedKey = psk123
 AllowedIPs = 10.8.0.2/32
@@ -200,16 +205,106 @@ AllowedIPs = 10.8.0.2/32
 		t.Fatalf("ParseServerConfig failed: %v", err)
 	}
 
-	if len(cfg.Peers) != 1 {
-		t.Fatalf("Expected 1 peer, got %d", len(cfg.Peers))
+	if len(cfg.Clients) != 1 {
+		t.Fatalf("Expected 1 peer, got %d", len(cfg.Clients))
 	}
-	if cfg.Peers[0].PublicKey != "peerpub1" {
-		t.Errorf("Expected Peer PublicKey 'peerpub1', got '%s'", cfg.Peers[0].PublicKey)
+	if cfg.Clients[0].PublicKey != "peerpub1" {
+		t.Errorf("Expected Peer PublicKey 'peerpub1', got '%s'", cfg.Clients[0].PublicKey)
 	}
-	if cfg.Peers[0].PresharedKey != "psk123" {
-		t.Errorf("Expected Peer PresharedKey 'psk123', got '%s'", cfg.Peers[0].PresharedKey)
+	if cfg.Clients[0].PresharedKey != "psk123" {
+		t.Errorf("Expected Peer PresharedKey 'psk123', got '%s'", cfg.Clients[0].PresharedKey)
 	}
-	if cfg.Peers[0].AllowedIPs != "10.8.0.2/32" {
-		t.Errorf("Expected Peer AllowedIPs '10.8.0.2/32', got '%s'", cfg.Peers[0].AllowedIPs)
+	if cfg.Clients[0].AllowedIPs != "10.8.0.2/32" {
+		t.Errorf("Expected Peer AllowedIPs '10.8.0.2/32', got '%s'", cfg.Clients[0].AllowedIPs)
+	}
+}
+
+func TestParsePeerRejectsMissingRole(t *testing.T) {
+	input := `
+[Interface]
+PrivateKey = abc123
+PublicKey = xyz789
+Address = 10.8.0.1/24
+ListenPort = 55424
+
+[Peer]
+#_Name = client1
+PublicKey = peerpub1
+AllowedIPs = 10.8.0.2/32
+`
+	_, err := ParseServerConfig(strings.NewReader(input))
+	if err == nil {
+		t.Fatal("expected error for peer without #_Role, got nil")
+	}
+	if !strings.Contains(err.Error(), "role") {
+		t.Errorf("expected error about missing role, got: %v", err)
+	}
+}
+
+func TestParsePeerRejectsInvalidRole(t *testing.T) {
+	input := `
+[Interface]
+PrivateKey = abc123
+Address = 10.8.0.1/24
+ListenPort = 55424
+
+[Peer]
+#_Role = server
+#_Name = client1
+PublicKey = peerpub1
+AllowedIPs = 10.8.0.2/32
+`
+	_, err := ParseServerConfig(strings.NewReader(input))
+	if err == nil {
+		t.Fatal("expected error for invalid role, got nil")
+	}
+}
+
+func TestParseSplitsClientsAndEdges(t *testing.T) {
+	input := `
+[Interface]
+PrivateKey = abc123
+Address = 10.8.0.1/24
+ListenPort = 55424
+
+[Peer]
+#_Role = client
+#_Name = user1
+PublicKey = pub1
+AllowedIPs = 10.8.0.2/32
+
+[Peer]
+#_Role = edge
+#_Name = edge1
+PublicKey = pub2
+AllowedIPs = 10.8.0.3/32
+
+[Peer]
+#_Role = client
+#_Name = user2
+PublicKey = pub3
+AllowedIPs = 10.8.0.4/32
+`
+	cfg, err := ParseServerConfig(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("ParseServerConfig failed: %v", err)
+	}
+	if len(cfg.Clients) != 2 {
+		t.Fatalf("expected 2 clients, got %d", len(cfg.Clients))
+	}
+	if len(cfg.Edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(cfg.Edges))
+	}
+	if cfg.Clients[0].Name != "user1" {
+		t.Errorf("expected client name 'user1', got '%s'", cfg.Clients[0].Name)
+	}
+	if cfg.Clients[0].Role != RoleClient {
+		t.Errorf("expected role '%s', got '%s'", RoleClient, cfg.Clients[0].Role)
+	}
+	if cfg.Edges[0].Name != "edge1" {
+		t.Errorf("expected edge name 'edge1', got '%s'", cfg.Edges[0].Name)
+	}
+	if cfg.Edges[0].Role != RoleEdge {
+		t.Errorf("expected role '%s', got '%s'", RoleEdge, cfg.Edges[0].Role)
 	}
 }

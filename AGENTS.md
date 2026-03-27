@@ -21,11 +21,9 @@ github.com/Arsolitt/amnezigo
 +-- internal/cli/                   # Cobra CLI commands (package cli)
 |   +-- cli.go                      # Root command + Execute()
 |   +-- init.go                     # init command
-|   +-- add.go                      # add command
-|   +-- list.go                     # list command
-|   +-- export.go                   # export command
 |   +-- edit.go                     # edit command
-|   +-- remove.go                   # remove command
+|   +-- client.go                   # client command group (add, list, export, remove)
+|   +-- edge.go                     # edge command group (add, list, export, remove)
 |
 +-- [root package: amnezigo]        # All business logic
     +-- types.go                    # All type definitions
@@ -47,6 +45,7 @@ github.com/Arsolitt/amnezigo
 - **export has no --endpoint flag**: Endpoint is auto-resolved from server config's Endpoint field, or via HTTP request if endpoint contains `:http`. There is no manual override.
 - **--dns and --keepalive on init are silently ignored**: These flags exist on the init command but do nothing. DNS is hardcoded to "1.1.1.1, 8.8.8.8" and keepalive to 25 in client exports.
 - **"random" protocol is deterministic**: Due to `len("random") % 4 = 2`, the random protocol always selects DTLS. Use explicit protocol names if you need variety.
+- **#_Role is mandatory on all [Peer] sections**: Every `[Peer]` in the INI config must have `#_Role = client` or `#_Role = edge`. The parser returns an error if missing or invalid.
 
 ### Obfuscation Generation
 - **GenerateConfig vs GenerateServerConfig**: `GenerateConfig` uses point ranges for H1-H4 (single values masquerading as ranges). `GenerateServerConfig` uses true ranges with different min/max values.
@@ -55,16 +54,22 @@ github.com/Arsolitt/amnezigo
 ## Library API
 
 ### Manager (manager.go)
-High-level CRUD operations for server configs and clients:
+High-level CRUD operations for server configs, clients, and edges:
 - `NewManager(configPath string) *Manager`
-- `Load() error`
-- `Save() error`
-- `AddClient(name, ipAddr string, protocol string) (*Client, error)`
+- `Load() (ServerConfig, error)`
+- `Save(cfg ServerConfig) error`
+- `AddClient(name, ip string) (PeerConfig, error)`
 - `RemoveClient(name string) error`
-- `FindClient(name string) (*Client, error)`
-- `ListClients() []*Client`
-- `ExportClient(name string) ([]byte, error)`
-- `BuildClientConfig(client *Client) ([]byte, error)`
+- `FindClient(name string) (*PeerConfig, error)`
+- `ListClients() []PeerConfig`
+- `ExportClient(name, protocol, endpoint string) (ClientConfig, error)`
+- `BuildClientConfig(peer PeerConfig, protocol, endpoint string) (ClientConfig, error)`
+- `AddEdge(name, ip string) (PeerConfig, error)`
+- `RemoveEdge(name string) error`
+- `FindEdge(name string) (*PeerConfig, error)`
+- `ListEdges() []PeerConfig`
+- `BuildEdgeConfig(name, protocol, endpoint string) (ClientConfig, error)`
+- `ExportEdge(name, protocol, endpoint string) ([]byte, error)`
 
 ### Config I/O (parser.go, writer.go)
 - `ParseServerConfig(r io.Reader) (*ServerConfig, error)`
@@ -173,11 +178,13 @@ High-level CRUD operations for server configs and clients:
 - Use `RunE` for error handling, not `Run`
 - Store flag variables as package-level vars
 - Initialize flags in `init()` function
-- Use factory functions: `NewAddCommand()`, `NewListCommand()`, `NewExportCommand()`, `NewEditCommand()`, `NewRemoveCommand()`
+- Use factory functions: `NewClientCommand()`, `NewClientAddCommand()`, `NewClientListCommand()`, `NewClientExportCommand()`, `NewClientRemoveCommand()`, `NewEdgeCommand()`, `NewEdgeAddCommand()`, `NewEdgeListCommand()`, `NewEdgeExportCommand()`, `NewEdgeRemoveCommand()`, `NewEditCommand()`
 
 ### Configuration
 - Config files use INI format with [Section] headers
 - Store metadata in commented fields with `#_` prefix
+- All [Peer] sections require `#_Role = client` or `#_Role = edge`
+- `ServerConfig` has `Clients []PeerConfig` and `Edges []PeerConfig` (not `Peers`)
 - Use atomic writes: write to `.tmp` file, then rename
 
 ### Crypto/Security

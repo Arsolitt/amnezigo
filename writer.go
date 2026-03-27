@@ -52,26 +52,36 @@ func WriteServerConfig(w io.Writer, cfg ServerConfig) error {
 		fmt.Fprintf(w, "#_MainIface = %s\n", cfg.Interface.MainIface)
 	}
 
-	for _, peer := range cfg.Peers {
-		fmt.Fprintln(w, "")
-		fmt.Fprintln(w, "[Peer]")
-		if peer.Name != "" {
-			fmt.Fprintf(w, "#_Name = %s\n", peer.Name)
-		}
-		if peer.PrivateKey != "" {
-			fmt.Fprintf(w, "#_PrivateKey = %s\n", peer.PrivateKey)
-		}
-		fmt.Fprintf(w, "PublicKey = %s\n", peer.PublicKey)
-		if peer.PresharedKey != "" {
-			fmt.Fprintf(w, "PresharedKey = %s\n", peer.PresharedKey)
-		}
-		fmt.Fprintf(w, "AllowedIPs = %s\n", peer.AllowedIPs)
-		if !peer.CreatedAt.IsZero() {
-			fmt.Fprintf(w, "#_GenKeyTime = %s\n", peer.CreatedAt.Format(time.RFC3339))
-		}
+	for _, peer := range cfg.Clients {
+		writePeerSection(w, peer, RoleClient)
+	}
+
+	for _, peer := range cfg.Edges {
+		writePeerSection(w, peer, RoleEdge)
 	}
 
 	return nil
+}
+
+// writePeerSection writes a single [Peer] section with the given role.
+func writePeerSection(w io.Writer, peer PeerConfig, role string) {
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "[Peer]")
+	if peer.Name != "" {
+		fmt.Fprintf(w, "#_Name = %s\n", peer.Name)
+	}
+	fmt.Fprintf(w, "#_Role = %s\n", role)
+	if peer.PrivateKey != "" {
+		fmt.Fprintf(w, "#_PrivateKey = %s\n", peer.PrivateKey)
+	}
+	fmt.Fprintf(w, "PublicKey = %s\n", peer.PublicKey)
+	if peer.PresharedKey != "" {
+		fmt.Fprintf(w, "PresharedKey = %s\n", peer.PresharedKey)
+	}
+	fmt.Fprintf(w, "AllowedIPs = %s\n", peer.AllowedIPs)
+	if !peer.CreatedAt.IsZero() {
+		fmt.Fprintf(w, "#_GenKeyTime = %s\n", peer.CreatedAt.Format(time.RFC3339))
+	}
 }
 
 // WriteClientConfig writes a client WireGuard configuration to the given writer.
@@ -79,7 +89,9 @@ func WriteClientConfig(w io.Writer, cfg ClientConfig) error {
 	fmt.Fprintln(w, "[Interface]")
 	fmt.Fprintf(w, "PrivateKey = %s\n", cfg.Interface.PrivateKey)
 	fmt.Fprintf(w, "Address = %s\n", cfg.Interface.Address)
-	fmt.Fprintf(w, "DNS = %s\n", cfg.Interface.DNS)
+	if cfg.Interface.DNS != "" {
+		fmt.Fprintf(w, "DNS = %s\n", cfg.Interface.DNS)
+	}
 	fmt.Fprintf(w, "MTU = %d\n", cfg.Interface.MTU)
 
 	fmt.Fprintf(w, "Jc = %d\n", cfg.Interface.Obfuscation.Jc)

@@ -49,6 +49,7 @@ H4 = 400
 
 [Peer]
 #_Name = laptop
+#_Role = client
 #_PrivateKey = %s
 PublicKey = %s
 PresharedKey = testpsk123
@@ -63,7 +64,7 @@ AllowedIPs = 10.8.0.2/32
 		t.Chdir(tmpDir)
 
 		// Execute export command for single client
-		cmd := NewExportCommand()
+		cmd := NewClientExportCommand()
 		cmd.SetArgs([]string{"--config", configPath, "laptop"})
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("export command failed: %v", err)
@@ -173,6 +174,7 @@ H4 = 400
 
 [Peer]
 #_Name = laptop
+#_Role = client
 #_PrivateKey = %s
 PublicKey = %s
 PresharedKey = laptop_psk
@@ -181,6 +183,7 @@ AllowedIPs = 10.8.0.2/32
 
 [Peer]
 #_Name = phone
+#_Role = client
 #_PrivateKey = %s
 PublicKey = %s
 PresharedKey = phone_psk
@@ -195,7 +198,7 @@ AllowedIPs = 10.8.0.3/32
 		t.Chdir(tmpDir)
 
 		// Execute export command for all clients (no name specified)
-		cmd := NewExportCommand()
+		cmd := NewClientExportCommand()
 		cmd.SetArgs([]string{"--config", configPath})
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("export command failed: %v", err)
@@ -251,6 +254,7 @@ H4 = 400
 
 [Peer]
 #_Name = tablet
+#_Role = client
 #_PrivateKey = %s
 PublicKey = %s
 PresharedKey = tablet_psk
@@ -262,7 +266,7 @@ AllowedIPs = 10.8.0.4/32
 		}
 
 		// Execute export command with --endpoint flag (should fail)
-		cmd := NewExportCommand()
+		cmd := NewClientExportCommand()
 		cmd.SetArgs([]string{"--config", configPath, "--endpoint", "1.2.3.4:55424", "tablet"})
 
 		// Should fail because --endpoint flag is removed
@@ -307,6 +311,7 @@ H4 = 400
 
 [Peer]
 #_Name = desktop
+#_Role = client
 #_PrivateKey = %s
 PublicKey = %s
 PresharedKey = desktop_psk
@@ -321,7 +326,7 @@ AllowedIPs = 10.8.0.5/32
 		t.Chdir(tmpDir)
 
 		// Execute export command without endpoint config (should auto-detect)
-		cmd := NewExportCommand()
+		cmd := NewClientExportCommand()
 		cmd.SetArgs([]string{"--config", configPath, "desktop"})
 
 		// Note: The actual implementation may use a different approach
@@ -374,7 +379,7 @@ H4 = 400
 		}
 
 		// Execute export command for non-existent client
-		cmd := NewExportCommand()
+		cmd := NewClientExportCommand()
 		cmd.SetArgs([]string{"--config", configPath, "nonexistent"})
 
 		// Should fail with an error
@@ -414,6 +419,7 @@ H4 = 400
 
 [Peer]
 #_Name = laptop
+#_Role = client
 #_PrivateKey = %s
 PublicKey = %s
 PresharedKey = testpsk123
@@ -428,7 +434,7 @@ AllowedIPs = 10.8.0.2/32
 		t.Chdir(tmpDir)
 
 		// Execute export command with protocol flag (using "random" to get all I1-I5)
-		cmd := NewExportCommand()
+		cmd := NewClientExportCommand()
 		cmd.SetArgs([]string{"--config", configPath, "--protocol", "random", "laptop"})
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("export command failed: %v", err)
@@ -488,6 +494,7 @@ H4 = 400
 
 [Peer]
 #_Name = desktop
+#_Role = client
 #_PrivateKey = %s
 PublicKey = %s
 PresharedKey = testpsk123
@@ -502,7 +509,7 @@ AllowedIPs = 10.8.0.6/32
 		t.Chdir(tmpDir)
 
 		// Execute export command (should prefer IPv4 endpoint)
-		cmd := NewExportCommand()
+		cmd := NewClientExportCommand()
 		cmd.SetArgs([]string{"--config", configPath, "desktop"})
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("export command failed: %v", err)
@@ -554,6 +561,7 @@ H4 = 400
 
 [Peer]
 #_Name = tablet
+#_Role = client
 #_PrivateKey = %s
 PublicKey = %s
 PresharedKey = testpsk123
@@ -568,7 +576,7 @@ AllowedIPs = 10.8.0.7/32
 		t.Chdir(tmpDir)
 
 		// Execute export command (should use IPv6 endpoint)
-		cmd := NewExportCommand()
+		cmd := NewClientExportCommand()
 		cmd.SetArgs([]string{"--config", configPath, "tablet"})
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("export command failed: %v", err)

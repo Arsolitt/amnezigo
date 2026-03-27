@@ -3,6 +3,7 @@ package amnezigo
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"strconv"
 	"strings"
@@ -32,7 +33,17 @@ func ParseServerConfig(r io.Reader) (ServerConfig, error) {
 		// Section header
 		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
 			if currentSection == sectionPeer && currentPeer.PublicKey != "" {
-				cfg.Peers = append(cfg.Peers, currentPeer)
+				switch currentPeer.Role {
+				case RoleClient:
+					cfg.Clients = append(cfg.Clients, currentPeer)
+				case RoleEdge:
+					cfg.Edges = append(cfg.Edges, currentPeer)
+				default:
+					return ServerConfig{}, fmt.Errorf(
+						"peer '%s': missing or invalid role (must be 'client' or 'edge')",
+						currentPeer.Name,
+					)
+				}
 				currentPeer = PeerConfig{}
 			}
 			currentSection = line
@@ -57,6 +68,8 @@ func ParseServerConfig(r io.Reader) (ServerConfig, error) {
 				switch fieldName {
 				case "Name":
 					currentPeer.Name = value
+				case "Role":
+					currentPeer.Role = value
 				case "PrivateKey":
 					currentPeer.PrivateKey = value
 				case "GenKeyTime":
@@ -165,7 +178,17 @@ func ParseServerConfig(r io.Reader) (ServerConfig, error) {
 
 	// Don't forget the last peer
 	if currentSection == sectionPeer && currentPeer.PublicKey != "" {
-		cfg.Peers = append(cfg.Peers, currentPeer)
+		switch currentPeer.Role {
+		case RoleClient:
+			cfg.Clients = append(cfg.Clients, currentPeer)
+		case RoleEdge:
+			cfg.Edges = append(cfg.Edges, currentPeer)
+		default:
+			return ServerConfig{}, fmt.Errorf(
+				"peer '%s': missing or invalid role (must be 'client' or 'edge')",
+				currentPeer.Name,
+			)
+		}
 	}
 
 	if err := scanner.Err(); err != nil {

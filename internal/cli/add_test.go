@@ -19,7 +19,7 @@ func TestAddCommand(t *testing.T) {
 	t.Run("add client with auto-assigned IP", func(t *testing.T) {
 		// Reset global state to default
 		cfgFile = ""
-		addIPAddr = ""
+		clientIPAddr = ""
 
 		// Create temporary directory
 		tmpDir := t.TempDir()
@@ -53,7 +53,7 @@ I5 = mno
 		}
 
 		// Execute add command
-		cmd := NewAddCommand()
+		cmd := NewClientAddCommand()
 		cmd.SetArgs([]string{"--config", configPath, "client1"})
 		// Ensure global state is reset
 		cfgFile = configPath
@@ -92,7 +92,7 @@ I5 = mno
 	// Test 2: Adding client with specific IP
 	t.Run("add client with specific IP", func(t *testing.T) {
 		cfgFile = ""
-		addIPAddr = ""
+		clientIPAddr = ""
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, "awg0.conf")
 
@@ -122,7 +122,7 @@ I5 = mno
 			t.Fatal(err)
 		}
 
-		cmd := NewAddCommand()
+		cmd := NewClientAddCommand()
 		cmd.SetArgs([]string{"--config", configPath, "--ipaddr", "10.8.0.50", "client2"})
 		cfgFile = configPath
 		if err := cmd.Execute(); err != nil {
@@ -143,7 +143,7 @@ I5 = mno
 	// Test 3: Duplicate name rejection
 	t.Run("reject duplicate client name", func(t *testing.T) {
 		cfgFile = ""
-		addIPAddr = ""
+		clientIPAddr = ""
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, "awg0.conf")
 
@@ -172,6 +172,7 @@ I5 = mno
 
 [Peer]
 #_Name = existing-client
+#_Role = client
 PublicKey = existingpublickey1234567890123456789012345678901234567890123456789012345678=
 AllowedIPs = 10.8.0.2/32
 `
@@ -179,7 +180,7 @@ AllowedIPs = 10.8.0.2/32
 			t.Fatal(err)
 		}
 
-		cmd := NewAddCommand()
+		cmd := NewClientAddCommand()
 		cmd.SetArgs([]string{"--config", configPath, "existing-client"})
 		cfgFile = configPath
 
@@ -195,7 +196,7 @@ AllowedIPs = 10.8.0.2/32
 	// Test 4: IP allocation from subnet
 	t.Run("IP allocation skips .0 and .1", func(t *testing.T) {
 		cfgFile = ""
-		addIPAddr = ""
+		clientIPAddr = ""
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, "awg0.conf")
 
@@ -225,7 +226,7 @@ I5 = mno
 			t.Fatal(err)
 		}
 
-		cmd := NewAddCommand()
+		cmd := NewClientAddCommand()
 		cmd.SetArgs([]string{"--config", configPath, "client-auto"})
 		cfgFile = configPath
 		if err := cmd.Execute(); err != nil {
@@ -244,7 +245,7 @@ I5 = mno
 		}
 
 		// Second client should get .3
-		cmd2 := NewAddCommand()
+		cmd2 := NewClientAddCommand()
 		cmd2.SetArgs([]string{"--config", configPath, "client-auto2"})
 		cfgFile = configPath
 		if err := cmd2.Execute(); err != nil {
@@ -265,7 +266,7 @@ I5 = mno
 	// Test 5: IP allocation with different subnet
 	t.Run("IP allocation with different subnet", func(t *testing.T) {
 		cfgFile = ""
-		addIPAddr = ""
+		clientIPAddr = ""
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, "awg0.conf")
 
@@ -296,7 +297,7 @@ I5 = mno
 			t.Fatal(err)
 		}
 
-		cmd := NewAddCommand()
+		cmd := NewClientAddCommand()
 		cmd.SetArgs([]string{"--config", configPath, "client-subnet1"})
 		cfgFile = configPath
 		if err := cmd.Execute(); err != nil {
@@ -314,7 +315,7 @@ I5 = mno
 		}
 
 		// Second client should get .3
-		cmd2 := NewAddCommand()
+		cmd2 := NewClientAddCommand()
 		cmd2.SetArgs([]string{"--config", configPath, "client-subnet2"})
 		cfgFile = configPath
 		if err := cmd2.Execute(); err != nil {
@@ -390,7 +391,7 @@ func TestFindNextAvailableIP(t *testing.T) {
 // TestCreatedAtTimestamp tests that CreatedAt field is set.
 func TestCreatedAtTimestamp(t *testing.T) {
 	cfgFile = ""
-	addIPAddr = ""
+	clientIPAddr = ""
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "awg0.conf")
 
@@ -423,7 +424,7 @@ I5 = mno
 	// Capture time range (allow some margin)
 	timeRangeStart := time.Now().Add(-time.Second)
 
-	cmd := NewAddCommand()
+	cmd := NewClientAddCommand()
 	cmd.SetArgs([]string{"--config", configPath, "client-timestamp"})
 	cfgFile = configPath
 	if err := cmd.Execute(); err != nil {
@@ -475,7 +476,7 @@ I5 = mno
 // TestPresharedKey tests that PresharedKey is generated and stored when adding a peer.
 func TestPresharedKey(t *testing.T) {
 	cfgFile = ""
-	addIPAddr = ""
+	clientIPAddr = ""
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "awg0.conf")
 
@@ -505,7 +506,7 @@ I5 = mno
 		t.Fatal(err)
 	}
 
-	cmd := NewAddCommand()
+	cmd := NewClientAddCommand()
 	cmd.SetArgs([]string{"--config", configPath, "client-psk"})
 	cfgFile = configPath
 	if err := cmd.Execute(); err != nil {
