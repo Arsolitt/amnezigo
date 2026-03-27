@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+
+	"github.com/Arsolitt/amnezigo"
 )
 
 // removeCmd represents the remove command.
@@ -32,38 +34,10 @@ func NewRemoveCommand() *cobra.Command {
 
 // runRemove executes the remove command.
 func runRemove(_ *cobra.Command, args []string) error {
-	clientName := args[0]
-	configPath := cfgFile
-
-	// Load existing server config
-	serverCfg, err := loadServerConfig(configPath)
-	if err != nil {
-		return fmt.Errorf("failed to load server config: %w", err)
+	mgr := amnezigo.NewManager(cfgFile)
+	if err := mgr.RemoveClient(args[0]); err != nil {
+		return err
 	}
-
-	// Find peer by name
-	peerIndex := -1
-	for i, peer := range serverCfg.Peers {
-		if peer.Name == clientName {
-			peerIndex = i
-			break
-		}
-	}
-
-	// Check if peer was found
-	if peerIndex == -1 {
-		return fmt.Errorf("client '%s' not found", clientName)
-	}
-
-	// Remove peer from slice
-	serverCfg.Peers = append(serverCfg.Peers[:peerIndex], serverCfg.Peers[peerIndex+1:]...)
-
-	// Save updated config
-	if err := saveServerConfig(configPath, serverCfg); err != nil {
-		return fmt.Errorf("failed to save server config: %w", err)
-	}
-
-	fmt.Printf("✓ Client '%s' removed successfully\n", clientName)
-
+	fmt.Printf("✓ Client '%s' removed successfully\n", args[0])
 	return nil
 }
