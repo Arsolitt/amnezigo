@@ -11,6 +11,103 @@
 - Lint and auto-fix: `golangci-lint run --fix`
 - Always run `golangci-lint run --fix` first to auto-resolve issues before fixing remaining ones manually
 
+## Project Structure
+
+```
+github.com/Arsolitt/amnezigo
+|
++-- cmd/amnezigo/main.go            # CLI entry point (package main)
+|
++-- internal/cli/                   # Cobra CLI commands (package cli)
+|   +-- cli.go                      # Root command + Execute()
+|   +-- init.go                     # init command
+|   +-- add.go                      # add command
+|   +-- list.go                     # list command
+|   +-- export.go                   # export command
+|   +-- edit.go                     # edit command
+|   +-- remove.go                   # remove command
+|
++-- [root package: amnezigo]        # All business logic
+    +-- types.go                    # All type definitions
+    +-- parser.go                   # INI config parser (bufio.Scanner)
+    +-- writer.go                   # Config file writers (io.Writer)
+    +-- manager.go                  # High-level CRUD Manager
+    +-- keys.go                     # X25519 key generation
+    +-- generator.go                # Obfuscation param generation
+    +-- cps.go                      # Custom Packet String generation
+    +-- helpers.go                  # IP, port, interface utilities
+    +-- iptables.go                 # iptables rule generation
+    +-- protocols.go                # Protocol template dispatcher
+    +-- quic.go, dns.go, dtls.go, stun.go  # Protocol templates
+```
+
+## Known Gotchas
+
+### CLI Behavior
+- **export has no --endpoint flag**: Endpoint is auto-resolved from server config's Endpoint field, or via HTTP request if endpoint contains `:http`. There is no manual override.
+- **--dns and --keepalive on init are silently ignored**: These flags exist on the init command but do nothing. DNS is hardcoded to "1.1.1.1, 8.8.8.8" and keepalive to 25 in client exports.
+- **"random" protocol is deterministic**: Due to `len("random") % 4 = 2`, the random protocol always selects DTLS. Use explicit protocol names if you need variety.
+
+### Obfuscation Generation
+- **GenerateConfig vs GenerateServerConfig**: `GenerateConfig` uses point ranges for H1-H4 (single values masquerading as ranges). `GenerateServerConfig` uses true ranges with different min/max values.
+- **CPS strings are per-client**: I1-I5 CPS strings are generated at export time, not stored in the server config. Each client gets unique CPS values.
+
+## Library API
+
+### Manager (manager.go)
+High-level CRUD operations for server configs and clients:
+- `NewManager(configPath string) *Manager`
+- `Load() error`
+- `Save() error`
+- `AddClient(name, ipAddr string, protocol string) (*Client, error)`
+- `RemoveClient(name string) error`
+- `FindClient(name string) (*Client, error)`
+- `ListClients() []*Client`
+- `ExportClient(name string) ([]byte, error)`
+- `BuildClientConfig(client *Client) ([]byte, error)`
+
+### Config I/O (parser.go, writer.go)
+- `ParseServerConfig(r io.Reader) (*ServerConfig, error)`
+- `WriteServerConfig(w io.Writer, cfg *ServerConfig) error`
+- `WriteClientConfig(w io.Writer, cfg *ClientConfig) error`
+- `LoadServerConfig(path string) (*ServerConfig, error)`
+- `SaveServerConfig(path string, cfg *ServerConfig) error`
+
+### Key Generation (keys.go)
+- `GenerateKeyPair() (privateKey, publicKey string, err error)`
+- `DerivePublicKey(privateKey string) (string, error)`
+- `GeneratePSK() (string, error)`
+
+### Obfuscation (generator.go)
+- `GenerateConfig(protocol string) (*ObfuscationConfig, error)`
+- `GenerateServerConfig(protocol string) (*ObfuscationConfig, error)`
+- `GenerateHeaders(protocol string) (h1, h2, h3, h4 int, err error)`
+- `GenerateSPrefixes() (sPrefix1, sPrefix2 int, err error)`
+- `GenerateJunkParams() (junkMin, junkMax int, err error)`
+- `GenerateCPS(protocol string) (string, error)`
+- `GenerateHeaderRanges(protocol string) (HeaderRange, HeaderRange, HeaderRange, HeaderRange, error)`
+
+### CPS Generation (cps.go)
+- `BuildCPSTag(tag string) (string, error)`
+- `BuildCPS(tags []string) string`
+
+### Protocol Templates (protocols.go, quic.go, dns.go, dtls.go, stun.go)
+- `QUICTemplate() []string`
+- `DNSTemplate() []string`
+- `DTLSTemplate() []string`
+- `STUNTemplate() []string`
+
+### Helpers (helpers.go)
+- `IsValidIPAddr(ip string) bool`
+- `ExtractSubnet(cidr string) (string, error)`
+- `GenerateRandomPort() (int, error)`
+- `DetectMainInterface() (string, error)`
+- `FindNextAvailableIP(cidr string, existingIPs map[string]bool) (string, error)`
+
+### iptables (iptables.go)
+- `GeneratePostUp(interfaceName, port, subnet string) []string`
+- `GeneratePostDown(interfaceName, port, subnet string) []string`
+
 ## Code Style Guidelines
 
 ### Imports
@@ -24,7 +121,7 @@
 
       "github.com/spf13/cobra"
 
-      "github.com/Arsolitt/amnezigo/internal/config"
+      "github.com/Arsolitt/amnezigo"
   )
   ```
 
@@ -50,6 +147,7 @@
 - Variables use descriptive names, avoid abbreviations (e.g., `configPath` not `cfgPath`)
 - Constants use PascalCase for exported, camelCase for internal
 - Test functions follow `TestFunctionName` pattern
+- Factory functions use `New*Command()` pattern for CLI commands
 
 ### Comments
 - Package comments describe purpose and responsibilities
@@ -59,8 +157,8 @@
 
 ### File Organization
 - CLI entry point: `cmd/amnezigo/main.go`
-- Root package: `package amnezigo` (all business logic)
-- CLI commands: `internal/cli/` (thin wrappers over root package)
+- Root package: `package amnezigo` (all business logic in types.go, parser.go, writer.go, etc.)
+- CLI commands: `internal/cli/` (thin wrappers calling amnezigo package functions)
 - Tests: `*_test.go` alongside implementation
 - Related functions grouped by responsibility (parser.go, writer.go, etc.)
 
@@ -75,6 +173,7 @@
 - Use `RunE` for error handling, not `Run`
 - Store flag variables as package-level vars
 - Initialize flags in `init()` function
+- Use factory functions: `NewAddCommand()`, `NewListCommand()`, `NewExportCommand()`, `NewEditCommand()`, `NewRemoveCommand()`
 
 ### Configuration
 - Config files use INI format with [Section] headers
@@ -89,7 +188,7 @@
 ### Obfuscation Patterns
 - Store H1-H4 as HeaderRange{Min, Max} for ranges
 - I1-I5 CPS strings generated per-client at export time
-- Protocol templates in internal/obfuscation/protocols/
+- Protocol templates in root package (quic.go, dns.go, dtls.go, stun.go)
 - Use tag-based CPS construction: <b 0x...>, <r N>, <t>, <c>
 
 ### Config File Parsing
@@ -113,8 +212,8 @@
 
 ### Package Organization
 - `package amnezigo` (root): All business logic (config, crypto, obfuscation, network)
-- `cmd/amnezigo/`: CLI entry point
-- `internal/cli/`: Cobra CLI commands (thin wrappers over root package)
+- `cmd/amnezigo/`: CLI entry point (package main)
+- `internal/cli/`: Cobra CLI commands (package cli, thin wrappers over root package)
 
 ### Common Patterns
 - Use string slices for collecting config data
