@@ -72,46 +72,46 @@ High-level CRUD operations for server configs, clients, and edges:
 - `ExportEdge(name, protocol, endpoint string) ([]byte, error)`
 
 ### Config I/O (parser.go, writer.go)
-- `ParseServerConfig(r io.Reader) (*ServerConfig, error)`
-- `WriteServerConfig(w io.Writer, cfg *ServerConfig) error`
-- `WriteClientConfig(w io.Writer, cfg *ClientConfig) error`
-- `LoadServerConfig(path string) (*ServerConfig, error)`
-- `SaveServerConfig(path string, cfg *ServerConfig) error`
+- `ParseServerConfig(r io.Reader) (ServerConfig, error)`
+- `WriteServerConfig(w io.Writer, cfg ServerConfig) error`
+- `WriteClientConfig(w io.Writer, cfg ClientConfig) error`
+- `LoadServerConfig(path string) (ServerConfig, error)`
+- `SaveServerConfig(path string, cfg ServerConfig) error`
 
 ### Key Generation (keys.go)
-- `GenerateKeyPair() (privateKey, publicKey string, err error)`
-- `DerivePublicKey(privateKey string) (string, error)`
-- `GeneratePSK() (string, error)`
+- `GenerateKeyPair() (string, string)` — panics on crypto/rand failure
+- `DerivePublicKey(privateKey string) string` — panics on invalid base64 or wrong length
+- `GeneratePSK() string` — panics on crypto/rand failure
 
 ### Obfuscation (generator.go)
-- `GenerateConfig(protocol string) (*ObfuscationConfig, error)`
-- `GenerateServerConfig(protocol string) (*ObfuscationConfig, error)`
-- `GenerateHeaders(protocol string) (h1, h2, h3, h4 int, err error)`
-- `GenerateSPrefixes() (sPrefix1, sPrefix2 int, err error)`
-- `GenerateJunkParams() (junkMin, junkMax int, err error)`
-- `GenerateCPS(protocol string) (string, error)`
-- `GenerateHeaderRanges(protocol string) (HeaderRange, HeaderRange, HeaderRange, HeaderRange, error)`
+- `GenerateConfig(protocol string, mtu, s1, jc int) ClientObfuscationConfig`
+- `GenerateServerConfig(_, s1, jc int) ServerObfuscationConfig` — first arg (protocol) ignored
+- `GenerateHeaders() Headers`
+- `GenerateSPrefixes() SPrefixes`
+- `GenerateJunkParams() JunkParams`
+- `GenerateCPS(protocol string, mtu, s1, _ int) (string, string, string, string, string)` — 4th arg unused
+- `GenerateHeaderRanges() [4]HeaderRange`
 
 ### CPS Generation (cps.go)
-- `BuildCPSTag(tag string) (string, error)`
+- `BuildCPSTag(tagType, value string) string`
 - `BuildCPS(tags []string) string`
 
 ### Protocol Templates (protocols.go, quic.go, dns.go, dtls.go, stun.go)
-- `QUICTemplate() []string`
-- `DNSTemplate() []string`
-- `DTLSTemplate() []string`
-- `STUNTemplate() []string`
+- `QUICTemplate() I1I5Template`
+- `DNSTemplate() I1I5Template`
+- `DTLSTemplate() I1I5Template`
+- `STUNTemplate() I1I5Template`
 
 ### Helpers (helpers.go)
-- `IsValidIPAddr(ip string) bool`
-- `ExtractSubnet(cidr string) (string, error)`
+- `IsValidIPAddr(ipaddr string) bool`
+- `ExtractSubnet(ipaddr string) string`
 - `GenerateRandomPort() (int, error)`
-- `DetectMainInterface() (string, error)`
-- `FindNextAvailableIP(cidr string, existingIPs map[string]bool) (string, error)`
+- `DetectMainInterface() string`
+- `FindNextAvailableIP(serverAddress string, existingIPs []string) (string, error)`
 
 ### iptables (iptables.go)
-- `GeneratePostUp(interfaceName, port, subnet string) []string`
-- `GeneratePostDown(interfaceName, port, subnet string) []string`
+- `GeneratePostUp(tunName, mainIface, subnet string, clientToClient bool) string`
+- `GeneratePostDown(tunName, mainIface, subnet string, clientToClient bool) string`
 
 ## Code Style Guidelines
 
