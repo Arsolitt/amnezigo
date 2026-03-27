@@ -66,7 +66,7 @@ func main() {
 
 ## API Manager
 
-`Manager` — высокоуровневый интерфейс для управления конфигурацией сервера WireGuard/AmneziaWG.
+`Manager` — высокоуровневый интерфейс для управления конфигурацией сервера WireGuard/AmneziaWG, клиентами и edge-серверами.
 
 ### Создание менеджера
 
@@ -90,7 +90,9 @@ if err != nil {
 }
 ```
 
-### Добавление клиента
+### Управление клиентами
+
+#### Добавление клиента
 
 ```go
 // Добавление с автоматическим назначением IP
@@ -106,9 +108,9 @@ if err != nil {
 }
 ```
 
-**Важно:** Если клиент с таким именем уже существует, возвращается ошибка.
+**Важно:** Имя должно быть уникальным среди всех пиров (клиентов и edge-серверов).
 
-### Удаление клиента
+#### Удаление клиента
 
 ```go
 err := manager.RemoveClient("phone")
@@ -117,7 +119,7 @@ if err != nil {
 }
 ```
 
-### Поиск клиента
+#### Поиск клиента
 
 ```go
 peer, err := manager.FindClient("laptop")
@@ -128,7 +130,7 @@ if err != nil {
 fmt.Printf("Найден клиент: %s\n", peer.Name)
 ```
 
-### Список всех клиентов
+#### Список всех клиентов
 
 ```go
 peers := manager.ListClients()
@@ -137,7 +139,7 @@ for _, peer := range peers {
 }
 ```
 
-### Экспорт конфигурации клиента
+#### Экспорт конфигурации клиента
 
 ```go
 // Экспорт по имени клиента
@@ -157,6 +159,86 @@ clientCfg, err := manager.BuildClientConfig(peer, "dns", "203.0.113.50:51820")
 - `"dtls"` — имитация DTLS пакетов
 - `"stun"` — имитация STUN пакетов
 - `"random"` — детерминированный выбор шаблона (на основе длины строки)
+
+### Управление edge-серверами
+
+Edge-серверы подключаются к хабу как WireGuard-клиенты (инициируют подключение). Они делят общий IP-пул с обычными клиентами.
+
+#### Добавление edge-сервера
+
+```go
+// Добавление с автоматическим назначением IP
+edge, err := manager.AddEdge("edge1", "")
+if err != nil {
+    panic(err)
+}
+
+// Добавление с явным указанием IP
+edge, err = manager.AddEdge("edge2", "10.8.0.100")
+if err != nil {
+    panic(err)
+}
+```
+
+**Важно:** Имя должно быть уникальным среди всех пиров (клиентов и edge-серверов).
+
+#### Удаление edge-сервера
+
+```go
+err := manager.RemoveEdge("edge1")
+if err != nil {
+    panic(err)
+}
+```
+
+#### Поиск edge-сервера
+
+```go
+edge, err := manager.FindEdge("edge1")
+if err != nil {
+    fmt.Printf("Edge-сервер не найден: %v\n", err)
+    return
+}
+fmt.Printf("Найден edge-сервер: %s\n", edge.Name)
+```
+
+#### Список всех edge-серверов
+
+```go
+edges := manager.ListEdges()
+for _, edge := range edges {
+    fmt.Printf("- %s: %s\n", edge.Name, edge.AllowedIPs)
+}
+```
+
+#### Экспорт конфигурации edge-сервера
+
+В отличие от экспорта клиента, конфиг edge-сервера не содержит DNS и маршрутизирует только на IP хаба.
+
+```go
+// Возвращает сериализованный конфиг как []byte
+edgeData, err := manager.ExportEdge("edge1", "quic", "203.0.113.50:51820")
+if err != nil {
+    panic(err)
+}
+
+// Запись в файл с ограниченными правами
+if err := os.WriteFile("edge1.conf", edgeData, 0600); err != nil {
+    log.Fatal(err)
+}
+```
+
+#### Построение конфигурации edge-сервера
+
+```go
+// Возвращает ClientConfig (edge переиспользует тип ClientConfig)
+edgeCfg, err := manager.BuildEdgeConfig("edge1", "quic", "203.0.113.50:51820")
+if err != nil {
+    panic(err)
+}
+```
+
+**Важно:** `BuildEdgeConfig` принимает `name` (строку, а не `PeerConfig`) и ищет edge-сервер внутри.
 
 ## Парсинг и запись конфигураций
 
@@ -183,7 +265,7 @@ var buf bytes.Buffer
 err := amnezigo.WriteServerConfig(&buf, cfg)
 ```
 
-### Запись конфигурации клиента
+### Запись конфигурации клиента/edge
 
 ```go
 // В io.Writer
@@ -242,7 +324,7 @@ clientObf := amnezigo.GenerateConfig("quic", 1280, 15, 3)
 serverObf := amnezigo.GenerateServerConfig(0, 15, 3)
 ```
 
-**Важно:** Параметр протокола игнорируется — сервер не использует CPS-строки.
+**Важно:** Параметр протокола (первый аргумент) игнорируется — сервер не использует CPS-строки.
 
 **Особенность:** `GenerateServerConfig` использует истинные диапазоны H1-H4 (Min < Max).
 
@@ -252,6 +334,8 @@ serverObf := amnezigo.GenerateServerConfig(0, 15, 3)
 i1, i2, i3, i4, i5 := amnezigo.GenerateCPS("quic", 1280, 15, 0)
 fmt.Printf("I1: %s\n", i1) // например: "<b 0xc0ff00000001>..."
 ```
+
+**Важно:** Четвёртый параметр не используется.
 
 ### Генерация отдельных компонентов
 
@@ -448,11 +532,21 @@ postUp := amnezigo.GeneratePostUp("awg0", "eth0", "10.8.0.0/24", true)
 
 ## Справочник типов
 
+### Ролевые константы
+
+```go
+const (
+    RoleClient = "client"
+    RoleEdge   = "edge"
+)
+```
+
 ### ServerConfig
 
 ```go
 type ServerConfig struct {
-    Peers       []PeerConfig
+    Clients     []PeerConfig
+    Edges       []PeerConfig
     Interface   InterfaceConfig
     Obfuscation ServerObfuscationConfig
 }
@@ -484,10 +578,11 @@ type PeerConfig struct {
     CreatedAt         time.Time
     ClientObfuscation *ClientObfuscationConfig
     Name              string
+    Role              string  // "client" или "edge"
     PrivateKey        string
     PublicKey         string
     PresharedKey      string
-    AllowedIPs        string // CIDR клиента, например "10.8.0.2/32"
+    AllowedIPs        string // CIDR пира, например "10.8.0.2/32"
 }
 ```
 
@@ -506,7 +601,7 @@ type ServerObfuscationConfig struct {
 ```go
 type ClientObfuscationConfig struct {
     I1, I2, I3, I4, I5 string  // CPS-строки
-    ServerObfuscationConfig              // встраивает серверные параметры
+    ServerObfuscationConfig    // встраивает серверные параметры
 }
 ```
 
@@ -525,7 +620,7 @@ type ClientConfig struct {
 type ClientInterfaceConfig struct {
     PrivateKey  string
     Address     string
-    DNS         string
+    DNS         string  // Пусто для edge-серверов
     Obfuscation ClientObfuscationConfig
     MTU         int
 }
@@ -538,7 +633,7 @@ type ClientPeerConfig struct {
     PublicKey           string
     PresharedKey        string
     Endpoint            string
-    AllowedIPs          string
+    AllowedIPs          string  // "0.0.0.0/0, ::/0" для клиентов, "<hub_ip>/32" для edge
     PersistentKeepalive int
 }
 ```
@@ -586,13 +681,17 @@ type Manager struct {
 
 | Параметр | Значение | Где используется |
 |----------|----------|------------------|
-| DNS | `"1.1.1.1, 8.8.8.8"` | `BuildClientConfig` |
+| DNS | `"1.1.1.1, 8.8.8.8"` | `BuildClientConfig` (клиенты) |
+| DNS | `""` (пусто) | `BuildEdgeConfig` (edge-серверы) |
 | AllowedIPs | `"0.0.0.0/0, ::/0"` | `BuildClientConfig` (экспорт клиента) |
-| PersistentKeepalive | `25` | `BuildClientConfig` |
+| AllowedIPs | `"<hub_ip>/32"` | `BuildEdgeConfig` (экспорт edge) |
+| PersistentKeepalive | `25` | `BuildClientConfig` и `BuildEdgeConfig` |
 
 ### Поведение GenerateKeyPair и GeneratePSK
 
-Эти функции паникуют при ошибке `crypto/rand.Read()`, так как это считается неисправимой системной ошибкой. В нормальных условиях это не должно происходовать.
+Эти функции паникуют при ошибке `crypto/rand.Read()`, так как это считается неисправимой системной ошибкой. В нормальных условиях это не должно происходить.
+
+`DerivePublicKey()` также паникует при невалидном base64 или неправильной длине ключа.
 
 ### Различия GenerateConfig и GenerateServerConfig
 
@@ -600,6 +699,14 @@ type Manager struct {
 |---------|-------|------------|
 | `GenerateConfig` | Точечные (Min == Max) | Клиентская обфускация |
 | `GenerateServerConfig` | Диапазоны (Min < Max) | Серверная обфускация |
+
+### Уникальность имён пиров
+
+Имена пиров (клиентов и edge-серверов) должны быть глобально уникальными. Клиент и edge-сервер не могут иметь одинаковое имя. Проверка `isNameTaken` охватывает оба среза (`Clients` и `Edges`).
+
+### Общий IP-пул
+
+Клиенты и edge-серверы делят один IP-пул. Функция `resolveClientIP` учитывает оба среза при поиске следующего доступного IP, чтобы избежать конфликтов.
 
 ### Протокол "random"
 
@@ -610,6 +717,13 @@ type Manager struct {
 
 - `GenerateServerConfig(_, s1, jc)` игнорирует первый параметр (протокол)
 - `GenerateCPS(protocol, mtu, s1, _)` игнорирует четвёртый параметр
+
+### Edge-серверы: особенности
+
+- `ExportEdge` возвращает `([]byte, error)`, в отличие от `ExportClient`, который возвращает `(ClientConfig, error)`
+- `BuildEdgeConfig` принимает имя (строку), а не `PeerConfig`
+- Edge-конфиги не содержат PostUp/PostDown — edge-серверы являются конечными точками трафика, а не маршрутизаторами
+- Файлы конфигурации edge-серверов рекомендуется создавать с правами 0600
 
 ## Полный пример: создание сервера с нуля
 
@@ -653,7 +767,6 @@ func main() {
             PostDown:   amnezigo.GeneratePostDown("awg0", mainIface, "10.8.0.0/24", false),
         },
         Obfuscation: obf,
-        Peers:       []amnezigo.PeerConfig{},
     }
 
     // Создаём менеджер и сохраняем конфиг

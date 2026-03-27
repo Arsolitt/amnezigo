@@ -10,13 +10,14 @@ A CLI tool and Go library for generating and managing [AmneziaWG](https://github
 ## Features
 
 - Generate AmneziaWG server configurations with obfuscation parameters
-- Manage clients (add, remove, list, export)
+- Manage clients and edge servers (add, remove, list, export)
 - Multiple obfuscation protocols (QUIC, DNS, DTLS, STUN)
-- Automatic IP assignment for clients
+- Automatic IP assignment for peers (clients and edges share the same IP pool)
 - iptables rules generation for NAT and forwarding
 - Per-client obfuscation parameters at export time
 - Dynamic client-to-client switching
 - IPv4 and IPv6 endpoint auto-detection
+- Edge server support (hub-and-spoke topology)
 - Usable as a Go library
 
 ## Installation
@@ -49,10 +50,10 @@ docker run --rm -v $(pwd):/data amnezigo init --ipaddr 10.8.0.1/24
 amnezigo init --ipaddr 10.8.0.1/24
 
 # Add a client
-amnezigo add laptop
+amnezigo client add laptop
 
 # Export client config
-amnezigo export laptop
+amnezigo client export laptop
 ```
 
 ## Usage
@@ -78,40 +79,42 @@ Options:
 
 Note: The `--dns` and `--keepalive` flags are accepted for compatibility but not stored in the server config. DNS is hardcoded to "1.1.1.1, 8.8.8.8" and keepalive to 25 in client exports.
 
-### Add Client
+### Client Commands
+
+#### Add Client
 
 ```bash
 # Auto-assign IP
-amnezigo add laptop
+amnezigo client add laptop
 
 # Specify IP manually
-amnezigo add phone --ipaddr 10.8.0.50
+amnezigo client add phone --ipaddr 10.8.0.50
 ```
 
 Options:
 - `--ipaddr` - Client IP address (auto-assigned if not specified)
 - `--config` - Server config file (default: awg0.conf)
 
-### List Clients
+#### List Clients
 
 ```bash
-amnezigo list
+amnezigo client list
 ```
 
 Options:
 - `--config` - Server config file (default: awg0.conf)
 
-### Export Client Config
+#### Export Client Config
 
 ```bash
 # Export single client
-amnezigo export laptop
+amnezigo client export laptop
 
 # Export with specific protocol
-amnezigo export laptop --protocol quic
+amnezigo client export laptop --protocol quic
 
 # Export all clients
-amnezigo export
+amnezigo client export
 ```
 
 Options:
@@ -122,6 +125,68 @@ The endpoint is automatically resolved in this order:
 1. Stored IPv4 endpoint from server config (`EndpointV4`)
 2. Stored IPv6 endpoint from server config (`EndpointV6`)
 3. Auto-detected via icanhazip.com HTTP service
+
+#### Remove Client
+
+```bash
+amnezigo client remove laptop
+```
+
+Options:
+- `--config` - Server config file (default: awg0.conf)
+
+### Edge Server Commands
+
+Edge servers connect to the hub as WireGuard clients (initiating the connection). Unlike regular clients, edge configs route only to the hub IP and have no DNS.
+
+#### Add Edge
+
+```bash
+# Auto-assign IP
+amnezigo edge add edge1
+
+# Specify IP manually
+amnezigo edge add edge2 --ipaddr 10.8.0.50
+```
+
+Options:
+- `--ipaddr` - Edge IP address (auto-assigned if not specified)
+- `--config` - Server config file (default: awg0.conf)
+
+#### List Edges
+
+```bash
+amnezigo edge list
+```
+
+Options:
+- `--config` - Server config file (default: awg0.conf)
+
+#### Export Edge Config
+
+```bash
+# Export single edge
+amnezigo edge export edge1
+
+# Export with specific protocol
+amnezigo edge export edge1 --protocol quic
+
+# Export all edges
+amnezigo edge export
+```
+
+Options:
+- `--protocol` - Obfuscation protocol: random, quic, dns, dtls, stun (default: random)
+- `--config` - Server config file (default: awg0.conf)
+
+#### Remove Edge
+
+```bash
+amnezigo edge remove edge1
+```
+
+Options:
+- `--config` - Server config file (default: awg0.conf)
 
 ### Edit Server Configuration
 
@@ -135,15 +200,6 @@ amnezigo edit --client-to-client false
 
 Options:
 - `--client-to-client` - Enable/disable client-to-client (true/false)
-- `--config` - Server config file (default: awg0.conf)
-
-### Remove Client
-
-```bash
-amnezigo remove laptop
-```
-
-Options:
 - `--config` - Server config file (default: awg0.conf)
 
 ## Configuration Files
@@ -175,10 +231,18 @@ H4 = 1959094164-1989726207
 #_TunName = awg0
 
 [Peer]
+#_Role = client
 #_Name = laptop
 #_PrivateKey = <client-private-key>
 PublicKey = <client-public-key>
 AllowedIPs = 10.8.0.2/32
+
+[Peer]
+#_Role = edge
+#_Name = edge1
+#_PrivateKey = <edge-private-key>
+PublicKey = <edge-public-key>
+AllowedIPs = 10.8.0.3/32
 ```
 
 ### Client Config (laptop.conf)
@@ -213,6 +277,42 @@ Endpoint = 1.2.3.4:51820
 AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 25
 ```
+
+### Edge Server Config (edge1.conf)
+
+```ini
+[Interface]
+PrivateKey = <edge-private-key>
+Address = 10.8.0.3/32
+MTU = 1280
+Jc = 3
+Jmin = 50
+Jmax = 1000
+S1 = 15
+S2 = 16
+S3 = 45
+S4 = 10
+H1 = 191091632-238083235
+H2 = 469298095-484308427
+H3 = 490129542-1366070158
+H4 = 1959094164-1989726207
+I1 = <b 0xc0ff><b 0x00000001><b 0x08><r 8><b 0x00><b 0x00><b 0x0040><b 0x00><b 0x01><t><r 40>
+I2 = <b 0xc0ff><b 0x00000001><b 0x08><r 8><b 0x00><b 0x00><b 0x0020><b 0x01><t><r 20>
+I3 = <b 0xc0ff><b 0x00000001><b 0x08><r 8><b 0x00><b 0x00><b 0x0010><b 0x01><t><r 16>
+I4 = <b 0xc0ff><b 0x00000001><b 0x08><r 8><b 0x00><b 0x00><b 0x0005><b 0x01><t><r 5>
+I5 = 
+
+[Peer]
+PublicKey = <server-public-key>
+PresharedKey = <psk>
+Endpoint = 1.2.3.4:51820
+AllowedIPs = 10.8.0.1/32
+PersistentKeepalive = 25
+```
+
+Key differences from client configs:
+- **No DNS** line (edge servers don't need DNS)
+- **AllowedIPs** is set to the hub IP only (`10.8.0.1/32`), not `0.0.0.0/0`
 
 ## Obfuscation Parameters
 
@@ -266,8 +366,20 @@ func main() {
         log.Fatal(err)
     }
     
+    // Add an edge server
+    edge, err := mgr.AddEdge("edge1", "")
+    if err != nil {
+        log.Fatal(err)
+    }
+    
     // Export client config
     clientCfg, err := mgr.ExportClient("laptop", "quic", "1.2.3.4:51820")
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    // Export edge config
+    edgeCfg, err := mgr.ExportEdge("edge1", "quic", "1.2.3.4:51820")
     if err != nil {
         log.Fatal(err)
     }

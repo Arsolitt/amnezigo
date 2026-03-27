@@ -39,9 +39,8 @@ func main() {
             PrivateKey:    amnezigo.GenerateKeyPair(), // Returns private key
             Address:       "10.8.0.1/24",
             ListenPort:    51820,
-            DNS:           "1.1.1.1",
             MTU:           1280,
-            Obfuscation:   amnezigo.GenerateServerConfig("quic", 15, 3),
+            Obfuscation:   amnezigo.GenerateServerConfig(0, 15, 3),
         },
     }
 
@@ -82,7 +81,7 @@ func main() {
 
 ## Manager API
 
-The `Manager` type provides a high-level CRUD interface for managing server configurations and clients.
+The `Manager` type provides a high-level CRUD interface for managing server configurations, clients, and edge servers.
 
 ### Creating a Manager
 
@@ -115,12 +114,12 @@ if err != nil {
 peer, err := manager.AddClient("laptop", "")
 
 // Specify IP manually
-peer, err := manager.AddClient("desktop", "10.8.0.50/32")
+peer, err := manager.AddClient("desktop", "10.8.0.50")
 ```
 
-**Returns:** `*PeerConfig` with the new client's configuration.
+**Returns:** `PeerConfig` with the new client's configuration.
 
-**Note:** The client name is stored in the config file as a metadata comment (`#_Name = laptop`).
+**Note:** The client name is stored in the config file as a metadata comment (`#_Name = laptop`). Names must be unique across both clients and edges.
 
 ### Removing a Client
 
@@ -171,6 +170,80 @@ If you have a `PeerConfig` already, use `BuildClientConfig`:
 peer, _ := manager.FindClient("laptop")
 clientCfg, err := manager.BuildClientConfig(peer, "quic", "203.0.113.50:51820")
 ```
+
+### Adding an Edge Server
+
+Edge servers connect to the hub as WireGuard clients (initiating the connection). They share the same IP pool as clients.
+
+```go
+// Auto-assign IP from subnet
+edge, err := manager.AddEdge("edge1", "")
+
+// Specify IP manually
+edge, err := manager.AddEdge("edge2", "10.8.0.50")
+```
+
+**Returns:** `PeerConfig` with the new edge's configuration.
+
+**Note:** Edge names must be unique across both clients and edges.
+
+### Removing an Edge Server
+
+```go
+err := manager.RemoveEdge("edge1")
+if err != nil {
+    // Edge not found or other error
+}
+```
+
+### Finding an Edge Server
+
+```go
+edge, err := manager.FindEdge("edge1")
+if err != nil {
+    // Edge not found
+}
+fmt.Printf("Public Key: %s\n", edge.PublicKey)
+fmt.Printf("IP: %s\n", edge.AllowedIPs)
+```
+
+### Listing All Edge Servers
+
+```go
+edges := manager.ListEdges()
+for _, edge := range edges {
+    fmt.Printf("Name: %s, IP: %s\n", edge.Name, edge.AllowedIPs)
+}
+```
+
+### Exporting Edge Server Configuration
+
+Generates a complete edge server configuration. Unlike client exports, edge configs have no DNS and route only to the hub IP.
+
+```go
+// Returns serialized config as []byte
+edgeData, err := manager.ExportEdge("edge1", "quic", "203.0.113.50:51820")
+if err != nil {
+    // Edge not found
+}
+
+// Write to file with restricted permissions
+if err := os.WriteFile("edge1.conf", edgeData, 0600); err != nil {
+    log.Fatal(err)
+}
+```
+
+### Building Edge Server Configuration
+
+```go
+// Returns ClientConfig (edge reuses ClientConfig type)
+edgeCfg, err := manager.BuildEdgeConfig("edge1", "quic", "203.0.113.50:51820")
+if err != nil {
+    // Edge not found
+}
+```
+
+**Note:** `BuildEdgeConfig` takes a `name` string (not `PeerConfig`) and looks up the edge internally.
 
 ---
 
@@ -264,7 +337,7 @@ AmneziaWG uses obfuscation parameters to disguise WireGuard traffic as other pro
 ### Generate Client Obfuscation Config
 
 ```go
-// Parameters: protocol, mtu, junkPacketCount, initPacketJunkSize
+// Parameters: protocol, mtu, s1, jc
 clientObf := amnezigo.GenerateConfig("quic", 1280, 15, 3)
 ```
 
@@ -277,20 +350,22 @@ This generates:
 ### Generate Server Obfuscation Config
 
 ```go
-// Parameters: protocol (ignored), junkPacketCount, initPacketJunkSize
-serverObf := amnezigo.GenerateServerConfig("quic", 15, 3)
+// Parameters: protocol (ignored), s1, jc
+serverObf := amnezigo.GenerateServerConfig(0, 15, 3)
 ```
 
-**Note:** The protocol parameter is ignored by `GenerateServerConfig`. Server uses true ranges for H1-H4.
+**Note:** The first parameter (protocol) is ignored by `GenerateServerConfig`. Server uses true ranges for H1-H4.
 
 ### Generate CPS Strings
 
 Generate only the I1-I5 CPS strings:
 
 ```go
-i1, i2, i3, i4, i5 := amnezigo.GenerateCPS("quic", 1280, 15, 3)
+i1, i2, i3, i4, i5 := amnezigo.GenerateCPS("quic", 1280, 15, 0)
 fmt.Printf("I1: %s\n", i1)
 ```
+
+**Note:** The 4th parameter is unused.
 
 ### Individual Generators
 
@@ -311,7 +386,7 @@ fmt.Printf("Jc: %d, Jmin: %d, Jmax: %d\n", junk.Jc, junk.Jmin, junk.Jmax)
 
 // Header ranges (for server config)
 ranges := amnezigo.GenerateHeaderRanges()
-fmt.Printf("H1: %d-%d\n", ranges.H1.Min, ranges.H1.Max)
+fmt.Printf("H1: %d-%d\n", ranges[0].Min, ranges[0].Max)
 ```
 
 ---
@@ -329,7 +404,17 @@ tag := amnezigo.BuildCPSTag("b", "0xc0ff")
 // Random bytes tag: <r 16>
 tag := amnezigo.BuildCPSTag("r", "16")
 
-// Other tag types: "t" (timestamp), "c" (checksum)
+// Random chars tag: <rc 8>
+tag := amnezigo.BuildCPSTag("rc", "8")
+
+// Random digits tag: <rd 4>
+tag := amnezigo.BuildCPSTag("rd", "4")
+
+// Counter tag: <c>
+tag := amnezigo.BuildCPSTag("c", "")
+
+// Timestamp tag: <t>
+tag := amnezigo.BuildCPSTag("t", "")
 ```
 
 ### Building Complete CPS
@@ -405,10 +490,7 @@ fmt.Printf("Main interface: %s\n", iface)  // e.g., "eth0"
 ### Find Next Available IP
 
 ```go
-existingIPs := map[string]bool{
-    "10.8.0.1": true,
-    "10.8.0.2": true,
-}
+existingIPs := []string{"10.8.0.1", "10.8.0.2"}
 
 ip, err := amnezigo.FindNextAvailableIP("10.8.0.1/24", existingIPs)
 if err != nil {
@@ -424,13 +506,13 @@ fmt.Printf("Next available: %s\n", ip)  // "10.8.0.3"
 Generate PostUp and PostDown commands for NAT/masquerade:
 
 ```go
-interface := "awg0"
+tunName := "awg0"
 mainIface := "eth0"
 subnet := "10.8.0.0/24"
-ipv6 := false
+clientToClient := false
 
-postUp := amnezigo.GeneratePostUp(interface, mainIface, subnet, ipv6)
-postDown := amnezigo.GeneratePostDown(interface, mainIface, subnet, ipv6)
+postUp := amnezigo.GeneratePostUp(tunName, mainIface, subnet, clientToClient)
+postDown := amnezigo.GeneratePostDown(tunName, mainIface, subnet, clientToClient)
 
 fmt.Println("PostUp commands:")
 fmt.Println(postUp)
@@ -440,8 +522,8 @@ fmt.Println(postDown)
 
 Example output:
 ```
-PostUp: iptables -A FORWARD -i awg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
-PostDown: iptables -D FORWARD -i awg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
+PostUp: iptables -A INPUT -i awg0 -j ACCEPT; iptables -A OUTPUT -o awg0 -j ACCEPT; iptables -A FORWARD -i awg0 -o eth0 -s 10.8.0.0/24 -j ACCEPT; ...
+PostDown: iptables -D INPUT -i awg0 -j ACCEPT; iptables -D OUTPUT -o awg0 -j ACCEPT; iptables -D FORWARD -i awg0 -o eth0 -s 10.8.0.0/24 -j ACCEPT; ...
 ```
 
 ---
@@ -451,43 +533,61 @@ PostDown: iptables -D FORWARD -i awg0 -j ACCEPT; iptables -t nat -D POSTROUTING 
 ### Configuration Types
 
 ```go
+// Role constants
+const (
+    RoleClient = "client"
+    RoleEdge   = "edge"
+)
+
 // Main server configuration
 type ServerConfig struct {
-    Interface InterfaceConfig
-    Peers     []*PeerConfig
+    Clients     []PeerConfig
+    Edges       []PeerConfig
+    Interface   InterfaceConfig
+    Obfuscation ServerObfuscationConfig
 }
 
 // Server interface section
 type InterfaceConfig struct {
-    PrivateKey    string
-    Address       string
-    ListenPort    int
-    DNS           string
-    MTU           int
-    Obfuscation   ServerObfuscationConfig
-}
-
-// Peer/client configuration (server-side)
-type PeerConfig struct {
-    Name           string  // Stored as metadata comment
+    PrivateKey     string
     PublicKey      string
-    PresharedKey   string
-    AllowedIPs     string
+    Address        string
+    PostUp         string
+    PostDown       string
+    MainIface      string
+    TunName        string
+    EndpointV4     string
+    EndpointV6     string
+    ListenPort     int
+    MTU            int
+    ClientToClient bool
 }
 
-// Client configuration (for export)
+// Peer configuration (server-side, used for both clients and edges)
+type PeerConfig struct {
+    CreatedAt         time.Time
+    ClientObfuscation *ClientObfuscationConfig
+    Name              string
+    Role              string  // "client" or "edge"
+    PrivateKey        string
+    PublicKey         string
+    PresharedKey      string
+    AllowedIPs        string
+}
+
+// Client configuration (for export, reused for edge servers)
 type ClientConfig struct {
-    Interface ClientInterfaceConfig
     Peer      ClientPeerConfig
+    Interface ClientInterfaceConfig
 }
 
 // Client interface section
 type ClientInterfaceConfig struct {
-    PrivateKey    string
-    Address       string
-    DNS           string
-    MTU           int
-    Obfuscation   ClientObfuscationConfig
+    PrivateKey  string
+    Address     string
+    DNS         string  // Empty for edge server exports
+    Obfuscation ClientObfuscationConfig
+    MTU         int
 }
 
 // Client peer section
@@ -495,7 +595,7 @@ type ClientPeerConfig struct {
     PublicKey           string
     PresharedKey        string
     Endpoint            string
-    AllowedIPs          string
+    AllowedIPs          string  // "0.0.0.0/0, ::/0" for clients, "<hub_ip>/32" for edges
     PersistentKeepalive int
 }
 ```
@@ -505,22 +605,15 @@ type ClientPeerConfig struct {
 ```go
 // Server-side obfuscation (H1-H4 as ranges)
 type ServerObfuscationConfig struct {
-    Jc                int
-    Jmin              int
-    Jmax              int
-    H1, H2, H3, H4    HeaderRange
-    S1, S2, S3, S4    int
-    I1, I2, I3, I4, I5 string
+    Jc, Jmin, Jmax int
+    S1, S2, S3, S4 int
+    H1, H2, H3, H4 HeaderRange
 }
 
-// Client-side obfuscation (H1-H4 as point values)
+// Client-side obfuscation (extends server config with I1-I5 CPS strings)
 type ClientObfuscationConfig struct {
-    Jc                int
-    Jmin              int
-    Jmax              int
-    H1, H2, H3, H4    uint32
-    S1, S2, S3, S4    int
     I1, I2, I3, I4, I5 string
+    ServerObfuscationConfig
 }
 
 // Header range (min-max)
@@ -551,7 +644,7 @@ type CPSConfig struct {
 
 // Tag specification for CPS construction
 type TagSpec struct {
-    Type  string  // "b", "r", "t", "c"
+    Type  string  // "bytes", "random", "random_chars", "random_digits", "counter", "timestamp"
     Value string
 }
 
@@ -575,11 +668,11 @@ type Manager struct {
 
 ### Hardcoded Values
 
-1. **DNS in client exports** is hardcoded to `"1.1.1.1, 8.8.8.8"` in `BuildClientConfig`.
+1. **DNS in client exports** is hardcoded to `"1.1.1.1, 8.8.8.8"` in `BuildClientConfig`. Edge exports have no DNS.
 
-2. **AllowedIPs in client exports** is always `"0.0.0.0/0, ::/0"` (tunnel all traffic).
+2. **AllowedIPs in client exports** is always `"0.0.0.0/0, ::/0"` (tunnel all traffic). Edge exports use `"10.8.0.1/32"` (hub IP only).
 
-3. **PersistentKeepalive** is hardcoded to `25` seconds in client exports.
+3. **PersistentKeepalive** is hardcoded to `25` seconds in both client and edge exports.
 
 ### Protocol Behavior
 
@@ -593,21 +686,39 @@ type Manager struct {
    - `GenerateConfig`: Uses point values for H1-H4 (for clients)
    - `GenerateServerConfig`: Uses ranges for H1-H4 (for servers)
 
+### Name Uniqueness
+
+7. **Peer names must be globally unique** — a client and an edge cannot share the same name. The `isNameTaken` check covers both `Clients` and `Edges` slices.
+
+### IP Pool Sharing
+
+8. **Clients and edges share the same IP pool**. `resolveClientIP` considers both `Clients` and `Edges` when finding the next available IP to avoid conflicts.
+
 ### Error Handling
 
-7. **Key generation panics**: `GenerateKeyPair()` and `GeneratePSK()` panic if `crypto/rand` fails. This is by design—these are treated as unrecoverable system failures.
+9. **Key generation panics**: `GenerateKeyPair()` and `GeneratePSK()` panic if `crypto/rand` fails. This is by design—these are treated as unrecoverable system failures.
 
-### Client Names
+10. **DerivePublicKey panics**: `DerivePublicKey()` panics on invalid base64 or wrong key length.
 
-8. **Client names are metadata**: The `Name` field in `PeerConfig` is stored as a comment (`#_Name = value`) in the config file, not as a native WireGuard field.
+### Client/Edge Names
+
+11. **Peer names are metadata**: The `Name` field in `PeerConfig` is stored as a comment (`#_Name = value`) in the config file, not as a native WireGuard field.
 
 ### IP Assignment
 
-9. **Auto IP assignment** scans from `.2` to `.254` in the subnet. The `.1` address is reserved for the server.
+12. **Auto IP assignment** scans from `.2` to `.254` in the subnet. The `.1` address is reserved for the server.
 
 ### File Writes
 
-10. **Atomic writes**: `SaveServerConfig` and `Save` use atomic writes (write to `.tmp` file, then rename) to prevent corruption from partial writes.
+13. **Atomic writes**: `SaveServerConfig` and `Save` use atomic writes (write to `.tmp` file, then rename) to prevent corruption from partial writes.
+
+### Edge Server Specifics
+
+14. **Edge exports return `[]byte`**: `ExportEdge` returns `([]byte, error)` unlike `ExportClient` which returns `(ClientConfig, error)`.
+
+15. **Edge configs have no PostUp/PostDown**: Edge servers are traffic endpoints, not routers, so they don't need iptables rules.
+
+16. **Edge config files should use 0600 permissions**: Since edge configs contain private keys, they should be written with restricted file permissions.
 
 ---
 
@@ -644,19 +755,15 @@ func main() {
             Interface: amnezigo.InterfaceConfig{
                 PrivateKey:  privKey,
                 Address:     "10.8.0.1/24",
-                ListenPort:  51820,
-                DNS:         "1.1.1.1",
+                ListenPort:  port,
                 MTU:         1280,
-                Obfuscation: amnezigo.GenerateServerConfig(protocol, 15, 3),
+                TunName:     "awg0",
+                MainIface:   mainIface,
+                PostUp:      amnezigo.GeneratePostUp("awg0", mainIface, "10.8.0.0/24", false),
+                PostDown:    amnezigo.GeneratePostDown("awg0", mainIface, "10.8.0.0/24", false),
+                Obfuscation: amnezigo.GenerateServerConfig(0, 15, 3),
             },
         }
-
-        // Generate iptables rules
-        postUp := amnezigo.GeneratePostUp("awg0", mainIface, "10.8.0.0/24", false)
-        postDown := amnezigo.GeneratePostDown("awg0", mainIface, "10.8.0.0/24", false)
-
-        fmt.Println("PostUp:", postUp)
-        fmt.Println("PostDown:", postDown)
 
         if err := manager.Save(cfg); err != nil {
             log.Fatalf("Failed to save config: %v", err)
@@ -665,8 +772,7 @@ func main() {
     }
 
     // Add clients from command line args
-    clients := os.Args[1:]
-    for _, name := range clients {
+    for _, name := range os.Args[1:] {
         peer, err := manager.AddClient(name, "")
         if err != nil {
             log.Printf("Failed to add %s: %v", name, err)
