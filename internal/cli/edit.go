@@ -27,9 +27,19 @@ func init() {
 	editCmd.Flags().StringVar(&editConfigPath, "config", "awg0.conf", "Server config file")
 }
 
-// NewEditCommand creates and returns the edit command.
+// NewEditCommand creates and returns a new edit command instance.
+// Returns a fresh command to avoid cobra's root-delegation issue when
+// the shared editCmd has been added as a subcommand via NewRootCmd.
 func NewEditCommand() *cobra.Command {
-	return editCmd
+	cmd := &cobra.Command{
+		Use:   "edit",
+		Short: "Edit server configuration",
+		Long:  `Edit server configuration parameters.`,
+		RunE:  runEdit,
+	}
+	cmd.Flags().StringVar(&editClientToClient, "client-to-client", "", "Enable/disable client-to-client (true/false)")
+	cmd.Flags().StringVar(&editConfigPath, "config", "awg0.conf", "Server config file")
+	return cmd
 }
 
 // runEdit executes the edit command.

@@ -34,9 +34,24 @@ func init() {
 	listCmd.Flags().StringVar(&cfgFile, "config", "awg0.conf", "config file path")
 }
 
-// NewListCommand creates and returns the list command.
+// NewListCommand creates and returns a new list command instance.
+// Returns a fresh command to avoid cobra's root-delegation issue when
+// the shared listCmd has been added as a subcommand via NewRootCmd.
 func NewListCommand() *cobra.Command {
-	return listCmd
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List all configured clients",
+		Long: `List all WireGuard clients configured in the AmneziaWG server configuration.
+
+Displays a table with client name, IP address, and creation time.
+
+Example:
+  amnezigo list
+`,
+		RunE: runList,
+	}
+	cmd.Flags().StringVar(&cfgFile, "config", "awg0.conf", "config file path")
+	return cmd
 }
 
 // runList executes the list command.

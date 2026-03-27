@@ -41,9 +41,29 @@ func init() {
 	exportCmd.Flags().StringVar(&cfgFile, "config", "awg0.conf", "config file path")
 }
 
-// NewExportCommand creates and returns the export command.
+// NewExportCommand creates and returns a new export command instance.
+// Returns a fresh command to avoid cobra's root-delegation issue when
+// the shared exportCmd has been added as a subcommand via NewRootCmd.
 func NewExportCommand() *cobra.Command {
-	return exportCmd
+	cmd := &cobra.Command{
+		Use:   "export [name]",
+		Short: "Export client configuration(s)",
+		Long: `Export WireGuard client configuration(s) for the specified client(s).
+
+If a name is specified, exports only that client's configuration.
+If no name is specified, exports all clients' configurations.
+
+Example:
+  amnezigo export laptop
+  amnezigo export --protocol quic laptop
+  amnezigo export
+`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: runExport,
+	}
+	cmd.Flags().StringVar(&exportProtocol, "protocol", "random", "Obfuscation protocol")
+	cmd.Flags().StringVar(&cfgFile, "config", "awg0.conf", "config file path")
+	return cmd
 }
 
 // runExport executes the export command.

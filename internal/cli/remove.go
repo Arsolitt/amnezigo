@@ -27,9 +27,25 @@ func init() {
 	removeCmd.Flags().StringVar(&cfgFile, "config", "awg0.conf", "config file path")
 }
 
-// NewRemoveCommand creates and returns the remove command.
+// NewRemoveCommand creates and returns a new remove command instance.
+// Returns a fresh command to avoid cobra's root-delegation issue when
+// the shared removeCmd has been added as a subcommand via NewRootCmd.
 func NewRemoveCommand() *cobra.Command {
-	return removeCmd
+	cmd := &cobra.Command{
+		Use:   "remove <name>",
+		Short: "Remove a client from the server configuration",
+		Long: `Remove a WireGuard client from the AmneziaWG server configuration.
+
+Removes the peer with the specified name from the server's peer list.
+
+Example:
+  amnezigo remove laptop
+`,
+		Args: cobra.ExactArgs(1),
+		RunE: runRemove,
+	}
+	cmd.Flags().StringVar(&cfgFile, "config", "awg0.conf", "config file path")
+	return cmd
 }
 
 // runRemove executes the remove command.

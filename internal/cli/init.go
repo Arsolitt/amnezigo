@@ -3,23 +3,18 @@ package cli
 import (
 	"context"
 	"crypto/rand"
-	"errors"
 	"fmt"
 	"io"
 	"math/big"
 	"net"
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
-	"github.com/Arsolitt/amnezigo/internal/config"
-	"github.com/Arsolitt/amnezigo/internal/crypto"
-	"github.com/Arsolitt/amnezigo/internal/network"
-	"github.com/Arsolitt/amnezigo/internal/obfuscation"
+	"github.com/Arsolitt/amnezigo"
 )
 
 var (
@@ -32,10 +27,8 @@ var (
 const (
 	defaultHTTPTimeout = 5 * time.Second
 	defaultMTU         = 1280
-	defaultKeepalive   = 25
 	s1Range            = 65
 	jcRange            = 11
-	minPort            = 10000
 )
 
 // initCmd represents the init command.
@@ -68,12 +61,11 @@ var (
 )
 
 func init() {
-	// Add init command to root command (will be done in cli.go)
 	initCmd.Flags().StringVar(&initIPAddr, "ipaddr", "", "Server IP address with subnet (e.g., 10.8.0.1/24) [required]")
 	initCmd.Flags().IntVar(&initPort, "port", 0, "Listen port (default: random 10000-65535)")
 	initCmd.Flags().IntVar(&initMTU, "mtu", defaultMTU, "MTU size (default: 1280)")
 	initCmd.Flags().StringVar(&initDNS, "dns", "1.1.1.1, 8.8.8.8", "DNS servers (comma-separated)")
-	initCmd.Flags().IntVar(&initKeepalive, "keepalive", defaultKeepalive, "Persistent keepalive interval in seconds")
+	initCmd.Flags().IntVar(&initKeepalive, "keepalive", 25, "Persistent keepalive interval in seconds")
 	initCmd.Flags().BoolVar(&initClientToClient, "client-to-client", false, "Allow client-to-client traffic")
 	initCmd.Flags().StringVar(&initIface, "iface", "", "Main network interface (default: auto-detect)")
 	initCmd.Flags().StringVar(&initIfaceName, "iface-name", "awg0", "Tunnel interface name")
@@ -87,33 +79,28 @@ func init() {
 
 // runInit executes the init command.
 func runInit(_ *cobra.Command, _ []string) error {
-	// Validate IP address
-	if !isValidIPAddr(initIPAddr) {
+	if !amnezigo.IsValidIPAddr(initIPAddr) {
 		return fmt.Errorf("invalid IP address format: %s", initIPAddr)
 	}
 
-	// Extract subnet from IP address (e.g., "10.8.0.1/24" -> "10.8.0.0/24")
-	subnet := extractSubnet(initIPAddr)
+	subnet := amnezigo.ExtractSubnet(initIPAddr)
 
-	// Generate random port if not specified
 	if initPort == 0 {
 		var err error
-		initPort, err = generateRandomPort()
+		initPort, err = amnezigo.GenerateRandomPort()
 		if err != nil {
 			return fmt.Errorf("failed to generate random port: %w", err)
 		}
 	}
 
-	// Auto-detect main interface if not specified
 	mainIface := initIface
 	if mainIface == "" {
-		mainIface = detectMainInterface()
+		mainIface = amnezigo.DetectMainInterface()
 		if mainIface == "" {
-			return errors.New("failed to auto-detect main interface, please specify --iface")
+			return fmt.Errorf("failed to auto-detect main interface, please specify --iface")
 		}
 	}
 
-	// Determine endpoints
 	endpointV4 := initEndpointV4
 	if endpointV4 == "" {
 		endpointV4 = getEndpointV4(initPort)
@@ -124,24 +111,20 @@ func runInit(_ *cobra.Command, _ []string) error {
 		endpointV6 = getEndpointV6(initPort)
 	}
 
-	// Generate server keypair
-	privateKey, publicKey := crypto.GenerateKeyPair()
+	privateKey, publicKey := amnezigo.GenerateKeyPair()
 
-	// Generate random s1 and jc values for obfuscation config
 	s1Int, _ := rand.Int(rand.Reader, big.NewInt(s1Range))
 	s1 := int(s1Int.Int64())
 	jcInt, _ := rand.Int(rand.Reader, big.NewInt(jcRange))
 	jc := int(jcInt.Int64())
 
-	obfConfig := obfuscation.GenerateServerConfig(initMTU, s1, jc)
+	obfConfig := amnezigo.GenerateServerConfig(initMTU, s1, jc)
 
-	// Generate iptables rules
-	postUp := network.GeneratePostUp(initIfaceName, mainIface, subnet, initClientToClient)
-	postDown := network.GeneratePostDown(initIfaceName, mainIface, subnet, initClientToClient)
+	postUp := amnezigo.GeneratePostUp(initIfaceName, mainIface, subnet, initClientToClient)
+	postDown := amnezigo.GeneratePostDown(initIfaceName, mainIface, subnet, initClientToClient)
 
-	// Create server config
-	serverCfg := config.ServerConfig{
-		Interface: config.InterfaceConfig{
+	serverCfg := amnezigo.ServerConfig{
+		Interface: amnezigo.InterfaceConfig{
 			PrivateKey:     privateKey,
 			PublicKey:      publicKey,
 			Address:        initIPAddr,
@@ -155,16 +138,14 @@ func runInit(_ *cobra.Command, _ []string) error {
 			EndpointV6:     endpointV6,
 			ClientToClient: initClientToClient,
 		},
-		Peers:       []config.PeerConfig{},
+		Peers:       []amnezigo.PeerConfig{},
 		Obfuscation: obfConfig,
 	}
 
-	// Write config file
-	if err := writeConfigFile(initConfigPath, serverCfg); err != nil {
+	if err := amnezigo.SaveServerConfig(initConfigPath, serverCfg); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 
-	// Save config path to .main.config
 	if err := saveMainConfigPath(initConfigPath); err != nil {
 		return fmt.Errorf("failed to save config path: %w", err)
 	}
@@ -182,64 +163,6 @@ func runInit(_ *cobra.Command, _ []string) error {
 	}
 
 	return nil
-}
-
-// isValidIPAddr checks if the IP address is valid.
-func isValidIPAddr(ipaddr string) bool {
-	ip, _, err := net.ParseCIDR(ipaddr)
-	return err == nil && ip != nil
-}
-
-// extractSubnet extracts the network address from a CIDR.
-func extractSubnet(ipaddr string) string {
-	_, ipnet, err := net.ParseCIDR(ipaddr)
-	if err != nil {
-		return ipaddr
-	}
-	ones, _ := ipnet.Mask.Size()
-	return ipnet.IP.String() + "/" + strconv.Itoa(ones)
-}
-
-// generateRandomPort generates a random port between 10000 and 65535.
-func generateRandomPort() (int, error) {
-	const portRange = 55536 // 65535 - minPort + 1
-	maxPort := big.NewInt(portRange)
-	n, err := rand.Int(rand.Reader, maxPort)
-	if err != nil {
-		return 0, err
-	}
-	return int(n.Int64()) + minPort, nil
-}
-
-// detectMainInterface attempts to detect the main network interface.
-func detectMainInterface() string {
-	interfaces, err := net.Interfaces()
-	if err != nil {
-		return ""
-	}
-
-	// Look for the first non-loopback interface that is up
-	for _, iface := range interfaces {
-		if iface.Flags&net.FlagLoopback == 0 && iface.Flags&net.FlagUp != 0 {
-			addrs, err := iface.Addrs()
-			if err == nil && len(addrs) > 0 {
-				return iface.Name
-			}
-		}
-	}
-
-	return ""
-}
-
-// writeConfigFile writes the server config to a file.
-func writeConfigFile(path string, cfg config.ServerConfig) error {
-	file, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	return config.WriteServerConfig(file, cfg)
 }
 
 // saveMainConfigPath saves the config path to .main.config file.
