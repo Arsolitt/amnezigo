@@ -10,7 +10,6 @@ import (
 func TestRemoveCommand(t *testing.T) {
 	// Test 1: Removing existing client
 	t.Run("remove existing client", func(t *testing.T) {
-
 		// Create temporary directory
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, "awg0.conf")

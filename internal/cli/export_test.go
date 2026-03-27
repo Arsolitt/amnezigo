@@ -59,11 +59,7 @@ AllowedIPs = 10.8.0.2/32
 		}
 
 		// Change to tmpDir so exported files are created there
-		oldWd, _ := os.Getwd()
-		defer os.Chdir(oldWd)
-		if err := os.Chdir(tmpDir); err != nil {
-			t.Fatal(err)
-		}
+		t.Chdir(tmpDir)
 
 		// Execute export command for single client
 		cmd := NewExportCommand()
@@ -195,11 +191,7 @@ AllowedIPs = 10.8.0.3/32
 		}
 
 		// Change to tmpDir so exported files are created there
-		oldWd, _ := os.Getwd()
-		defer os.Chdir(oldWd)
-		if err := os.Chdir(tmpDir); err != nil {
-			t.Fatal(err)
-		}
+		t.Chdir(tmpDir)
 
 		// Execute export command for all clients (no name specified)
 		cmd := NewExportCommand()
@@ -289,7 +281,7 @@ AllowedIPs = 10.8.0.4/32
 		desktopPriv, desktopPub := crypto.GenerateKeyPair()
 
 		// Create mock HTTP server to simulate icanhazip.com
-		mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte("192.0.2.1"))
 		}))
@@ -325,11 +317,7 @@ AllowedIPs = 10.8.0.5/32
 		}
 
 		// Change to tmpDir so exported files are created there
-		oldWd, _ := os.Getwd()
-		defer os.Chdir(oldWd)
-		if err := os.Chdir(tmpDir); err != nil {
-			t.Fatal(err)
-		}
+		t.Chdir(tmpDir)
 
 		// Execute export command without endpoint config (should auto-detect)
 		cmd := NewExportCommand()
@@ -436,11 +424,7 @@ AllowedIPs = 10.8.0.2/32
 		}
 
 		// Change to tmpDir so exported files are created there
-		oldWd, _ := os.Getwd()
-		defer os.Chdir(oldWd)
-		if err := os.Chdir(tmpDir); err != nil {
-			t.Fatal(err)
-		}
+		t.Chdir(tmpDir)
 
 		// Execute export command with protocol flag (using "random" to get all I1-I5)
 		cmd := NewExportCommand()
@@ -514,11 +498,7 @@ AllowedIPs = 10.8.0.6/32
 		}
 
 		// Change to tmpDir so exported files are created there
-		oldWd, _ := os.Getwd()
-		defer os.Chdir(oldWd)
-		if err := os.Chdir(tmpDir); err != nil {
-			t.Fatal(err)
-		}
+		t.Chdir(tmpDir)
 
 		// Execute export command (should prefer IPv4 endpoint)
 		cmd := NewExportCommand()
@@ -584,11 +564,7 @@ AllowedIPs = 10.8.0.7/32
 		}
 
 		// Change to tmpDir so exported files are created there
-		oldWd, _ := os.Getwd()
-		defer os.Chdir(oldWd)
-		if err := os.Chdir(tmpDir); err != nil {
-			t.Fatal(err)
-		}
+		t.Chdir(tmpDir)
 
 		// Execute export command (should use IPv6 endpoint)
 		cmd := NewExportCommand()

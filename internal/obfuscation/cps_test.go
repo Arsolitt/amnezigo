@@ -200,7 +200,7 @@ func TestGenerateRandomTags(t *testing.T) {
 	// Test randomness by running multiple times
 	t.Run("randomness", func(t *testing.T) {
 		results := make([]string, 10)
-		for i := 0; i < 10; i++ {
+		for i := range 10 {
 			tags := generateRandomTags(3, 6)
 			var sb strings.Builder
 			for _, tag := range tags {
@@ -373,7 +373,7 @@ func TestGenerateCPSConfig_Protocol(t *testing.T) {
 
 func TestGenerateRandomTagsUniqueConstraint(t *testing.T) {
 	// Run many times to catch random duplicates
-	for i := 0; i < 10000; i++ {
+	for i := range 10000 {
 		tags := generateRandomTags(3, 10)
 
 		countT := 0

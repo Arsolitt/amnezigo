@@ -3,12 +3,13 @@ package cli
 import (
 	"fmt"
 
+	"github.com/spf13/cobra"
+
 	"github.com/Arsolitt/amnezigo/internal/config"
 	"github.com/Arsolitt/amnezigo/internal/network"
-	"github.com/spf13/cobra"
 )
 
-// Ensure config package is used
+// Ensure config package is used.
 var _ config.ServerConfig
 
 var (
@@ -16,7 +17,7 @@ var (
 	editConfigPath     string
 )
 
-// editCmd represents the edit command
+// editCmd represents the edit command.
 var editCmd = &cobra.Command{
 	Use:   "edit",
 	Short: "Edit server configuration",
@@ -25,17 +26,18 @@ var editCmd = &cobra.Command{
 }
 
 func init() {
-	editCmd.Flags().StringVar(&editClientToClient, "client-to-client", "", "Enable/disable client-to-client (true/false)")
+	editCmd.Flags().
+		StringVar(&editClientToClient, "client-to-client", "", "Enable/disable client-to-client (true/false)")
 	editCmd.Flags().StringVar(&editConfigPath, "config", "awg0.conf", "Server config file")
 }
 
-// NewEditCommand creates and returns the edit command
+// NewEditCommand creates and returns the edit command.
 func NewEditCommand() *cobra.Command {
 	return editCmd
 }
 
-// runEdit executes the edit command
-func runEdit(cmd *cobra.Command, args []string) error {
+// runEdit executes the edit command.
+func runEdit(_ *cobra.Command, _ []string) error {
 	serverCfg, err := loadServerConfig(editConfigPath)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
@@ -69,8 +71,18 @@ func runEdit(cmd *cobra.Command, args []string) error {
 	if tunName == "" {
 		tunName = "awg0"
 	}
-	serverCfg.Interface.PostUp = network.GeneratePostUp(tunName, serverCfg.Interface.MainIface, subnet, serverCfg.Interface.ClientToClient)
-	serverCfg.Interface.PostDown = network.GeneratePostDown(tunName, serverCfg.Interface.MainIface, subnet, serverCfg.Interface.ClientToClient)
+	serverCfg.Interface.PostUp = network.GeneratePostUp(
+		tunName,
+		serverCfg.Interface.MainIface,
+		subnet,
+		serverCfg.Interface.ClientToClient,
+	)
+	serverCfg.Interface.PostDown = network.GeneratePostDown(
+		tunName,
+		serverCfg.Interface.MainIface,
+		subnet,
+		serverCfg.Interface.ClientToClient,
+	)
 
 	// Save config
 	if err := saveServerConfig(editConfigPath, serverCfg); err != nil {

@@ -7,8 +7,8 @@
 - Run all tests: `go test ./...`
 - Run single test: `go test -run TestFunctionName ./internal/package`
 - Run tests with coverage: `go test -cover ./...`
-- Format code: `go fmt ./...`
-- Vet code: `go vet ./...`
+- Lint code: `golangci-lint run`
+- Lint and auto-fix: `golangci-lint run --fix`
 
 ## Code Style Guidelines
 

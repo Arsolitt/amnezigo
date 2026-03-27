@@ -24,7 +24,7 @@ func TestGenerateHeaders(t *testing.T) {
 
 	// All headers must be different (no overlap)
 	headers := []uint32{h.H1, h.H2, h.H3, h.H4}
-	for i := 0; i < len(headers); i++ {
+	for i := range headers {
 		for j := i + 1; j < len(headers); j++ {
 			if headers[i] == headers[j] {
 				t.Errorf("Headers must not overlap: H%d (%d) == H%d (%d)", i+1, headers[i], j+1, headers[j])
@@ -270,7 +270,7 @@ func TestGenerateHeaderRanges(t *testing.T) {
 	}
 
 	// Check non-overlapping
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		for j := i + 1; j < 4; j++ {
 			if ranges[i].Max >= ranges[j].Min && ranges[i].Min <= ranges[j].Max {
 				t.Errorf("H%d and H%d overlap: [%d-%d] vs [%d-%d]",

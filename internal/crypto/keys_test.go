@@ -73,7 +73,7 @@ func TestDerivePublicKey(t *testing.T) {
 func TestGenerateKeyPairUniqueness(t *testing.T) {
 	// Generate multiple key pairs to ensure they're unique
 	keys := make(map[string]bool)
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		priv, _ := GenerateKeyPair()
 		if keys[priv] {
 			t.Errorf("GenerateKeyPair() produced duplicate private key")
@@ -85,7 +85,7 @@ func TestGenerateKeyPairUniqueness(t *testing.T) {
 func TestGeneratePSKUniqueness(t *testing.T) {
 	// Generate multiple PSKs to ensure they're unique
 	psks := make(map[string]bool)
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		psk := GeneratePSK()
 		if psks[psk] {
 			t.Errorf("GeneratePSK() produced duplicate PSK")

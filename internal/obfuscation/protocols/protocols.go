@@ -1,18 +1,18 @@
 package protocols
 
-// TagSpec defines a single tag with type and value
+// TagSpec defines a single tag with type and value.
 type TagSpec struct {
 	Type  string
 	Value string
 }
 
-// I1I5Template contains the five intervals (I1-I5) for a protocol template
+// I1I5Template contains the five intervals (I1-I5) for a protocol template.
 type I1I5Template struct {
 	I1, I2, I3, I4, I5 []TagSpec
 }
 
 // GetTemplate returns the I1I5Template for the specified protocol
-// Valid protocols: "quic", "dns", "dtls", "stun", "random" (default)
+// Valid protocols: "quic", "dns", "dtls", "stun", "random" (default).
 func GetTemplate(protocol string) I1I5Template {
 	switch protocol {
 	case "quic":

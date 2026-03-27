@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// listCmd represents the list command
+// listCmd represents the list command.
 var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all configured clients",
@@ -27,7 +27,7 @@ func init() {
 	listCmd.Flags().StringVar(&cfgFile, "config", "awg0.conf", "config file path")
 }
 
-// NewListCommand creates and returns the list command
+// NewListCommand creates and returns the list command.
 func NewListCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
@@ -45,8 +45,8 @@ Example:
 	return cmd
 }
 
-// runList executes the list command
-func runList(cmd *cobra.Command, args []string) error {
+// runList executes the list command.
+func runList(_ *cobra.Command, _ []string) error {
 	configPath := cfgFile
 
 	// Load existing server config
@@ -79,6 +79,7 @@ func runList(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(writer, "%s\t%s\t%s\n", peer.Name, peer.AllowedIPs, timestamp)
 	}
 
+	//nolint:errcheck // tabwriter.Flush to stdout cannot fail meaningfully
 	writer.Flush()
 
 	return nil

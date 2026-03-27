@@ -10,7 +10,7 @@ package protocols
 // - Additional RRs count (2 bytes)
 // - Query name (variable length)
 // - Query type (2 bytes)
-// - Query class (2 bytes)
+// - Query class (2 bytes).
 func DNSTemplate() I1I5Template {
 	return I1I5Template{
 		// I1: Full DNS query with transaction ID and query structure

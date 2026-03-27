@@ -18,7 +18,10 @@ func GeneratePostUp(tunName, mainIface, subnet string, clientToClient bool) stri
 	rules = append(rules, "iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT")
 
 	// Allow forwarding from main interface to tunnel for return traffic
-	rules = append(rules, "iptables -A FORWARD -i "+mainIface+" -o "+tunName+" -d "+subnet+" -m state --state ESTABLISHED,RELATED -j ACCEPT")
+	rules = append(
+		rules,
+		"iptables -A FORWARD -i "+mainIface+" -o "+tunName+" -d "+subnet+" -m state --state ESTABLISHED,RELATED -j ACCEPT",
+	)
 
 	// Allow client-to-client traffic if enabled
 	if clientToClient {
@@ -47,7 +50,10 @@ func GeneratePostDown(tunName, mainIface, subnet string, clientToClient bool) st
 	rules = append(rules, "iptables -D FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT")
 
 	// Allow forwarding from main interface to tunnel for return traffic
-	rules = append(rules, "iptables -D FORWARD -i "+mainIface+" -o "+tunName+" -d "+subnet+" -m state --state ESTABLISHED,RELATED -j ACCEPT")
+	rules = append(
+		rules,
+		"iptables -D FORWARD -i "+mainIface+" -o "+tunName+" -d "+subnet+" -m state --state ESTABLISHED,RELATED -j ACCEPT",
+	)
 
 	// Allow client-to-client traffic if enabled
 	if clientToClient {

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -8,17 +9,18 @@ import (
 	"os"
 	"strings"
 
+	"github.com/spf13/cobra"
+
 	"github.com/Arsolitt/amnezigo/internal/config"
 	"github.com/Arsolitt/amnezigo/internal/crypto"
 	"github.com/Arsolitt/amnezigo/internal/obfuscation"
-	"github.com/spf13/cobra"
 )
 
 var (
 	exportProtocol string
 )
 
-// exportCmd represents the export command
+// exportCmd represents the export command.
 var exportCmd = &cobra.Command{
 	Use:   "export [name]",
 	Short: "Export client configuration(s)",
@@ -41,13 +43,13 @@ func init() {
 	exportCmd.Flags().StringVar(&cfgFile, "config", "awg0.conf", "config file path")
 }
 
-// NewExportCommand creates and returns the export command
+// NewExportCommand creates and returns the export command.
 func NewExportCommand() *cobra.Command {
 	return exportCmd
 }
 
-// runExport executes the export command
-func runExport(cmd *cobra.Command, args []string) error {
+// runExport executes the export command.
+func runExport(_ *cobra.Command, args []string) error {
 	configPath := cfgFile
 
 	// Load existing server config
@@ -102,7 +104,7 @@ func runExport(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// exportClient exports a single client configuration
+// exportClient exports a single client configuration.
 func exportClient(client config.PeerConfig, serverCfg config.ServerConfig, endpoint string) error {
 	// Extract client IP address from AllowedIPs
 	clientIP := strings.TrimSuffix(client.AllowedIPs, "/32")
@@ -117,7 +119,12 @@ func exportClient(client config.PeerConfig, serverCfg config.ServerConfig, endpo
 	}
 
 	// Generate I1-I5 using the specified protocol
-	i1, i2, i3, i4, i5 := obfuscation.GenerateCPS(exportProtocol, serverCfg.Interface.MTU, serverCfg.Obfuscation.S1, serverCfg.Obfuscation.Jc)
+	i1, i2, i3, i4, i5 := obfuscation.GenerateCPS(
+		exportProtocol,
+		serverCfg.Interface.MTU,
+		serverCfg.Obfuscation.S1,
+		serverCfg.Obfuscation.Jc,
+	)
 
 	// Build client obfuscation config using server parameters + generated I1-I5
 	obfConfig := config.ClientObfuscationConfig{
@@ -158,9 +165,13 @@ func exportClient(client config.PeerConfig, serverCfg config.ServerConfig, endpo
 	return config.WriteClientConfig(file, clientConfig)
 }
 
-// getExternalIP retrieves the external IP address of the server
+// getExternalIP retrieves the external IP address of the server.
 func getExternalIP() (string, error) {
-	resp, err := http.Get("https://icanhazip.com")
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://icanhazip.com", nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", err
 	}

@@ -1,21 +1,25 @@
 package cli
 
 import (
+	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/spf13/cobra"
 
 	"github.com/Arsolitt/amnezigo/internal/config"
 	"github.com/Arsolitt/amnezigo/internal/crypto"
 	"github.com/Arsolitt/amnezigo/internal/network"
 	"github.com/Arsolitt/amnezigo/internal/obfuscation"
-	"github.com/spf13/cobra"
 )
 
 var (
@@ -25,7 +29,11 @@ var (
 	initConfigPath string
 )
 
-// initCmd represents the init command
+const (
+	defaultHTTPTimeout = 5 * time.Second
+)
+
+// initCmd represents the init command.
 var initCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Initialize a new AmneziaWG server configuration",
@@ -50,7 +58,6 @@ var (
 	initMTU            int
 	initDNS            string
 	initKeepalive      int
-	initProtocol       string
 	initClientToClient bool
 	initIface          string
 )
@@ -69,11 +76,11 @@ func init() {
 	initCmd.Flags().StringVar(&initEndpointV6, "endpoint-v6", "", "IPv6 endpoint (optional)")
 	initCmd.Flags().StringVar(&initConfigPath, "config", "awg0.conf", "Server config file path")
 
-	initCmd.MarkFlagRequired("ipaddr")
+	initCmd.MarkFlagRequired("ipaddr") //nolint:errcheck
 }
 
-// runInit executes the init command
-func runInit(cmd *cobra.Command, args []string) error {
+// runInit executes the init command.
+func runInit(_ *cobra.Command, _ []string) error {
 	// Validate IP address
 	if !isValidIPAddr(initIPAddr) {
 		return fmt.Errorf("invalid IP address format: %s", initIPAddr)
@@ -96,7 +103,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	if mainIface == "" {
 		mainIface = detectMainInterface()
 		if mainIface == "" {
-			return fmt.Errorf("failed to auto-detect main interface, please specify --iface")
+			return errors.New("failed to auto-detect main interface, please specify --iface")
 		}
 	}
 
@@ -171,33 +178,34 @@ func runInit(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// isValidIPAddr checks if the IP address is valid
+// isValidIPAddr checks if the IP address is valid.
 func isValidIPAddr(ipaddr string) bool {
 	ip, _, err := net.ParseCIDR(ipaddr)
 	return err == nil && ip != nil
 }
 
-// extractSubnet extracts the network address from a CIDR
+// extractSubnet extracts the network address from a CIDR.
 func extractSubnet(ipaddr string) string {
 	_, ipnet, err := net.ParseCIDR(ipaddr)
 	if err != nil {
 		return ipaddr
 	}
 	ones, _ := ipnet.Mask.Size()
-	return ipnet.IP.String() + "/" + fmt.Sprintf("%d", ones)
+	return ipnet.IP.String() + "/" + strconv.Itoa(ones)
 }
 
-// generateRandomPort generates a random port between 10000 and 65535
+// generateRandomPort generates a random port between 10000 and 65535.
 func generateRandomPort() (int, error) {
-	max := big.NewInt(55536) // 65535 - 10000 + 1
-	n, err := rand.Int(rand.Reader, max)
+	const portRange = 55536 // 65535 - 10000 + 1
+	maxPort := big.NewInt(portRange)
+	n, err := rand.Int(rand.Reader, maxPort)
 	if err != nil {
 		return 0, err
 	}
 	return int(n.Int64()) + 10000, nil
 }
 
-// detectMainInterface attempts to detect the main network interface
+// detectMainInterface attempts to detect the main network interface.
 func detectMainInterface() string {
 	interfaces, err := net.Interfaces()
 	if err != nil {
@@ -217,7 +225,7 @@ func detectMainInterface() string {
 	return ""
 }
 
-// writeConfigFile writes the server config to a file
+// writeConfigFile writes the server config to a file.
 func writeConfigFile(path string, cfg config.ServerConfig) error {
 	file, err := os.Create(path)
 	if err != nil {
@@ -228,15 +236,19 @@ func writeConfigFile(path string, cfg config.ServerConfig) error {
 	return config.WriteServerConfig(file, cfg)
 }
 
-// saveMainConfigPath saves the config path to .main.config file
+// saveMainConfigPath saves the config path to .main.config file.
 func saveMainConfigPath(path string) error {
-	return os.WriteFile(".main.config", []byte(path), 0644)
+	return os.WriteFile(".main.config", []byte(path), 0600)
 }
 
-// getEndpointV4 gets the IPv4 endpoint
+// getEndpointV4 gets the IPv4 endpoint.
 func getEndpointV4(port int) string {
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get("https://ipv4.icanhazip.com")
+	client := &http.Client{Timeout: defaultHTTPTimeout}
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://ipv4.icanhazip.com", nil)
+	if err != nil {
+		return ""
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return ""
 	}
@@ -249,10 +261,14 @@ func getEndpointV4(port int) string {
 	return fmt.Sprintf("%s:%d", ip, port)
 }
 
-// getEndpointV6 gets the IPv6 endpoint
+// getEndpointV6 gets the IPv6 endpoint.
 func getEndpointV6(port int) string {
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get("https://ipv6.icanhazip.com")
+	client := &http.Client{Timeout: defaultHTTPTimeout}
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://ipv6.icanhazip.com", nil)
+	if err != nil {
+		return ""
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return ""
 	}

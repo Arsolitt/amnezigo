@@ -255,7 +255,7 @@ AllowedIPs = 10.8.0.2/32
 	})
 }
 
-// TestListTimestampFormat tests that timestamps are formatted correctly
+// TestListTimestampFormat tests that timestamps are formatted correctly.
 func TestListTimestampFormat(t *testing.T) {
 	// Reset global state
 	oldCfgFile := cfgFile

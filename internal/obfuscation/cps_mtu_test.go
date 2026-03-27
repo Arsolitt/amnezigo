@@ -6,7 +6,7 @@ import (
 	"github.com/Arsolitt/amnezigo/internal/obfuscation/protocols"
 )
 
-// TestBuildAndValidateCPSValidation tests the validation behavior of buildAndValidateCPS
+// TestBuildAndValidateCPSValidation tests the validation behavior of buildAndValidateCPS.
 func TestBuildAndValidateCPSValidation(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -75,7 +75,7 @@ func TestBuildAndValidateCPSValidation(t *testing.T) {
 	}
 }
 
-// TestGenerateProtocolCPSMTUConstraints tests that protocol CPS generation respects MTU constraints
+// TestGenerateProtocolCPSMTUConstraints tests that protocol CPS generation respects MTU constraints.
 func TestGenerateProtocolCPSMTUConstraints(t *testing.T) {
 	tests := []struct {
 		name string
@@ -110,7 +110,7 @@ func TestGenerateProtocolCPSMTUConstraints(t *testing.T) {
 	}
 }
 
-// TestGenerateProtocolCPSZeroMaxI tests edge case where maxI is zero
+// TestGenerateProtocolCPSZeroMaxI tests edge case where maxI is zero.
 func TestGenerateProtocolCPSZeroMaxI(t *testing.T) {
 	for _, protocol := range []string{"quic", "dns", "dtls", "stun"} {
 		t.Run(protocol, func(t *testing.T) {

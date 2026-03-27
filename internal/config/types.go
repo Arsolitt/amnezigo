@@ -16,25 +16,25 @@ type InterfaceConfig struct {
 	PrivateKey     string
 	PublicKey      string
 	Address        string
-	ListenPort     int
-	MTU            int
 	PostUp         string
 	PostDown       string
 	MainIface      string
 	TunName        string
 	EndpointV4     string
 	EndpointV6     string
+	ListenPort     int
+	MTU            int
 	ClientToClient bool
 }
 
 type PeerConfig struct {
+	CreatedAt         time.Time
+	ClientObfuscation *ClientObfuscationConfig
 	Name              string
 	PrivateKey        string
 	PublicKey         string
 	PresharedKey      string
 	AllowedIPs        string
-	CreatedAt         time.Time
-	ClientObfuscation *ClientObfuscationConfig
 }
 
 type ServerObfuscationConfig struct {
@@ -44,8 +44,12 @@ type ServerObfuscationConfig struct {
 }
 
 type ClientObfuscationConfig struct {
+	I1 string
+	I2 string
+	I3 string
+	I4 string
+	I5 string
 	ServerObfuscationConfig
-	I1, I2, I3, I4, I5 string
 }
 
 type ClientConfig struct {
@@ -54,11 +58,11 @@ type ClientConfig struct {
 }
 
 type ClientInterfaceConfig struct {
+	Obfuscation ClientObfuscationConfig
 	PrivateKey  string
 	Address     string
 	DNS         string
 	MTU         int
-	Obfuscation ClientObfuscationConfig
 }
 
 type ClientPeerConfig struct {

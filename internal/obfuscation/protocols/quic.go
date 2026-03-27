@@ -9,7 +9,7 @@ package protocols
 // - Token Length
 // - Packet Length
 // - Packet Number
-// - Payload
+// - Payload.
 func QUICTemplate() I1I5Template {
 	return I1I5Template{
 		// I1: Long header bytes + random DCID + timestamp + random payload

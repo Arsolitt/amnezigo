@@ -331,13 +331,13 @@ I5 = mno
 	})
 }
 
-// TestFindNextAvailableIP tests the IP allocation logic
+// TestFindNextAvailableIP tests the IP allocation logic.
 func TestFindNextAvailableIP(t *testing.T) {
 	tests := []struct {
 		name          string
 		serverAddress string
-		existingIPs   []string
 		expectedIP    string
+		existingIPs   []string
 		expectError   bool
 	}{
 		{
@@ -385,7 +385,7 @@ func TestFindNextAvailableIP(t *testing.T) {
 	}
 }
 
-// TestCreatedAtTimestamp tests that CreatedAt field is set
+// TestCreatedAtTimestamp tests that CreatedAt field is set.
 func TestCreatedAtTimestamp(t *testing.T) {
 	cfgFile = ""
 	addIPAddr = ""
@@ -470,7 +470,7 @@ I5 = mno
 	}
 }
 
-// TestPresharedKey tests that PresharedKey is generated and stored when adding a peer
+// TestPresharedKey tests that PresharedKey is generated and stored when adding a peer.
 func TestPresharedKey(t *testing.T) {
 	cfgFile = ""
 	addIPAddr = ""

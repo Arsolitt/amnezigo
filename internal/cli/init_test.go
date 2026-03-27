@@ -12,9 +12,9 @@ import (
 func TestInitCommand_RequiredFlags(t *testing.T) {
 	tests := []struct {
 		name        string
+		errorMsg    string
 		args        []string
 		expectError bool
-		errorMsg    string
 	}{
 		{
 			name:        "missing required --ipaddr flag",
@@ -53,10 +53,8 @@ func TestInitCommand_RequiredFlags(t *testing.T) {
 				if tt.errorMsg != "" && !strings.Contains(strings.ToLower(err.Error()), strings.ToLower(tt.errorMsg)) {
 					t.Errorf("error message should contain %q, got: %v", tt.errorMsg, err)
 				}
-			} else {
-				if err != nil {
-					t.Errorf("unexpected error: %v", err)
-				}
+			} else if err != nil {
+				t.Errorf("unexpected error: %v", err)
 			}
 		})
 	}
@@ -150,8 +148,8 @@ func TestInitCommand_AutoPortGeneration(t *testing.T) {
 	_, err = fmt.Sscanf(string(content), "ListenPort = %d", &port)
 	if err != nil {
 		// Try scanning each line
-		lines := strings.Split(string(content), "\n")
-		for _, line := range lines {
+		lines := strings.SplitSeq(string(content), "\n")
+		for line := range lines {
 			if strings.Contains(line, "ListenPort =") {
 				_, err = fmt.Sscanf(line, "ListenPort = %d", &port)
 				if err == nil {

@@ -43,10 +43,10 @@ AllowedIPs = 10.8.0.2/32
 
 	tests := []struct {
 		name           string
-		args           []string
 		clientToClient string
-		expectChange   bool
 		expectOutput   string
+		args           []string
+		expectChange   bool
 	}{
 		{
 			name:           "enable client-to-client",
@@ -100,7 +100,11 @@ AllowedIPs = 10.8.0.2/32
 			if tt.expectChange {
 				expectedLine := "ClientToClient = " + tt.clientToClient
 				if !strings.Contains(configStr, expectedLine) {
-					t.Errorf("Config does not contain expected ClientToClient value\nExpected: %s\nFound:\n%s", expectedLine, configStr)
+					t.Errorf(
+						"Config does not contain expected ClientToClient value\nExpected: %s\nFound:\n%s",
+						expectedLine,
+						configStr,
+					)
 				}
 
 				// Verify PostUp/PostDown were regenerated

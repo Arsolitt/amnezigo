@@ -11,7 +11,7 @@ package protocols
 // Message Types (Big Endian):
 // - Binding Request: 0x0001
 // - Binding Response: 0x0101
-// - Binding Error Response: 0x0111
+// - Binding Error Response: 0x0111.
 func STUNTemplate() I1I5Template {
 	return I1I5Template{
 		// I1: Full STUN Binding Request with standard header

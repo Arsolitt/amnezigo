@@ -8,6 +8,11 @@ import (
 	"time"
 )
 
+const (
+	sectionInterface = "[Interface]"
+	sectionPeer      = "[Peer]"
+)
+
 func ParseServerConfig(r io.Reader) (ServerConfig, error) {
 	var cfg ServerConfig
 	var currentSection string
@@ -23,7 +28,7 @@ func ParseServerConfig(r io.Reader) (ServerConfig, error) {
 
 		// Section header
 		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
-			if currentSection == "[Peer]" && currentPeer.PublicKey != "" {
+			if currentSection == sectionPeer && currentPeer.PublicKey != "" {
 				cfg.Peers = append(cfg.Peers, currentPeer)
 				currentPeer = PeerConfig{}
 			}
@@ -40,11 +45,12 @@ func ParseServerConfig(r io.Reader) (ServerConfig, error) {
 		value := strings.TrimSpace(parts[1])
 
 		// Handle commented fields (#_Name, #_PrivateKey, etc.)
-		if strings.HasPrefix(key, "#_") {
-			fieldName := strings.TrimPrefix(key, "#_")
+		if after, ok := strings.CutPrefix(key, "#_"); ok {
+			fieldName := after
 			value = strings.Trim(value, `"'`)
 
-			if currentSection == "[Peer]" {
+			switch currentSection {
+			case sectionPeer:
 				switch fieldName {
 				case "Name":
 					currentPeer.Name = value
@@ -55,7 +61,7 @@ func ParseServerConfig(r io.Reader) (ServerConfig, error) {
 						currentPeer.CreatedAt = t
 					}
 				}
-			} else if currentSection == "[Interface]" {
+			case sectionInterface:
 				switch fieldName {
 				case "EndpointV4":
 					cfg.Interface.EndpointV4 = value
@@ -73,7 +79,8 @@ func ParseServerConfig(r io.Reader) (ServerConfig, error) {
 		}
 
 		// Regular fields
-		if currentSection == "[Interface]" {
+		switch currentSection {
+		case sectionInterface:
 			switch key {
 			case "PrivateKey":
 				cfg.Interface.PrivateKey = value
@@ -122,37 +129,13 @@ func ParseServerConfig(r io.Reader) (ServerConfig, error) {
 					cfg.Obfuscation.S4 = s
 				}
 			case "H1":
-				if parts := strings.Split(value, "-"); len(parts) == 2 {
-					if min, err1 := strconv.ParseUint(strings.TrimSpace(parts[0]), 10, 32); err1 == nil {
-						if max, err2 := strconv.ParseUint(strings.TrimSpace(parts[1]), 10, 32); err2 == nil {
-							cfg.Obfuscation.H1 = HeaderRange{Min: uint32(min), Max: uint32(max)}
-						}
-					}
-				}
+				cfg.Obfuscation.H1 = parseHeaderRange(value)
 			case "H2":
-				if parts := strings.Split(value, "-"); len(parts) == 2 {
-					if min, err1 := strconv.ParseUint(strings.TrimSpace(parts[0]), 10, 32); err1 == nil {
-						if max, err2 := strconv.ParseUint(strings.TrimSpace(parts[1]), 10, 32); err2 == nil {
-							cfg.Obfuscation.H2 = HeaderRange{Min: uint32(min), Max: uint32(max)}
-						}
-					}
-				}
+				cfg.Obfuscation.H2 = parseHeaderRange(value)
 			case "H3":
-				if parts := strings.Split(value, "-"); len(parts) == 2 {
-					if min, err1 := strconv.ParseUint(strings.TrimSpace(parts[0]), 10, 32); err1 == nil {
-						if max, err2 := strconv.ParseUint(strings.TrimSpace(parts[1]), 10, 32); err2 == nil {
-							cfg.Obfuscation.H3 = HeaderRange{Min: uint32(min), Max: uint32(max)}
-						}
-					}
-				}
+				cfg.Obfuscation.H3 = parseHeaderRange(value)
 			case "H4":
-				if parts := strings.Split(value, "-"); len(parts) == 2 {
-					if min, err1 := strconv.ParseUint(strings.TrimSpace(parts[0]), 10, 32); err1 == nil {
-						if max, err2 := strconv.ParseUint(strings.TrimSpace(parts[1]), 10, 32); err2 == nil {
-							cfg.Obfuscation.H4 = HeaderRange{Min: uint32(min), Max: uint32(max)}
-						}
-					}
-				}
+				cfg.Obfuscation.H4 = parseHeaderRange(value)
 				// I1-I5 are client-only fields, should be in ParseClientConfig
 				// case "I1":
 				// 	cfg.Obfuscation.I1 = value
@@ -165,7 +148,7 @@ func ParseServerConfig(r io.Reader) (ServerConfig, error) {
 				// case "I5":
 				// 	cfg.Obfuscation.I5 = value
 			}
-		} else if currentSection == "[Peer]" {
+		case sectionPeer:
 			switch key {
 			case "PublicKey":
 				currentPeer.PublicKey = value
@@ -178,7 +161,7 @@ func ParseServerConfig(r io.Reader) (ServerConfig, error) {
 	}
 
 	// Don't forget the last peer
-	if currentSection == "[Peer]" && currentPeer.PublicKey != "" {
+	if currentSection == sectionPeer && currentPeer.PublicKey != "" {
 		cfg.Peers = append(cfg.Peers, currentPeer)
 	}
 
@@ -187,4 +170,17 @@ func ParseServerConfig(r io.Reader) (ServerConfig, error) {
 	}
 
 	return cfg, nil
+}
+
+func parseHeaderRange(value string) HeaderRange {
+	parts := strings.Split(value, "-")
+	if len(parts) != 2 {
+		return HeaderRange{}
+	}
+	minVal, err1 := strconv.ParseUint(strings.TrimSpace(parts[0]), 10, 32)
+	maxVal, err2 := strconv.ParseUint(strings.TrimSpace(parts[1]), 10, 32)
+	if err1 != nil || err2 != nil {
+		return HeaderRange{}
+	}
+	return HeaderRange{Min: uint32(minVal), Max: uint32(maxVal)}
 }

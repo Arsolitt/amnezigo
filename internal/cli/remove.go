@@ -6,7 +6,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// removeCmd represents the remove command
+// removeCmd represents the remove command.
 var removeCmd = &cobra.Command{
 	Use:   "remove <name>",
 	Short: "Remove a client from the server configuration",
@@ -25,13 +25,13 @@ func init() {
 	removeCmd.Flags().StringVar(&cfgFile, "config", "awg0.conf", "config file path")
 }
 
-// NewRemoveCommand creates and returns the remove command
+// NewRemoveCommand creates and returns the remove command.
 func NewRemoveCommand() *cobra.Command {
 	return removeCmd
 }
 
-// runRemove executes the remove command
-func runRemove(cmd *cobra.Command, args []string) error {
+// runRemove executes the remove command.
+func runRemove(_ *cobra.Command, args []string) error {
 	clientName := args[0]
 	configPath := cfgFile
 

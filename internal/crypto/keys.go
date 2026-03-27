@@ -8,9 +8,9 @@ import (
 	"golang.org/x/crypto/curve25519"
 )
 
-// GenerateKeyPair generates an X25519 key pair and returns base64 encoded strings
-// Both keys are 44 characters (base64 encoded 32 bytes with padding)
-func GenerateKeyPair() (privateKey, publicKey string) {
+// GenerateKeyPair generates an X25519 key pair and returns base64 encoded strings.
+// Both keys are 44 characters (base64 encoded 32 bytes with padding).
+func GenerateKeyPair() (string, string) {
 	var priv [32]byte
 	if _, err := rand.Read(priv[:]); err != nil {
 		panic("crypto: failed to generate random key: " + err.Error())
@@ -29,7 +29,7 @@ func GenerateKeyPair() (privateKey, publicKey string) {
 }
 
 // DerivePublicKey derives a public key from a base64 encoded private key
-// Returns a 44 character base64 encoded public key
+// Returns a 44 character base64 encoded public key.
 func DerivePublicKey(privateKey string) string {
 	priv, err := base64.StdEncoding.DecodeString(privateKey)
 	if err != nil {
@@ -53,7 +53,7 @@ func DerivePublicKey(privateKey string) string {
 }
 
 // GeneratePSK generates a preshared key for additional encryption
-// Returns a 44 character base64 encoded key
+// Returns a 44 character base64 encoded key.
 func GeneratePSK() string {
 	var psk [32]byte
 	if _, err := rand.Read(psk[:]); err != nil {

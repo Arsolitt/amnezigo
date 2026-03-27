@@ -20,7 +20,7 @@ package protocols
 // - Cookie (1 byte length + variable)
 // - Cipher Suites (2 bytes length + variable)
 // - Compression Methods (1 byte length + variable)
-// - Extensions (variable)
+// - Extensions (variable).
 func DTLSTemplate() I1I5Template {
 	return I1I5Template{
 		// I1: Full DTLS 1.2 ClientHello with timestamp in random field

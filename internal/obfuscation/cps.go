@@ -17,14 +17,14 @@ const (
 	handshakeSize = 149 // fixed handshake size (148 + 1 just in case)
 )
 
-// simpleTag represents a CPS tag with type and value
+// simpleTag represents a CPS tag with type and value.
 type simpleTag struct {
 	Type  string // "b", "r", "rc", "rd", "t", "c"
 	Value string // hex for "b", number for "r"/"rc"/"rd", empty for "t"/"c"
 }
 
 // calculateMaxISize calculates the maximum I packet size based on MTU constraints.
-// Formula: maxISize = MTU - reserve - handshakeSize - S1
+// Formula: maxISize = MTU - reserve - handshakeSize - S1.
 func calculateMaxISize(mtu, s1 int) int {
 	return mtu - reserve - handshakeSize - s1
 }
@@ -36,7 +36,7 @@ func calculateMaxISize(mtu, s1 int) int {
 // - "rc" + value → random ASCII chars (e.g., "rc" + "8" → "<rc 8>")
 // - "rd" + value → random digits (e.g., "rd" + "4" → "<rd 4>")
 // - "c" → counter (e.g., "c" → "<c>")
-// - "t" → timestamp (e.g., "t" → "<t>")
+// - "t" → timestamp (e.g., "t" → "<t>").
 func BuildCPSTag(tagType, value string) string {
 	switch tagType {
 	case "b":
@@ -64,13 +64,13 @@ func BuildCPS(tags []string) string {
 	return strings.Join(tags, "")
 }
 
-// CPSConfig holds the five intervals (I1-I5) of custom packet strings
+// CPSConfig holds the five intervals (I1-I5) of custom packet strings.
 type CPSConfig struct {
 	I1, I2, I3, I4, I5 string
 }
 
 // generateCPSConfig generates CPS strings for all five intervals based on protocol template
-// or random mode with MTU constraints
+// or random mode with MTU constraints.
 func generateCPSConfig(protocol string, mtu, s1 int) CPSConfig {
 	if protocol == "random" {
 		return generateSimpleCPS(mtu, s1)
@@ -78,7 +78,7 @@ func generateCPSConfig(protocol string, mtu, s1 int) CPSConfig {
 	return generateProtocolCPS(protocol, mtu, s1)
 }
 
-// generateProtocolCPS generates CPS strings from protocol template with MTU validation
+// generateProtocolCPS generates CPS strings from protocol template with MTU validation.
 func generateProtocolCPS(protocol string, mtu, s1 int) CPSConfig {
 	tmpl := protocols.GetTemplate(protocol)
 	maxI := calculateMaxISize(mtu, s1)
@@ -92,7 +92,7 @@ func generateProtocolCPS(protocol string, mtu, s1 int) CPSConfig {
 	}
 }
 
-// buildCPSFromTemplate converts a template interval to a CPS string
+// buildCPSFromTemplate converts a template interval to a CPS string.
 func buildCPSFromTemplate(tags []protocols.TagSpec) string {
 	var result []string
 	for _, tag := range tags {
@@ -124,7 +124,7 @@ func buildAndValidateCPS(tags []protocols.TagSpec, maxSize int) string {
 	return "<t>" // guaranteed minimal fallback (8 bytes)
 }
 
-// mapTagType maps protocol tag types to CPS tag types
+// mapTagType maps protocol tag types to CPS tag types.
 func mapTagType(tagType string) string {
 	switch tagType {
 	case "bytes":
@@ -148,7 +148,7 @@ func mapTagType(tagType string) string {
 // It supports:
 // - <b 0xNN>: len(NN)/2 bytes (hex string to bytes)
 // - <r N>, <rc N>, <rd N>: N bytes each
-// - <t>, <c>: 8 bytes each
+// - <t>, <c>: 8 bytes each.
 func calculateCPSLength(cps string) int {
 	total := 0
 
@@ -176,21 +176,19 @@ func calculateCPSLength(cps string) int {
 	return total
 }
 
-// generateRandomTags generates random CPS tags for simple random mode
-func generateRandomTags(minCount, maxCount int) []simpleTag {
+// generateRandomTags generates random CPS tags for simple random mode.
+func generateRandomTags(minCount, _ int) []simpleTag {
 	allTagTypes := []string{"b", "r", "rc", "rd", "t"}
 	usedUniqueTag := false
 
 	// Generate random count between minCount and maxCount
-	countRange := maxCount - minCount
-	if countRange < 0 {
-		countRange = 0
-	}
+	const maxTagCount = 6
+	countRange := max(maxTagCount-minCount, 0)
 	n, _ := rand.Int(rand.Reader, big.NewInt(int64(countRange+1)))
 	count := minCount + int(n.Int64())
 
 	tags := make([]simpleTag, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		// Filter out unique tags if one was already used
 		var availableTagTypes []string
 		for _, tagType := range allTagTypes {
@@ -225,7 +223,7 @@ func generateRandomTags(minCount, maxCount int) []simpleTag {
 			sizeRange := 40 - 5
 			sizeRand, _ := rand.Int(rand.Reader, big.NewInt(int64(sizeRange+1)))
 			size := 5 + int(sizeRand.Int64())
-			value = fmt.Sprintf("%d", size)
+			value = strconv.Itoa(size)
 		case "t":
 			// No value
 			value = ""
@@ -253,7 +251,7 @@ func generateSimpleCPS(mtu, s1 int) CPSConfig {
 }
 
 func generateSimpleI(maxSize int) string {
-	for attempt := 0; attempt < 100; attempt++ {
+	for range 100 {
 		tags := generateRandomTags(3, 6)
 		cps := tagsToCPS(tags)
 		if calculateCPSLength(cps) < maxSize {

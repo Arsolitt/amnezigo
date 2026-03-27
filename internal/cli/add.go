@@ -1,22 +1,24 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"github.com/Arsolitt/amnezigo/internal/config"
 	"github.com/Arsolitt/amnezigo/internal/crypto"
-	"github.com/spf13/cobra"
 )
 
 var (
 	addIPAddr string
 )
 
-// addCmd represents the add command
+// addCmd represents the add command.
 var addCmd = &cobra.Command{
 	Use:   "add <name>",
 	Short: "Add a new client to the server configuration",
@@ -38,13 +40,13 @@ func init() {
 	addCmd.Flags().StringVar(&cfgFile, "config", "awg0.conf", "config file path")
 }
 
-// NewAddCommand creates and returns the add command
+// NewAddCommand creates and returns the add command.
 func NewAddCommand() *cobra.Command {
 	return addCmd
 }
 
-// runAdd executes the add command
-func runAdd(cmd *cobra.Command, args []string) error {
+// runAdd executes the add command.
+func runAdd(_ *cobra.Command, args []string) error {
 	clientName := args[0]
 	configPath := cfgFile
 
@@ -73,8 +75,8 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		// Collect existing IPs within the server's subnet
 		existingIPs := make([]string, 0, len(serverCfg.Peers))
 		for _, peer := range serverCfg.Peers {
-			if strings.HasSuffix(peer.AllowedIPs, "/32") {
-				ipStr := strings.TrimSuffix(peer.AllowedIPs, "/32")
+			if before, ok := strings.CutSuffix(peer.AllowedIPs, "/32"); ok {
+				ipStr := before
 				peerIP := net.ParseIP(ipStr)
 				if peerIP != nil && ipnet.Contains(peerIP) {
 					existingIPs = append(existingIPs, ipStr)
@@ -124,7 +126,7 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// loadServerConfig loads the server configuration from a file
+// loadServerConfig loads the server configuration from a file.
 func loadServerConfig(path string) (config.ServerConfig, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -135,7 +137,7 @@ func loadServerConfig(path string) (config.ServerConfig, error) {
 	return config.ParseServerConfig(file)
 }
 
-// saveServerConfig saves the server configuration to a file
+// saveServerConfig saves the server configuration to a file.
 func saveServerConfig(path string, cfg config.ServerConfig) error {
 	// Write to temporary file first
 	tmpPath := path + ".tmp"
@@ -145,10 +147,13 @@ func saveServerConfig(path string, cfg config.ServerConfig) error {
 	}
 
 	if err := config.WriteServerConfig(file, cfg); err != nil {
+		//nolint:errcheck // Best effort cleanup on error
 		file.Close()
+		//nolint:errcheck // Best effort cleanup on error
 		os.Remove(tmpPath)
 		return err
 	}
+	//nolint:errcheck // Write completed successfully, Close should not fail meaningfully
 	file.Close()
 
 	// Rename temporary file to actual file (atomic operation)
@@ -156,7 +161,7 @@ func saveServerConfig(path string, cfg config.ServerConfig) error {
 }
 
 // findNextAvailableIP finds the next available IP address in the server's subnet
-// Skips .0, .1 (server) and any already used IPs
+// Skips .0, .1 (server) and any already used IPs.
 func findNextAvailableIP(serverAddress string, existingIPs []string) (string, error) {
 	// Parse server address to get subnet
 	ip, ipnet, err := net.ParseCIDR(serverAddress)
@@ -176,11 +181,11 @@ func findNextAvailableIP(serverAddress string, existingIPs []string) (string, er
 		// Create IP address
 		ipBytes := ip.To4()
 		if ipBytes == nil {
-			return "", fmt.Errorf("not an IPv4 address")
+			return "", errors.New("not an IPv4 address")
 		}
 
 		ipBytes[3] = byte(i)
-		candidateIP := net.IP(ipBytes).String()
+		candidateIP := ipBytes.String()
 
 		// Skip if already used
 		if existing[candidateIP] {
