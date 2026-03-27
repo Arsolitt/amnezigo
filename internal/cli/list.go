@@ -75,6 +75,8 @@ func runList(_ *cobra.Command, _ []string) error {
 		fmt.Fprintf(writer, "%s\t%s\t%s\n", peer.Name, peer.AllowedIPs, timestamp)
 	}
 
-	writer.Flush()
+	if err := writer.Flush(); err != nil {
+		return fmt.Errorf("failed to flush output: %w", err)
+	}
 	return nil
 }

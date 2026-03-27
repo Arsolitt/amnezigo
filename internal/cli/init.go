@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -27,6 +28,7 @@ var (
 const (
 	defaultHTTPTimeout = 5 * time.Second
 	defaultMTU         = 1280
+	defaultKeepalive   = 25
 	s1Range            = 65
 	jcRange            = 11
 )
@@ -65,7 +67,7 @@ func init() {
 	initCmd.Flags().IntVar(&initPort, "port", 0, "Listen port (default: random 10000-65535)")
 	initCmd.Flags().IntVar(&initMTU, "mtu", defaultMTU, "MTU size (default: 1280)")
 	initCmd.Flags().StringVar(&initDNS, "dns", "1.1.1.1, 8.8.8.8", "DNS servers (comma-separated)")
-	initCmd.Flags().IntVar(&initKeepalive, "keepalive", 25, "Persistent keepalive interval in seconds")
+	initCmd.Flags().IntVar(&initKeepalive, "keepalive", defaultKeepalive, "Persistent keepalive interval in seconds")
 	initCmd.Flags().BoolVar(&initClientToClient, "client-to-client", false, "Allow client-to-client traffic")
 	initCmd.Flags().StringVar(&initIface, "iface", "", "Main network interface (default: auto-detect)")
 	initCmd.Flags().StringVar(&initIfaceName, "iface-name", "awg0", "Tunnel interface name")
@@ -97,7 +99,7 @@ func runInit(_ *cobra.Command, _ []string) error {
 	if mainIface == "" {
 		mainIface = amnezigo.DetectMainInterface()
 		if mainIface == "" {
-			return fmt.Errorf("failed to auto-detect main interface, please specify --iface")
+			return errors.New("failed to auto-detect main interface, please specify --iface")
 		}
 	}
 

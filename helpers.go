@@ -5,7 +5,6 @@ import (
 	"errors"
 	"math/big"
 	"net"
-	"slices"
 	"strconv"
 )
 
@@ -94,9 +93,4 @@ func FindNextAvailableIP(serverAddress string, existingIPs []string) (string, er
 	}
 
 	return "", nil
-}
-
-// StringContains checks if a string slice contains a given string.
-func StringContains(slice []string, item string) bool {
-	return slices.Contains(slice, item)
 }

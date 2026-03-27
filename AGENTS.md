@@ -2,8 +2,8 @@
 
 ## Build/Test Commands
 
-- Build: `go build -o build/amnezigo .`
-- Install: `go install github.com/Arsolitt/amnezigo@latest`
+- Build: `go build -o build/amnezigo ./cmd/amnezigo/`
+- Install: `go install github.com/Arsolitt/amnezigo/cmd/amnezigo@latest`
 - Run all tests: `go test ./...`
 - Run single test: `go test -run TestFunctionName ./internal/package`
 - Run tests with coverage: `go test -cover ./...`
@@ -58,8 +58,9 @@
 - Exported symbols must have comments
 
 ### File Organization
-- Main package: `main.go` calls `cli.Execute()`
-- Internal packages: `internal/<package>/`
+- CLI entry point: `cmd/amnezigo/main.go`
+- Root package: `package amnezigo` (all business logic)
+- CLI commands: `internal/cli/` (thin wrappers over root package)
 - Tests: `*_test.go` alongside implementation
 - Related functions grouped by responsibility (parser.go, writer.go, etc.)
 
@@ -111,12 +112,9 @@
 - Find next available IP by iterating subnet (.2 to .254)
 
 ### Package Organization
-- `internal/cli/`: Cobra CLI commands (init, add, remove, list, export, edit)
-- `internal/config/`: INI parsing/writing and type definitions
-- `internal/crypto/`: WireGuard key generation (X25519 curve)
-- `internal/obfuscation/`: Obfuscation parameter generation
-- `internal/obfuscation/protocols/`: Protocol-specific CPS templates
-- `internal/network/`: iptables rule generation
+- `package amnezigo` (root): All business logic (config, crypto, obfuscation, network)
+- `cmd/amnezigo/`: CLI entry point
+- `internal/cli/`: Cobra CLI commands (thin wrappers over root package)
 
 ### Common Patterns
 - Use string slices for collecting config data

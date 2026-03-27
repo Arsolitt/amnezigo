@@ -74,37 +74,45 @@ func runExport(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load server config: %w", err)
 	}
 
-	endpoint := serverCfg.Interface.EndpointV4
-	if endpoint == "" {
-		endpoint = serverCfg.Interface.EndpointV6
-		if endpoint == "" {
-			externalIP, err := getExternalIP()
-			if err != nil {
-				externalIP = "YOUR_SERVER_IP"
-			}
-			endpoint = fmt.Sprintf("%s:%d", externalIP, serverCfg.Interface.ListenPort)
-		}
+	endpoint := resolveExportEndpoint(serverCfg)
+
+	clientsToExport, err := selectClientsToExport(serverCfg.Peers, args)
+	if err != nil {
+		return err
 	}
 
-	var clientsToExport []amnezigo.PeerConfig
-	if len(args) == 1 {
-		clientName := args[0]
-		found := false
-		for _, peer := range serverCfg.Peers {
-			if peer.Name == clientName {
-				clientsToExport = append(clientsToExport, peer)
-				found = true
-				break
-			}
-		}
-		if !found {
-			return fmt.Errorf("client '%s' not found", clientName)
-		}
-	} else {
-		clientsToExport = serverCfg.Peers
-	}
+	return writeClientConfigs(mgr, clientsToExport, endpoint)
+}
 
-	for _, client := range clientsToExport {
+func resolveExportEndpoint(serverCfg amnezigo.ServerConfig) string {
+	if serverCfg.Interface.EndpointV4 != "" {
+		return serverCfg.Interface.EndpointV4
+	}
+	if serverCfg.Interface.EndpointV6 != "" {
+		return serverCfg.Interface.EndpointV6
+	}
+	externalIP, err := getExternalIP()
+	if err != nil {
+		externalIP = "YOUR_SERVER_IP"
+	}
+	return fmt.Sprintf("%s:%d", externalIP, serverCfg.Interface.ListenPort)
+}
+
+func selectClientsToExport(peers []amnezigo.PeerConfig, args []string) ([]amnezigo.PeerConfig, error) {
+	if len(args) == 0 {
+		return peers, nil
+	}
+	clientName := args[0]
+	for _, peer := range peers {
+		if peer.Name == clientName {
+			return []amnezigo.PeerConfig{peer}, nil
+		}
+	}
+	return nil, fmt.Errorf("client '%s' not found", clientName)
+}
+
+func writeClientConfigs(mgr *amnezigo.Manager, clients []amnezigo.PeerConfig, endpoint string) error {
+	for _, client := range clients {
 		clientCfg, err := mgr.BuildClientConfig(client, exportProtocol, endpoint)
 		if err != nil {
 			return fmt.Errorf("failed to export client '%s': %w", client.Name, err)
@@ -123,7 +131,6 @@ func runExport(_ *cobra.Command, args []string) error {
 
 		fmt.Printf("✓ Exported client '%s' to %s.conf\n", client.Name, client.Name)
 	}
-
 	return nil
 }
 

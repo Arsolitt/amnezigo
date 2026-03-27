@@ -17,7 +17,7 @@ A CLI tool for generating and managing [AmneziaWG](https://github.com/amnezia-vp
 ## Installation
 
 ```bash
-go install github.com/Arsolitt/amnezigo@latest
+go install github.com/Arsolitt/amnezigo/cmd/amnezigo@latest
 ```
 
 Or build from source:
@@ -25,7 +25,7 @@ Or build from source:
 ```bash
 git clone https://github.com/Arsolitt/amnezigo.git
 cd amnezigo
-go build -o amnezigo .
+go build -o amnezigo ./cmd/amnezigo/
 ```
 
 ## Usage
