@@ -11,9 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/Arsolitt/amnezigo/internal/config"
-	"github.com/Arsolitt/amnezigo/internal/crypto"
-	"github.com/Arsolitt/amnezigo/internal/obfuscation"
+	"github.com/Arsolitt/amnezigo"
 )
 
 var (
@@ -50,20 +48,16 @@ func NewExportCommand() *cobra.Command {
 
 // runExport executes the export command.
 func runExport(_ *cobra.Command, args []string) error {
-	configPath := cfgFile
-
-	// Load existing server config
-	serverCfg, err := loadServerConfig(configPath)
+	mgr := amnezigo.NewManager(cfgFile)
+	serverCfg, err := mgr.Load()
 	if err != nil {
 		return fmt.Errorf("failed to load server config: %w", err)
 	}
 
-	// Determine endpoint from server config (prefer IPv4, then IPv6, then fallback to external IP)
 	endpoint := serverCfg.Interface.EndpointV4
 	if endpoint == "" {
 		endpoint = serverCfg.Interface.EndpointV6
 		if endpoint == "" {
-			// Fallback to external IP if neither configured
 			externalIP, err := getExternalIP()
 			if err != nil {
 				externalIP = "YOUR_SERVER_IP"
@@ -72,10 +66,8 @@ func runExport(_ *cobra.Command, args []string) error {
 		}
 	}
 
-	// Determine which clients to export
-	var clientsToExport []config.PeerConfig
+	var clientsToExport []amnezigo.PeerConfig
 	if len(args) == 1 {
-		// Export specific client
 		clientName := args[0]
 		found := false
 		for _, peer := range serverCfg.Peers {
@@ -89,80 +81,30 @@ func runExport(_ *cobra.Command, args []string) error {
 			return fmt.Errorf("client '%s' not found", clientName)
 		}
 	} else {
-		// Export all clients
 		clientsToExport = serverCfg.Peers
 	}
 
-	// Export each client
 	for _, client := range clientsToExport {
-		if err := exportClient(client, serverCfg, endpoint); err != nil {
+		clientCfg, err := mgr.BuildClientConfig(client, exportProtocol, endpoint)
+		if err != nil {
 			return fmt.Errorf("failed to export client '%s': %w", client.Name, err)
 		}
+
+		configPath := client.Name + ".conf"
+		file, err := os.Create(configPath)
+		if err != nil {
+			return fmt.Errorf("failed to create config file: %w", err)
+		}
+		defer file.Close()
+
+		if err := amnezigo.WriteClientConfig(file, clientCfg); err != nil {
+			return fmt.Errorf("failed to write client config: %w", err)
+		}
+
 		fmt.Printf("✓ Exported client '%s' to %s.conf\n", client.Name, client.Name)
 	}
 
 	return nil
-}
-
-// exportClient exports a single client configuration.
-func exportClient(client config.PeerConfig, serverCfg config.ServerConfig, endpoint string) error {
-	// Extract client IP address from AllowedIPs
-	clientIP := strings.TrimSuffix(client.AllowedIPs, "/32")
-
-	// Use simple AllowedIPs for IPv4 and IPv6
-	allowedIPs := "0.0.0.0/0, ::/0"
-
-	// Get server PublicKey (derive from PrivateKey if not present)
-	serverPublicKey := serverCfg.Interface.PublicKey
-	if serverPublicKey == "" {
-		serverPublicKey = crypto.DerivePublicKey(serverCfg.Interface.PrivateKey)
-	}
-
-	// Generate I1-I5 using the specified protocol
-	i1, i2, i3, i4, i5 := obfuscation.GenerateCPS(
-		exportProtocol,
-		serverCfg.Interface.MTU,
-		serverCfg.Obfuscation.S1,
-		serverCfg.Obfuscation.Jc,
-	)
-
-	// Build client obfuscation config using server parameters + generated I1-I5
-	obfConfig := config.ClientObfuscationConfig{
-		ServerObfuscationConfig: serverCfg.Obfuscation,
-		I1:                      i1,
-		I2:                      i2,
-		I3:                      i3,
-		I4:                      i4,
-		I5:                      i5,
-	}
-
-	// Build client config
-	clientConfig := config.ClientConfig{
-		Interface: config.ClientInterfaceConfig{
-			PrivateKey:  client.PrivateKey,
-			Address:     clientIP + "/32",
-			DNS:         "1.1.1.1, 8.8.8.8",
-			MTU:         serverCfg.Interface.MTU,
-			Obfuscation: obfConfig,
-		},
-		Peer: config.ClientPeerConfig{
-			PublicKey:           serverPublicKey,
-			PresharedKey:        client.PresharedKey,
-			Endpoint:            endpoint,
-			AllowedIPs:          allowedIPs,
-			PersistentKeepalive: defaultKeepalive,
-		},
-	}
-
-	// Write client config file
-	configPath := client.Name + ".conf"
-	file, err := os.Create(configPath)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	return config.WriteClientConfig(file, clientConfig)
 }
 
 // getExternalIP retrieves the external IP address of the server.
@@ -186,10 +128,7 @@ func getExternalIP() (string, error) {
 		return "", err
 	}
 
-	// Trim whitespace
 	ip := strings.TrimSpace(string(body))
-
-	// Validate IP
 	if net.ParseIP(ip) == nil {
 		return "", fmt.Errorf("invalid IP address: %s", ip)
 	}
