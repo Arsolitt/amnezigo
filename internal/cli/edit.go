@@ -5,12 +5,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/Arsolitt/amnezigo/internal/config"
-	"github.com/Arsolitt/amnezigo/internal/network"
+	"github.com/Arsolitt/amnezigo"
 )
-
-// Ensure config package is used.
-var _ config.ServerConfig
 
 var (
 	editClientToClient string
@@ -38,7 +34,8 @@ func NewEditCommand() *cobra.Command {
 
 // runEdit executes the edit command.
 func runEdit(_ *cobra.Command, _ []string) error {
-	serverCfg, err := loadServerConfig(editConfigPath)
+	mgr := amnezigo.NewManager(editConfigPath)
+	serverCfg, err := mgr.Load()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
@@ -48,7 +45,6 @@ func runEdit(_ *cobra.Command, _ []string) error {
 	if editClientToClient != "" {
 		newValue := editClientToClient == "true"
 		if serverCfg.Interface.ClientToClient && !newValue {
-			// Disabling - print iptables command
 			tunName := serverCfg.Interface.TunName
 			if tunName == "" {
 				tunName = "awg0"
@@ -65,27 +61,25 @@ func runEdit(_ *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	// Regenerate iptables rules
-	subnet := extractSubnet(serverCfg.Interface.Address)
+	subnet := amnezigo.ExtractSubnet(serverCfg.Interface.Address)
 	tunName := serverCfg.Interface.TunName
 	if tunName == "" {
 		tunName = "awg0"
 	}
-	serverCfg.Interface.PostUp = network.GeneratePostUp(
+	serverCfg.Interface.PostUp = amnezigo.GeneratePostUp(
 		tunName,
 		serverCfg.Interface.MainIface,
 		subnet,
 		serverCfg.Interface.ClientToClient,
 	)
-	serverCfg.Interface.PostDown = network.GeneratePostDown(
+	serverCfg.Interface.PostDown = amnezigo.GeneratePostDown(
 		tunName,
 		serverCfg.Interface.MainIface,
 		subnet,
 		serverCfg.Interface.ClientToClient,
 	)
 
-	// Save config
-	if err := saveServerConfig(editConfigPath, serverCfg); err != nil {
+	if err := mgr.Save(serverCfg); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
