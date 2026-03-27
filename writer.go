@@ -10,6 +10,9 @@ import (
 func WriteServerConfig(w io.Writer, cfg ServerConfig) error {
 	fmt.Fprintln(w, "[Interface]")
 	fmt.Fprintf(w, "PrivateKey = %s\n", cfg.Interface.PrivateKey)
+	if cfg.Interface.PublicKey != "" {
+		fmt.Fprintf(w, "PublicKey = %s\n", cfg.Interface.PublicKey)
+	}
 	fmt.Fprintf(w, "Address = %s\n", cfg.Interface.Address)
 	fmt.Fprintf(w, "ListenPort = %d\n", cfg.Interface.ListenPort)
 	fmt.Fprintf(w, "MTU = %d\n", cfg.Interface.MTU)
