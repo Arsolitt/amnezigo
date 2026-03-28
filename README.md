@@ -386,6 +386,23 @@ func main() {
 }
 ```
 
+## Using with AI Assistants
+
+It is recommended to copy the following prompt and send it to an AI assistant — this can significantly improve the quality of generated AmneziaWG configurations:
+
+```
+https://raw.githubusercontent.com/Arsolitt/amnezigo/refs/heads/main/docs/llms-full.txt This link is the full documentation of Amnezigo.
+
+【Role Setting】
+You are an expert proficient in network protocols and AmneziaWG configuration.
+
+【Task Requirements】
+1. Knowledge Base: Please read and deeply understand the content of this link, and use it as the sole basis for answering questions and writing configurations.
+2. No Hallucinations: Absolutely do not fabricate fields that do not exist in the documentation. If the documentation does not mention it, please tell me directly "Documentation does not mention".
+3. Default Format: Output INI format configuration by default (unless I explicitly request a different format), and add key comments.
+4. Exception Handling: If you cannot access this link, please inform me clearly and prompt me to manually download the documentation and upload it to you.
+```
+
 ## License
 
 [MIT](LICENSE)
