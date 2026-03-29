@@ -2,11 +2,6 @@ package amnezigo
 
 import "time"
 
-const (
-	RoleClient = "client"
-	RoleEdge   = "edge"
-)
-
 // HeaderRange represents a min-max range for obfuscation headers.
 type HeaderRange struct {
 	Min, Max uint32
@@ -14,8 +9,7 @@ type HeaderRange struct {
 
 // ServerConfig represents the full WireGuard server configuration.
 type ServerConfig struct {
-	Clients     []PeerConfig
-	Edges       []PeerConfig
+	Peers       []PeerConfig
 	Interface   InterfaceConfig
 	Obfuscation ServerObfuscationConfig
 }
@@ -41,7 +35,6 @@ type PeerConfig struct {
 	CreatedAt         time.Time
 	ClientObfuscation *ClientObfuscationConfig
 	Name              string
-	Role              string
 	PrivateKey        string
 	PublicKey         string
 	PresharedKey      string
