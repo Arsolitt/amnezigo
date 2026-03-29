@@ -22,8 +22,10 @@ github.com/Arsolitt/amnezigo
 |   +-- cli.go                      # Root command + Execute()
 |   +-- init.go                     # init command
 |   +-- edit.go                     # edit command
-|   +-- client.go                   # client command group (add, list, export, remove)
-|   +-- edge.go                     # edge command group (add, list, export, remove)
+|   +-- add.go                      # add command
+|   +-- list.go                     # list command
+|   +-- export.go                   # export command
+|   +-- remove.go                   # remove command
 |
 +-- [root package: amnezigo]        # All business logic
     +-- types.go                    # All type definitions
@@ -43,33 +45,26 @@ github.com/Arsolitt/amnezigo
 
 ### CLI Behavior
 - **export has no --endpoint flag**: Endpoint is auto-resolved from server config's Endpoint field, or via HTTP request if endpoint contains `:http`. There is no manual override.
-- **--dns and --keepalive on init are silently ignored**: These flags exist on the init command but do nothing. DNS is hardcoded to "1.1.1.1, 8.8.8.8" and keepalive to 25 in client exports.
+- **--dns and --keepalive on init are silently ignored**: These flags exist on the init command but do nothing. DNS is hardcoded to "1.1.1.1, 8.8.8.8" and keepalive to 25 in exports.
 - **"random" protocol is deterministic**: Due to `len("random") % 4 = 2`, the random protocol always selects DTLS. Use explicit protocol names if you need variety.
-- **#_Role is mandatory on all [Peer] sections**: Every `[Peer]` in the INI config must have `#_Role = client` or `#_Role = edge`. The parser returns an error if missing or invalid.
 
 ### Obfuscation Generation
 - **GenerateConfig vs GenerateServerConfig**: `GenerateConfig` uses point ranges for H1-H4 (single values masquerading as ranges). `GenerateServerConfig` uses true ranges with different min/max values.
-- **CPS strings are per-client**: I1-I5 CPS strings are generated at export time, not stored in the server config. Each client gets unique CPS values.
+- **CPS strings are per-peer**: I1-I5 CPS strings are generated at export time, not stored in the server config. Each peer gets unique CPS values.
 
 ## Library API
 
 ### Manager (manager.go)
-High-level CRUD operations for server configs, clients, and edges:
+High-level CRUD operations for server configs and peers:
 - `NewManager(configPath string) *Manager`
 - `Load() (ServerConfig, error)`
 - `Save(cfg ServerConfig) error`
-- `AddClient(name, ip string) (PeerConfig, error)`
-- `RemoveClient(name string) error`
-- `FindClient(name string) (*PeerConfig, error)`
-- `ListClients() []PeerConfig`
-- `ExportClient(name, protocol, endpoint string) (ClientConfig, error)`
-- `BuildClientConfig(peer PeerConfig, protocol, endpoint string) (ClientConfig, error)`
-- `AddEdge(name, ip string) (PeerConfig, error)`
-- `RemoveEdge(name string) error`
-- `FindEdge(name string) (*PeerConfig, error)`
-- `ListEdges() []PeerConfig`
-- `BuildEdgeConfig(name, protocol, endpoint string) (ClientConfig, error)`
-- `ExportEdge(name, protocol, endpoint string) ([]byte, error)`
+- `AddPeer(name, ip string) (PeerConfig, error)`
+- `RemovePeer(name string) error`
+- `FindPeer(name string) (*PeerConfig, error)`
+- `ListPeers() []PeerConfig`
+- `ExportPeer(name, protocol, endpoint string) (ClientConfig, error)`
+- `BuildPeerConfig(peer PeerConfig, protocol, endpoint string) (ClientConfig, error)`
 
 ### Config I/O (parser.go, writer.go)
 - `ParseServerConfig(r io.Reader) (ServerConfig, error)`
@@ -178,13 +173,12 @@ High-level CRUD operations for server configs, clients, and edges:
 - Use `RunE` for error handling, not `Run`
 - Store flag variables as package-level vars
 - Initialize flags in `init()` function
-- Use factory functions: `NewClientCommand()`, `NewClientAddCommand()`, `NewClientListCommand()`, `NewClientExportCommand()`, `NewClientRemoveCommand()`, `NewEdgeCommand()`, `NewEdgeAddCommand()`, `NewEdgeListCommand()`, `NewEdgeExportCommand()`, `NewEdgeRemoveCommand()`, `NewEditCommand()`
+- Use factory functions: `NewAddCommand()`, `NewListCommand()`, `NewExportCommand()`, `NewRemoveCommand()`, `NewEditCommand()`
 
 ### Configuration
 - Config files use INI format with [Section] headers
 - Store metadata in commented fields with `#_` prefix
-- All [Peer] sections require `#_Role = client` or `#_Role = edge`
-- `ServerConfig` has `Clients []PeerConfig` and `Edges []PeerConfig` (not `Peers`)
+- `ServerConfig` has `Peers []PeerConfig`
 - Use atomic writes: write to `.tmp` file, then rename
 
 ### Crypto/Security
@@ -194,7 +188,7 @@ High-level CRUD operations for server configs, clients, and edges:
 
 ### Obfuscation Patterns
 - Store H1-H4 as HeaderRange{Min, Max} for ranges
-- I1-I5 CPS strings generated per-client at export time
+- I1-I5 CPS strings generated per-peer at export time
 - Protocol templates in root package (quic.go, dns.go, dtls.go, stun.go)
 - Use tag-based CPS construction: <b 0x...>, <r N>, <t>, <c>
 
@@ -233,6 +227,6 @@ High-level CRUD operations for server configs, clients, and edges:
 
 ### Error Message Format
 - Prefix with context: `"failed to load config: %w"`
-- Include specific identifiers when available: `"client '%s' not found"`
+- Include specific identifiers when available: `"peer '%s' not found"`
 - Use fmt.Errorf for wrapping, not log.Printf
 - Return errors from RunE functions, don't log inside
