@@ -52,25 +52,19 @@ func WriteServerConfig(w io.Writer, cfg ServerConfig) error {
 		fmt.Fprintf(w, "#_MainIface = %s\n", cfg.Interface.MainIface)
 	}
 
-	for _, peer := range cfg.Clients {
-		writePeerSection(w, peer, RoleClient)
-	}
-
-	for _, peer := range cfg.Edges {
-		writePeerSection(w, peer, RoleEdge)
+	for _, peer := range cfg.Peers {
+		writePeerSection(w, peer)
 	}
 
 	return nil
 }
 
-// writePeerSection writes a single [Peer] section with the given role.
-func writePeerSection(w io.Writer, peer PeerConfig, role string) {
+func writePeerSection(w io.Writer, peer PeerConfig) {
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "[Peer]")
 	if peer.Name != "" {
 		fmt.Fprintf(w, "#_Name = %s\n", peer.Name)
 	}
-	fmt.Fprintf(w, "#_Role = %s\n", role)
 	if peer.PrivateKey != "" {
 		fmt.Fprintf(w, "#_PrivateKey = %s\n", peer.PrivateKey)
 	}
@@ -89,9 +83,7 @@ func WriteClientConfig(w io.Writer, cfg ClientConfig) error {
 	fmt.Fprintln(w, "[Interface]")
 	fmt.Fprintf(w, "PrivateKey = %s\n", cfg.Interface.PrivateKey)
 	fmt.Fprintf(w, "Address = %s\n", cfg.Interface.Address)
-	if cfg.Interface.DNS != "" {
-		fmt.Fprintf(w, "DNS = %s\n", cfg.Interface.DNS)
-	}
+	fmt.Fprintf(w, "DNS = %s\n", cfg.Interface.DNS)
 	fmt.Fprintf(w, "MTU = %d\n", cfg.Interface.MTU)
 
 	fmt.Fprintf(w, "Jc = %d\n", cfg.Interface.Obfuscation.Jc)
