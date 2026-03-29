@@ -20,10 +20,9 @@ func TestWriteServerConfig(t *testing.T) {
 			TunName:        "wg0",
 			ClientToClient: true,
 		},
-		Clients: []PeerConfig{
+		Peers: []PeerConfig{
 			{
 				Name:       "peer1",
-				Role:       RoleClient,
 				PrivateKey: "peer1_priv_key",
 				PublicKey:  "peer1_pub_key",
 				AllowedIPs: "10.0.0.2/32",
@@ -136,10 +135,9 @@ func TestWriteServerConfigWithPresharedKey(t *testing.T) {
 			ListenPort: 51820,
 			MTU:        1420,
 		},
-		Clients: []PeerConfig{
+		Peers: []PeerConfig{
 			{
 				Name:         "peer1",
-				Role:         RoleClient,
 				PrivateKey:   "peer1_priv_key",
 				PublicKey:    "peer1_pub_key",
 				PresharedKey: "peer1_psk_value",
@@ -283,36 +281,5 @@ func TestWriteClientConfig(t *testing.T) {
 	}
 	if !strings.Contains(output, "PersistentKeepalive = 25") {
 		t.Error("Output should contain PersistentKeepalive")
-	}
-}
-
-func TestWriteServerConfigEmitsRole(t *testing.T) {
-	cfg := ServerConfig{
-		Interface: InterfaceConfig{
-			PrivateKey: "priv", Address: "10.0.0.1/24",
-			ListenPort: 51820, MTU: 1420,
-		},
-		Clients: []PeerConfig{
-			{Name: "c1", Role: RoleClient, PublicKey: "cpub", AllowedIPs: "10.0.0.2/32"},
-		},
-		Edges: []PeerConfig{
-			{Name: "e1", Role: RoleEdge, PublicKey: "epub", AllowedIPs: "10.0.0.3/32"},
-		},
-	}
-	var buf strings.Builder
-	if err := WriteServerConfig(&buf, cfg); err != nil {
-		t.Fatalf("WriteServerConfig failed: %v", err)
-	}
-	output := buf.String()
-	if !strings.Contains(output, "#_Role = client") {
-		t.Error("expected #_Role = client for client peer")
-	}
-	if !strings.Contains(output, "#_Role = edge") {
-		t.Error("expected #_Role = edge for edge peer")
-	}
-	roleIdx := strings.Index(output, "#_Role = client")
-	pubIdx := strings.Index(output, "PublicKey = cpub")
-	if roleIdx == -1 || pubIdx == -1 || roleIdx > pubIdx {
-		t.Error("#_Role should appear before PublicKey")
 	}
 }

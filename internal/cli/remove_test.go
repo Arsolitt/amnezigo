@@ -39,7 +39,6 @@ I5 = mno
 
 [Peer]
 #_Name = client-to-remove
-#_Role = client
 PublicKey = clientpublickey1234567890123456789012345678901234567890123456789012345678=
 AllowedIPs = 10.8.0.2/32
 #_PrivateKey = clientprivatekey1234567890123456789012345678901234567890123456789012345678=
@@ -47,7 +46,6 @@ AllowedIPs = 10.8.0.2/32
 
 [Peer]
 #_Name = another-client
-#_Role = client
 PublicKey = anotherpublickey1234567890123456789012345678901234567890123456789012345678=
 AllowedIPs = 10.8.0.3/32
 #_PrivateKey = anotherprivatekey1234567890123456789012345678901234567890123456789012345678=
@@ -57,11 +55,11 @@ AllowedIPs = 10.8.0.3/32
 			t.Fatal(err)
 		}
 
-		// Execute remove command by calling runClientRemove directly
+		// Execute remove command by calling runRemove directly
 		// to avoid Cobra framework issues with global state
 		// Set cfgFile explicitly since PersistentPreRunE won't run
 		cfgFile = configPath
-		if err := runClientRemove(nil, []string{"client-to-remove"}); err != nil {
+		if err := runRemove(nil, []string{"client-to-remove"}); err != nil {
 			t.Fatalf("remove command failed: %v", err)
 		}
 
@@ -120,7 +118,6 @@ I5 = mno
 
 [Peer]
 #_Name = existing-client
-#_Role = client
 PublicKey = existingpublickey1234567890123456789012345678901234567890123456789012345678=
 AllowedIPs = 10.8.0.2/32
 #_PrivateKey = existingprivatekey1234567890123456789012345678901234567890123456789012345678=
@@ -130,9 +127,9 @@ AllowedIPs = 10.8.0.2/32
 			t.Fatal(err)
 		}
 
-		// Execute remove command by calling runClientRemove directly
+		// Execute remove command by calling runRemove directly
 		cfgFile = configPath
-		err := runClientRemove(nil, []string{"nonexistent-client"})
+		err := runRemove(nil, []string{"nonexistent-client"})
 		if err == nil {
 			t.Error("expected error for nonexistent client, got nil")
 		}

@@ -32,7 +32,7 @@ func TestManagerLoadSave(t *testing.T) {
 			H3: HeaderRange{Min: 500, Max: 600},
 			H4: HeaderRange{Min: 700, Max: 800},
 		},
-		Clients: []PeerConfig{},
+		Peers: []PeerConfig{},
 	}
 
 	mgr := NewManager(path)
@@ -59,7 +59,7 @@ func TestManagerLoadSave(t *testing.T) {
 	}
 }
 
-func TestManagerAddClient(t *testing.T) {
+func TestManagerAddPeer(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.conf")
 
@@ -78,7 +78,7 @@ func TestManagerAddClient(t *testing.T) {
 			H3: HeaderRange{Min: 500, Max: 600},
 			H4: HeaderRange{Min: 700, Max: 800},
 		},
-		Clients: []PeerConfig{},
+		Peers: []PeerConfig{},
 	}
 
 	mgr := NewManager(path)
@@ -86,9 +86,9 @@ func TestManagerAddClient(t *testing.T) {
 		t.Fatalf("initial Save failed: %v", err)
 	}
 
-	peer, err := mgr.AddClient("testclient", "")
+	peer, err := mgr.AddPeer("testclient", "")
 	if err != nil {
-		t.Fatalf("AddClient failed: %v", err)
+		t.Fatalf("AddPeer failed: %v", err)
 	}
 
 	if peer.Name != "testclient" {
@@ -109,15 +109,15 @@ func TestManagerAddClient(t *testing.T) {
 		t.Fatalf("Load failed: %v", err)
 	}
 
-	if len(loaded.Clients) != 1 {
-		t.Fatalf("expected 1 peer, got %d", len(loaded.Clients))
+	if len(loaded.Peers) != 1 {
+		t.Fatalf("expected 1 peer, got %d", len(loaded.Peers))
 	}
-	if loaded.Clients[0].Name != "testclient" {
-		t.Errorf("expected peer name 'testclient', got '%s'", loaded.Clients[0].Name)
+	if loaded.Peers[0].Name != "testclient" {
+		t.Errorf("expected peer name 'testclient', got '%s'", loaded.Peers[0].Name)
 	}
 }
 
-func TestManagerAddClientDuplicate(t *testing.T) {
+func TestManagerAddPeerDuplicate(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.conf")
 
@@ -133,20 +133,20 @@ func TestManagerAddClientDuplicate(t *testing.T) {
 			H3: HeaderRange{Min: 500, Max: 600},
 			H4: HeaderRange{Min: 700, Max: 800},
 		},
-		Clients: []PeerConfig{},
+		Peers: []PeerConfig{},
 	}
 
 	mgr := NewManager(path)
 	_ = mgr.Save(cfg)
-	_, _ = mgr.AddClient("dup", "")
+	_, _ = mgr.AddPeer("dup", "")
 
-	_, err := mgr.AddClient("dup", "")
+	_, err := mgr.AddPeer("dup", "")
 	if err == nil {
-		t.Fatal("expected error for duplicate client name")
+		t.Fatal("expected error for duplicate peer name")
 	}
 }
 
-func TestManagerAddClientDuplicateEdgeName(t *testing.T) {
+func TestManagerAddPeerWithIP(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.conf")
 
@@ -162,75 +162,15 @@ func TestManagerAddClientDuplicateEdgeName(t *testing.T) {
 			H3: HeaderRange{Min: 500, Max: 600},
 			H4: HeaderRange{Min: 700, Max: 800},
 		},
-		Edges: []PeerConfig{
-			{Name: "shared", Role: RoleEdge, PublicKey: "pub1", AllowedIPs: "10.8.0.2/32"},
-		},
+		Peers: []PeerConfig{},
 	}
 
 	mgr := NewManager(path)
 	_ = mgr.Save(cfg)
 
-	_, err := mgr.AddClient("shared", "")
-	if err == nil {
-		t.Fatal("expected error when client name conflicts with existing edge name")
-	}
-}
-
-func TestManagerAddEdgeDuplicateClientName(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "test.conf")
-
-	cfg := ServerConfig{
-		Interface: InterfaceConfig{
-			PrivateKey: "priv=", Address: "10.8.0.1/24",
-			ListenPort: 12345, MTU: 1280,
-		},
-		Obfuscation: ServerObfuscationConfig{
-			Jc: 5, Jmin: 100, Jmax: 200, S1: 10, S2: 20, S3: 30, S4: 5,
-			H1: HeaderRange{Min: 100, Max: 200},
-			H2: HeaderRange{Min: 300, Max: 400},
-			H3: HeaderRange{Min: 500, Max: 600},
-			H4: HeaderRange{Min: 700, Max: 800},
-		},
-		Clients: []PeerConfig{
-			{Name: "shared", Role: RoleClient, PublicKey: "pub1", AllowedIPs: "10.8.0.2/32"},
-		},
-	}
-
-	mgr := NewManager(path)
-	_ = mgr.Save(cfg)
-
-	_, err := mgr.AddEdge("shared", "")
-	if err == nil {
-		t.Fatal("expected error when edge name conflicts with existing client name")
-	}
-}
-
-func TestManagerAddClientWithIP(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "test.conf")
-
-	cfg := ServerConfig{
-		Interface: InterfaceConfig{
-			PrivateKey: "priv=", Address: "10.8.0.1/24",
-			ListenPort: 12345, MTU: 1280,
-		},
-		Obfuscation: ServerObfuscationConfig{
-			Jc: 5, Jmin: 100, Jmax: 200, S1: 10, S2: 20, S3: 30, S4: 5,
-			H1: HeaderRange{Min: 100, Max: 200},
-			H2: HeaderRange{Min: 300, Max: 400},
-			H3: HeaderRange{Min: 500, Max: 600},
-			H4: HeaderRange{Min: 700, Max: 800},
-		},
-		Clients: []PeerConfig{},
-	}
-
-	mgr := NewManager(path)
-	_ = mgr.Save(cfg)
-
-	peer, err := mgr.AddClient("manual", "10.8.0.50")
+	peer, err := mgr.AddPeer("manual", "10.8.0.50")
 	if err != nil {
-		t.Fatalf("AddClient with IP failed: %v", err)
+		t.Fatalf("AddPeer with IP failed: %v", err)
 	}
 
 	if peer.AllowedIPs != "10.8.0.50/32" {
@@ -238,7 +178,7 @@ func TestManagerAddClientWithIP(t *testing.T) {
 	}
 }
 
-func TestManagerRemoveClient(t *testing.T) {
+func TestManagerRemovePeer(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.conf")
 
@@ -254,30 +194,30 @@ func TestManagerRemoveClient(t *testing.T) {
 			H3: HeaderRange{Min: 500, Max: 600},
 			H4: HeaderRange{Min: 700, Max: 800},
 		},
-		Clients: []PeerConfig{
-			{Name: "keep", Role: RoleClient, PublicKey: "pub1", AllowedIPs: "10.8.0.2/32"},
-			{Name: "remove", Role: RoleClient, PublicKey: "pub2", AllowedIPs: "10.8.0.3/32"},
+		Peers: []PeerConfig{
+			{Name: "keep", PublicKey: "pub1", AllowedIPs: "10.8.0.2/32"},
+			{Name: "remove", PublicKey: "pub2", AllowedIPs: "10.8.0.3/32"},
 		},
 	}
 
 	mgr := NewManager(path)
 	_ = mgr.Save(cfg)
 
-	err := mgr.RemoveClient("remove")
+	err := mgr.RemovePeer("remove")
 	if err != nil {
-		t.Fatalf("RemoveClient failed: %v", err)
+		t.Fatalf("RemovePeer failed: %v", err)
 	}
 
 	loaded, _ := mgr.Load()
-	if len(loaded.Clients) != 1 {
-		t.Fatalf("expected 1 peer after removal, got %d", len(loaded.Clients))
+	if len(loaded.Peers) != 1 {
+		t.Fatalf("expected 1 peer after removal, got %d", len(loaded.Peers))
 	}
-	if loaded.Clients[0].Name != "keep" {
-		t.Errorf("expected remaining peer 'keep', got '%s'", loaded.Clients[0].Name)
+	if loaded.Peers[0].Name != "keep" {
+		t.Errorf("expected remaining peer 'keep', got '%s'", loaded.Peers[0].Name)
 	}
 }
 
-func TestManagerRemoveClientNotFound(t *testing.T) {
+func TestManagerRemovePeerNotFound(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.conf")
 
@@ -293,19 +233,19 @@ func TestManagerRemoveClientNotFound(t *testing.T) {
 			H3: HeaderRange{Min: 500, Max: 600},
 			H4: HeaderRange{Min: 700, Max: 800},
 		},
-		Clients: []PeerConfig{},
+		Peers: []PeerConfig{},
 	}
 
 	mgr := NewManager(path)
 	_ = mgr.Save(cfg)
 
-	err := mgr.RemoveClient("nonexistent")
+	err := mgr.RemovePeer("nonexistent")
 	if err == nil {
-		t.Fatal("expected error for nonexistent client")
+		t.Fatal("expected error for nonexistent peer")
 	}
 }
 
-func TestManagerFindClient(t *testing.T) {
+func TestManagerFindPeer(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.conf")
 
@@ -321,7 +261,7 @@ func TestManagerFindClient(t *testing.T) {
 			H3: HeaderRange{Min: 500, Max: 600},
 			H4: HeaderRange{Min: 700, Max: 800},
 		},
-		Clients: []PeerConfig{
+		Peers: []PeerConfig{
 			{Name: "target", PublicKey: "pub1", AllowedIPs: "10.8.0.2/32"},
 		},
 	}
@@ -329,16 +269,16 @@ func TestManagerFindClient(t *testing.T) {
 	mgr := NewManager(path)
 	_ = mgr.Save(cfg)
 
-	peer, err := mgr.FindClient("target")
+	peer, err := mgr.FindPeer("target")
 	if err != nil {
-		t.Fatalf("FindClient failed: %v", err)
+		t.Fatalf("FindPeer failed: %v", err)
 	}
 	if peer.Name != "target" {
 		t.Errorf("expected name 'target', got '%s'", peer.Name)
 	}
 }
 
-func TestManagerListClients(t *testing.T) {
+func TestManagerListPeers(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.conf")
 
@@ -354,7 +294,7 @@ func TestManagerListClients(t *testing.T) {
 			H3: HeaderRange{Min: 500, Max: 600},
 			H4: HeaderRange{Min: 700, Max: 800},
 		},
-		Clients: []PeerConfig{
+		Peers: []PeerConfig{
 			{Name: "a", PublicKey: "pub1", AllowedIPs: "10.8.0.2/32"},
 			{Name: "b", PublicKey: "pub2", AllowedIPs: "10.8.0.3/32"},
 		},
@@ -363,13 +303,13 @@ func TestManagerListClients(t *testing.T) {
 	mgr := NewManager(path)
 	_ = mgr.Save(cfg)
 
-	clients := mgr.ListClients()
-	if len(clients) != 2 {
-		t.Fatalf("expected 2 clients, got %d", len(clients))
+	peers := mgr.ListPeers()
+	if len(peers) != 2 {
+		t.Fatalf("expected 2 peers, got %d", len(peers))
 	}
 }
 
-func TestManagerExportClient(t *testing.T) {
+func TestManagerExportPeer(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.conf")
 
@@ -388,7 +328,7 @@ func TestManagerExportClient(t *testing.T) {
 			H3: HeaderRange{Min: 500, Max: 600},
 			H4: HeaderRange{Min: 700, Max: 800},
 		},
-		Clients: []PeerConfig{
+		Peers: []PeerConfig{
 			{
 				Name:         "exportme",
 				PrivateKey:   "clientpriv=",
@@ -402,9 +342,9 @@ func TestManagerExportClient(t *testing.T) {
 	mgr := NewManager(path)
 	_ = mgr.Save(cfg)
 
-	clientCfg, err := mgr.ExportClient("exportme", "random", "1.2.3.4:12345")
+	clientCfg, err := mgr.ExportPeer("exportme", "random", "1.2.3.4:12345")
 	if err != nil {
-		t.Fatalf("ExportClient failed: %v", err)
+		t.Fatalf("ExportPeer failed: %v", err)
 	}
 
 	if clientCfg.Peer.Endpoint != "1.2.3.4:12345" {
@@ -434,7 +374,7 @@ func TestLoadServerConfig(t *testing.T) {
 			H3: HeaderRange{Min: 500, Max: 600},
 			H4: HeaderRange{Min: 700, Max: 800},
 		},
-		Clients: []PeerConfig{},
+		Peers: []PeerConfig{},
 	}
 
 	if err := SaveServerConfig(path, cfg); err != nil {
@@ -467,7 +407,7 @@ func TestSaveServerConfig(t *testing.T) {
 			H3: HeaderRange{Min: 500, Max: 600},
 			H4: HeaderRange{Min: 700, Max: 800},
 		},
-		Clients: []PeerConfig{},
+		Peers: []PeerConfig{},
 	}
 
 	err := SaveServerConfig(path, cfg)
@@ -486,193 +426,5 @@ func TestSaveServerConfig(t *testing.T) {
 	}
 	if !strings.Contains(content, "PrivateKey = priv=") {
 		t.Error("expected PrivateKey in output")
-	}
-}
-
-func TestManagerAddEdge(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "test.conf")
-
-	initialCfg := ServerConfig{
-		Interface: InterfaceConfig{
-			PrivateKey: "serverpriv=", PublicKey: "serverpub=",
-			Address: "10.8.0.1/24", ListenPort: 12345, MTU: 1280,
-		},
-		Obfuscation: ServerObfuscationConfig{
-			Jc: 5, Jmin: 100, Jmax: 200, S1: 10, S2: 20, S3: 30, S4: 5,
-			H1: HeaderRange{Min: 100, Max: 200}, H2: HeaderRange{Min: 300, Max: 400},
-			H3: HeaderRange{Min: 500, Max: 600}, H4: HeaderRange{Min: 700, Max: 800},
-		},
-		Clients: []PeerConfig{},
-	}
-
-	mgr := NewManager(path)
-	if err := mgr.Save(initialCfg); err != nil {
-		t.Fatalf("initial Save failed: %v", err)
-	}
-
-	edge, err := mgr.AddEdge("moscow", "")
-	if err != nil {
-		t.Fatalf("AddEdge failed: %v", err)
-	}
-
-	if edge.Name != "moscow" {
-		t.Errorf("expected name 'moscow', got '%s'", edge.Name)
-	}
-	if edge.Role != RoleEdge {
-		t.Errorf("expected role '%s', got '%s'", RoleEdge, edge.Role)
-	}
-	if edge.PublicKey == "" {
-		t.Error("expected non-empty PublicKey")
-	}
-
-	loaded, _ := mgr.Load()
-	if len(loaded.Edges) != 1 {
-		t.Fatalf("expected 1 edge, got %d", len(loaded.Edges))
-	}
-	if len(loaded.Clients) != 0 {
-		t.Error("edge should not be in Clients")
-	}
-}
-
-func TestManagerRemoveEdge(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "test.conf")
-
-	cfg := ServerConfig{
-		Interface: InterfaceConfig{
-			PrivateKey: "priv=", Address: "10.8.0.1/24",
-			ListenPort: 12345, MTU: 1280,
-		},
-		Obfuscation: ServerObfuscationConfig{
-			Jc: 5, Jmin: 100, Jmax: 200, S1: 10, S2: 20, S3: 30, S4: 5,
-			H1: HeaderRange{Min: 100, Max: 200}, H2: HeaderRange{Min: 300, Max: 400},
-			H3: HeaderRange{Min: 500, Max: 600}, H4: HeaderRange{Min: 700, Max: 800},
-		},
-		Edges: []PeerConfig{
-			{Name: "keep", Role: RoleEdge, PublicKey: "pub1", AllowedIPs: "10.8.0.2/32"},
-			{Name: "remove", Role: RoleEdge, PublicKey: "pub2", AllowedIPs: "10.8.0.3/32"},
-		},
-	}
-
-	mgr := NewManager(path)
-	_ = mgr.Save(cfg)
-
-	if err := mgr.RemoveEdge("remove"); err != nil {
-		t.Fatalf("RemoveEdge failed: %v", err)
-	}
-
-	loaded, _ := mgr.Load()
-	if len(loaded.Edges) != 1 || loaded.Edges[0].Name != "keep" {
-		t.Error("expected only 'keep' edge remaining")
-	}
-}
-
-func TestManagerFindEdge(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "test.conf")
-
-	cfg := ServerConfig{
-		Interface: InterfaceConfig{
-			PrivateKey: "priv=", Address: "10.8.0.1/24",
-			ListenPort: 12345, MTU: 1280,
-		},
-		Obfuscation: ServerObfuscationConfig{
-			Jc: 5, Jmin: 100, Jmax: 200, S1: 10, S2: 20, S3: 30, S4: 5,
-			H1: HeaderRange{Min: 100, Max: 200}, H2: HeaderRange{Min: 300, Max: 400},
-			H3: HeaderRange{Min: 500, Max: 600}, H4: HeaderRange{Min: 700, Max: 800},
-		},
-		Edges: []PeerConfig{
-			{Name: "target", Role: RoleEdge, PublicKey: "pub1", AllowedIPs: "10.8.0.2/32"},
-		},
-	}
-
-	mgr := NewManager(path)
-	_ = mgr.Save(cfg)
-
-	edge, err := mgr.FindEdge("target")
-	if err != nil {
-		t.Fatalf("FindEdge failed: %v", err)
-	}
-	if edge.Name != "target" {
-		t.Errorf("expected name 'target', got '%s'", edge.Name)
-	}
-}
-
-func TestManagerListEdges(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "test.conf")
-
-	cfg := ServerConfig{
-		Interface: InterfaceConfig{
-			PrivateKey: "priv=", Address: "10.8.0.1/24",
-			ListenPort: 12345, MTU: 1280,
-		},
-		Obfuscation: ServerObfuscationConfig{
-			Jc: 5, Jmin: 100, Jmax: 200, S1: 10, S2: 20, S3: 30, S4: 5,
-			H1: HeaderRange{Min: 100, Max: 200}, H2: HeaderRange{Min: 300, Max: 400},
-			H3: HeaderRange{Min: 500, Max: 600}, H4: HeaderRange{Min: 700, Max: 800},
-		},
-		Edges: []PeerConfig{
-			{Name: "a", Role: RoleEdge, PublicKey: "pub1", AllowedIPs: "10.8.0.2/32"},
-			{Name: "b", Role: RoleEdge, PublicKey: "pub2", AllowedIPs: "10.8.0.3/32"},
-		},
-	}
-
-	mgr := NewManager(path)
-	_ = mgr.Save(cfg)
-
-	edges := mgr.ListEdges()
-	if len(edges) != 2 {
-		t.Fatalf("expected 2 edges, got %d", len(edges))
-	}
-}
-
-func TestManagerBuildEdgeConfig(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "test.conf")
-
-	cfg := ServerConfig{
-		Interface: InterfaceConfig{
-			PrivateKey: "serverpriv=", PublicKey: "serverpub=",
-			Address:    "10.8.0.1/24",
-			ListenPort: 12345, MTU: 1280,
-		},
-		Obfuscation: ServerObfuscationConfig{
-			Jc: 5, Jmin: 100, Jmax: 200, S1: 10, S2: 20, S3: 30, S4: 5,
-			H1: HeaderRange{Min: 100, Max: 200}, H2: HeaderRange{Min: 300, Max: 400},
-			H3: HeaderRange{Min: 500, Max: 600}, H4: HeaderRange{Min: 700, Max: 800},
-		},
-		Edges: []PeerConfig{
-			{
-				Name: "moscow", Role: RoleEdge,
-				PrivateKey: "edgepriv=", PublicKey: "edgepub=",
-				PresharedKey: "psk=", AllowedIPs: "10.8.0.3/32",
-			},
-		},
-	}
-
-	mgr := NewManager(path)
-	_ = mgr.Save(cfg)
-
-	edgeCfg, err := mgr.BuildEdgeConfig("moscow", "random", "1.2.3.4:12345")
-	if err != nil {
-		t.Fatalf("BuildEdgeConfig failed: %v", err)
-	}
-
-	if edgeCfg.Peer.Endpoint != "1.2.3.4:12345" {
-		t.Errorf("expected endpoint '1.2.3.4:12345', got '%s'", edgeCfg.Peer.Endpoint)
-	}
-	if edgeCfg.Peer.PublicKey != "serverpub=" {
-		t.Errorf("expected server public key, got '%s'", edgeCfg.Peer.PublicKey)
-	}
-	if edgeCfg.Interface.PrivateKey != "edgepriv=" {
-		t.Errorf("expected edge private key, got '%s'", edgeCfg.Interface.PrivateKey)
-	}
-	if edgeCfg.Peer.AllowedIPs != "10.8.0.1/32" {
-		t.Errorf("expected AllowedIPs '10.8.0.1/32' (hub IP), got '%s'", edgeCfg.Peer.AllowedIPs)
-	}
-	if edgeCfg.Interface.DNS != "" {
-		t.Errorf("expected empty DNS for edge, got '%s'", edgeCfg.Interface.DNS)
 	}
 }

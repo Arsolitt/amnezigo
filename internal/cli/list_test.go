@@ -47,7 +47,6 @@ I5 = mno
 
 [Peer]
 #_Name = client1
-#_Role = client
 PublicKey = publickey1234567890123456789012345678901234567890123456789012345678=
 AllowedIPs = 10.8.0.2/32
 #_PrivateKey = privatekey1234567890123456789012345678901234567890123456789012345678=
@@ -55,7 +54,6 @@ AllowedIPs = 10.8.0.2/32
 
 [Peer]
 #_Name = client2
-#_Role = client
 PublicKey = publickey2345678901234567890123456789012345678901234567890123456789=
 AllowedIPs = 10.8.0.3/32
 #_PrivateKey = privatekey2345678901234567890123456789012345678901234567890123456789=
@@ -71,7 +69,7 @@ AllowedIPs = 10.8.0.3/32
 		r, w, _ := os.Pipe()
 		os.Stdout = w
 
-		cmd := NewClientListCommand()
+		cmd := NewListCommand()
 		cmd.SetArgs([]string{"--config", configPath})
 		cfgFile = configPath
 
@@ -160,7 +158,7 @@ I5 = mno
 		r, w, _ := os.Pipe()
 		os.Stdout = w
 
-		cmd := NewClientListCommand()
+		cmd := NewListCommand()
 		cmd.SetArgs([]string{"--config", configPath})
 		cfgFile = configPath
 
@@ -175,8 +173,8 @@ I5 = mno
 		}
 
 		// Verify no clients message
-		if !strings.Contains(outputStr, "No clients configured") {
-			t.Error("expected 'No clients configured' in output")
+		if !strings.Contains(outputStr, "No peers configured") {
+			t.Error("expected 'No peers configured' in output")
 		}
 
 		// Verify header is not shown when no clients
@@ -215,7 +213,6 @@ I5 = mno
 
 [Peer]
 #_Name = test-client
-#_Role = client
 PublicKey = publickey1234567890123456789012345678901234567890123456789012345678=
 AllowedIPs = 10.8.0.2/32
 #_PrivateKey = privatekey1234567890123456789012345678901234567890123456789012345678=
@@ -231,7 +228,7 @@ AllowedIPs = 10.8.0.2/32
 		r, w, _ := os.Pipe()
 		os.Stdout = w
 
-		cmd := NewClientListCommand()
+		cmd := NewListCommand()
 		cmd.SetArgs([]string{"--config", configPath})
 		cfgFile = configPath
 
@@ -295,7 +292,6 @@ I5 = mno
 
 [Peer]
 #_Name = timestamp-client
-#_Role = client
 PublicKey = publickey1234567890123456789012345678901234567890123456789012345678=
 AllowedIPs = 10.8.0.2/32
 #_PrivateKey = privatekey1234567890123456789012345678901234567890123456789012345678=
@@ -311,7 +307,7 @@ AllowedIPs = 10.8.0.2/32
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	cmd := NewClientListCommand()
+	cmd := NewListCommand()
 	cmd.SetArgs([]string{"--config", configPath})
 	cfgFile = configPath
 
