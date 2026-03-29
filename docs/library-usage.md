@@ -16,7 +16,7 @@ import "github.com/Arsolitt/amnezigo"
 
 ## Quick Start
 
-Here's a complete example that creates a server configuration, adds a client, and exports the client config:
+Here's a complete example that creates a server configuration, adds a peer, and exports the peer config:
 
 ```go
 package main
@@ -34,13 +34,15 @@ func main() {
     manager := amnezigo.NewManager("awg0.conf")
 
     // Create a new server configuration
-    cfg := &amnezigo.ServerConfig{
+    privateKey, publicKey := amnezigo.GenerateKeyPair()
+    cfg := amnezigo.ServerConfig{
         Interface: amnezigo.InterfaceConfig{
-            PrivateKey:    amnezigo.GenerateKeyPair(), // Returns private key
-            Address:       "10.8.0.1/24",
-            ListenPort:    51820,
-            MTU:           1280,
-            Obfuscation:   amnezigo.GenerateServerConfig(0, 15, 3),
+            PrivateKey:  privateKey,
+            PublicKey:   publicKey,
+            Address:     "10.8.0.1/24",
+            ListenPort:  51820,
+            MTU:         1280,
+            Obfuscation: amnezigo.GenerateServerConfig("quic", 15, 3),
         },
     }
 
@@ -49,17 +51,17 @@ func main() {
         log.Fatalf("Failed to save config: %v", err)
     }
 
-    // Add a client with auto-assigned IP
-    peer, err := manager.AddClient("laptop", "")
+    // Add a peer with auto-assigned IP
+    peer, err := manager.AddPeer("laptop", "")
     if err != nil {
-        log.Fatalf("Failed to add client: %v", err)
+        log.Fatalf("Failed to add peer: %v", err)
     }
-    fmt.Printf("Added client 'laptop' with IP: %s\n", peer.AllowedIPs)
+    fmt.Printf("Added peer 'laptop' with IP: %s\n", peer.AllowedIPs)
 
-    // Export client configuration for connection
-    clientCfg, err := manager.ExportClient("laptop", "quic", "203.0.113.50:51820")
+    // Export peer configuration for connection
+    clientCfg, err := manager.ExportPeer("laptop", "quic", "203.0.113.50:51820")
     if err != nil {
-        log.Fatalf("Failed to export client: %v", err)
+        log.Fatalf("Failed to export peer: %v", err)
     }
 
     // Write client config to file
@@ -81,7 +83,7 @@ func main() {
 
 ## Manager API
 
-The `Manager` type provides a high-level CRUD interface for managing server configurations, clients, and edge servers.
+The `Manager` type provides a high-level CRUD interface for managing server configurations and peers.
 
 ### Creating a Manager
 
@@ -96,6 +98,7 @@ cfg, err := manager.Load()
 if err != nil {
     // Handle error - file may not exist or be malformed
 }
+// cfg is a ServerConfig value (not a pointer)
 ```
 
 ### Saving Configuration
@@ -107,143 +110,74 @@ if err != nil {
 }
 ```
 
-### Adding a Client
+### Adding a Peer
 
 ```go
 // Auto-assign IP from subnet
-peer, err := manager.AddClient("laptop", "")
+peer, err := manager.AddPeer("laptop", "")
 
 // Specify IP manually
-peer, err := manager.AddClient("desktop", "10.8.0.50")
+peer, err := manager.AddPeer("desktop", "10.8.0.50")
 ```
 
-**Returns:** `PeerConfig` with the new client's configuration.
+**Returns:** `PeerConfig` with the new peer's configuration.
 
-**Note:** The client name is stored in the config file as a metadata comment (`#_Name = laptop`). Names must be unique across both clients and edges.
+**Note:** The peer name is stored in the config file as a metadata comment (`#_Name = laptop`). Names must be unique across all peers.
 
-### Removing a Client
+### Removing a Peer
 
 ```go
-err := manager.RemoveClient("laptop")
+err := manager.RemovePeer("laptop")
 if err != nil {
-    // Client not found or other error
+    // Peer not found or other error
 }
 ```
 
-### Finding a Client
+### Finding a Peer
 
 ```go
-peer, err := manager.FindClient("laptop")
+peer, err := manager.FindPeer("laptop")
 if err != nil {
-    // Client not found
+    // Peer not found
 }
 fmt.Printf("Public Key: %s\n", peer.PublicKey)
 fmt.Printf("IP: %s\n", peer.AllowedIPs)
 ```
 
-### Listing All Clients
+**Returns:** `*PeerConfig` (pointer to the peer).
+
+### Listing All Peers
 
 ```go
-peers := manager.ListClients()
+peers := manager.ListPeers()
 for _, peer := range peers {
     fmt.Printf("Name: %s, IP: %s\n", peer.Name, peer.AllowedIPs)
 }
 ```
 
-### Exporting Client Configuration
+### Exporting Peer Configuration
 
-Generate a complete client configuration file content:
+Generate a complete client configuration for a named peer:
 
 ```go
 // Protocol options: "quic", "dns", "dtls", "stun", "random"
-clientCfg, err := manager.ExportClient("laptop", "quic", "203.0.113.50:51820")
+clientCfg, err := manager.ExportPeer("laptop", "quic", "203.0.113.50:51820")
 if err != nil {
-    // Client not found
+    // Peer not found
 }
+// Returns ClientConfig (not []byte)
 ```
 
-### Building Client Configuration from Peer
+### Building Peer Configuration from PeerConfig
 
-If you have a `PeerConfig` already, use `BuildClientConfig`:
+If you already have a `PeerConfig` value, use `BuildPeerConfig`:
 
 ```go
-peer, _ := manager.FindClient("laptop")
-clientCfg, err := manager.BuildClientConfig(peer, "quic", "203.0.113.50:51820")
+peer, _ := manager.FindPeer("laptop")
+clientCfg, err := manager.BuildPeerConfig(*peer, "quic", "203.0.113.50:51820")
 ```
 
-### Adding an Edge Server
-
-Edge servers connect to the hub as WireGuard clients (initiating the connection). They share the same IP pool as clients.
-
-```go
-// Auto-assign IP from subnet
-edge, err := manager.AddEdge("edge1", "")
-
-// Specify IP manually
-edge, err := manager.AddEdge("edge2", "10.8.0.50")
-```
-
-**Returns:** `PeerConfig` with the new edge's configuration.
-
-**Note:** Edge names must be unique across both clients and edges.
-
-### Removing an Edge Server
-
-```go
-err := manager.RemoveEdge("edge1")
-if err != nil {
-    // Edge not found or other error
-}
-```
-
-### Finding an Edge Server
-
-```go
-edge, err := manager.FindEdge("edge1")
-if err != nil {
-    // Edge not found
-}
-fmt.Printf("Public Key: %s\n", edge.PublicKey)
-fmt.Printf("IP: %s\n", edge.AllowedIPs)
-```
-
-### Listing All Edge Servers
-
-```go
-edges := manager.ListEdges()
-for _, edge := range edges {
-    fmt.Printf("Name: %s, IP: %s\n", edge.Name, edge.AllowedIPs)
-}
-```
-
-### Exporting Edge Server Configuration
-
-Generates a complete edge server configuration. Unlike client exports, edge configs have no DNS and route only to the hub IP.
-
-```go
-// Returns serialized config as []byte
-edgeData, err := manager.ExportEdge("edge1", "quic", "203.0.113.50:51820")
-if err != nil {
-    // Edge not found
-}
-
-// Write to file with restricted permissions
-if err := os.WriteFile("edge1.conf", edgeData, 0600); err != nil {
-    log.Fatal(err)
-}
-```
-
-### Building Edge Server Configuration
-
-```go
-// Returns ClientConfig (edge reuses ClientConfig type)
-edgeCfg, err := manager.BuildEdgeConfig("edge1", "quic", "203.0.113.50:51820")
-if err != nil {
-    // Edge not found
-}
-```
-
-**Note:** `BuildEdgeConfig` takes a `name` string (not `PeerConfig`) and looks up the edge internally.
+**Note:** `BuildPeerConfig` takes a `PeerConfig` value (not a name string) and looks up the server config internally to build the full `ClientConfig`.
 
 ---
 
@@ -303,13 +237,15 @@ err := amnezigo.SaveServerConfig("awg0.conf", cfg)
 
 ### Generate Key Pair
 
-Generates a WireGuard-compatible key pair:
+Generates a WireGuard-compatible X25519 key pair:
 
 ```go
 privateKey, publicKey := amnezigo.GenerateKeyPair()
 fmt.Printf("Private: %s\n", privateKey)
 fmt.Printf("Public: %s\n", publicKey)
 ```
+
+**Returns:** `(string, string)` — both the private key and public key as base64-encoded strings.
 
 **Note:** Panics if `crypto/rand` fails (treated as unrecoverable system error).
 
@@ -343,7 +279,7 @@ clientObf := amnezigo.GenerateConfig("quic", 1280, 15, 3)
 
 This generates:
 - `I1-I5` CPS strings for the protocol
-- `H1-H4` header values (point values, not ranges)
+- `H1-H4` header values (point ranges where Min == Max)
 - `S1-S4` prefix values
 - `Jc`, `Jmin`, `Jmax` junk parameters
 
@@ -351,10 +287,10 @@ This generates:
 
 ```go
 // Parameters: protocol (ignored), s1, jc
-serverObf := amnezigo.GenerateServerConfig(0, 15, 3)
+serverObf := amnezigo.GenerateServerConfig("quic", 15, 3)
 ```
 
-**Note:** The first parameter (protocol) is ignored by `GenerateServerConfig`. Server uses true ranges for H1-H4.
+**Note:** The first parameter (protocol) is ignored by `GenerateServerConfig`. Server uses true ranges for H1-H4 (Min != Max in general).
 
 ### Generate CPS Strings
 
@@ -372,7 +308,7 @@ fmt.Printf("I1: %s\n", i1)
 ```go
 // Header values (H1-H4 as point values)
 headers := amnezigo.GenerateHeaders()
-fmt.Printf("H1: %d, H2: %d, H3: %d, H4: %d\n", 
+fmt.Printf("H1: %d, H2: %d, H3: %d, H4: %d\n",
     headers.H1, headers.H2, headers.H3, headers.H4)
 
 // SPrefixes (S1-S4)
@@ -393,7 +329,7 @@ fmt.Printf("H1: %d-%d\n", ranges[0].Min, ranges[0].Max)
 
 ## CPS Construction
 
-CPS (Client Packet Size) strings are built from tag specifications.
+CPS (Custom Packet String) strings are built from tag specifications.
 
 ### Building Tags
 
@@ -451,7 +387,7 @@ dtls := amnezigo.DTLSTemplate()
 stun := amnezigo.STUNTemplate()
 ```
 
-Each template contains `I1`, `I2`, `I3`, `I4`, `I5` fields, each being a `[]TagSpec`.
+Each template contains `I1`, `I2`, `I3`, `I4`, `I5` fields, each being a `[]TagSpec`. Protocol template resolution is unexported (`getTemplate`), but all four template functions are exported.
 
 ---
 
@@ -533,16 +469,9 @@ PostDown: iptables -D INPUT -i awg0 -j ACCEPT; iptables -D OUTPUT -o awg0 -j ACC
 ### Configuration Types
 
 ```go
-// Role constants
-const (
-    RoleClient = "client"
-    RoleEdge   = "edge"
-)
-
 // Main server configuration
 type ServerConfig struct {
-    Clients     []PeerConfig
-    Edges       []PeerConfig
+    Peers       []PeerConfig
     Interface   InterfaceConfig
     Obfuscation ServerObfuscationConfig
 }
@@ -563,19 +492,18 @@ type InterfaceConfig struct {
     ClientToClient bool
 }
 
-// Peer configuration (server-side, used for both clients and edges)
+// Peer configuration (server-side)
 type PeerConfig struct {
     CreatedAt         time.Time
     ClientObfuscation *ClientObfuscationConfig
     Name              string
-    Role              string  // "client" or "edge"
     PrivateKey        string
     PublicKey         string
     PresharedKey      string
     AllowedIPs        string
 }
 
-// Client configuration (for export, reused for edge servers)
+// Client configuration (for export)
 type ClientConfig struct {
     Peer      ClientPeerConfig
     Interface ClientInterfaceConfig
@@ -585,7 +513,7 @@ type ClientConfig struct {
 type ClientInterfaceConfig struct {
     PrivateKey  string
     Address     string
-    DNS         string  // Empty for edge server exports
+    DNS         string
     Obfuscation ClientObfuscationConfig
     MTU         int
 }
@@ -595,7 +523,7 @@ type ClientPeerConfig struct {
     PublicKey           string
     PresharedKey        string
     Endpoint            string
-    AllowedIPs          string  // "0.0.0.0/0, ::/0" for clients, "<hub_ip>/32" for edges
+    AllowedIPs          string
     PersistentKeepalive int
 }
 ```
@@ -636,12 +564,11 @@ type SPrefixes struct {
 type JunkParams struct {
     Jc, Jmin, Jmax int
 }
+```
 
-// CPS configuration
-type CPSConfig struct {
-    I1, I2, I3, I4, I5 string
-}
+### CPS & Template Types
 
+```go
 // Tag specification for CPS construction
 type TagSpec struct {
     Type  string  // "bytes", "random", "random_chars", "random_digits", "counter", "timestamp"
@@ -654,11 +581,13 @@ type I1I5Template struct {
 }
 ```
 
+**Note:** `CPSConfig` (unexported) and `simpleTag` (unexported) are internal types used by CPS generation and are not part of the public API.
+
 ### Manager Type
 
 ```go
 type Manager struct {
-    ConfigPath string
+    ConfigPath string  // unexported field
 }
 ```
 
@@ -666,59 +595,47 @@ type Manager struct {
 
 ## Gotchas & Important Notes
 
-### Hardcoded Values
+### Hardcoded Values in BuildPeerConfig
 
-1. **DNS in client exports** is hardcoded to `"1.1.1.1, 8.8.8.8"` in `BuildClientConfig`. Edge exports have no DNS.
+1. **DNS** is hardcoded to `"1.1.1.1, 8.8.8.8"` in `BuildPeerConfig`.
 
-2. **AllowedIPs in client exports** is always `"0.0.0.0/0, ::/0"` (tunnel all traffic). Edge exports use `"10.8.0.1/32"` (hub IP only).
+2. **AllowedIPs** is always `"0.0.0.0/0, ::/0"` (tunnel all traffic).
 
-3. **PersistentKeepalive** is hardcoded to `25` seconds in both client and edge exports.
+3. **PersistentKeepalive** is hardcoded to `25` seconds.
 
 ### Protocol Behavior
 
-4. **"random" protocol** deterministically selects DTLS. It's not truly random.
+4. **"random" protocol** deterministically selects DTLS due to `len("random") % 4 = 2`. It's not truly random.
 
 5. **GenerateServerConfig ignores the protocol parameter**. The server config doesn't need protocol-specific I1-I5 values.
 
 ### Obfuscation Differences
 
 6. **GenerateConfig vs GenerateServerConfig**:
-   - `GenerateConfig`: Uses point values for H1-H4 (for clients)
-   - `GenerateServerConfig`: Uses ranges for H1-H4 (for servers)
-
-### Name Uniqueness
-
-7. **Peer names must be globally unique** — a client and an edge cannot share the same name. The `isNameTaken` check covers both `Clients` and `Edges` slices.
-
-### IP Pool Sharing
-
-8. **Clients and edges share the same IP pool**. `resolveClientIP` considers both `Clients` and `Edges` when finding the next available IP to avoid conflicts.
+   - `GenerateConfig`: Uses point values for H1-H4 (Min == Max), for clients
+   - `GenerateServerConfig`: Uses true ranges for H1-H4 (Min != Max in general), for servers
 
 ### Error Handling
 
-9. **Key generation panics**: `GenerateKeyPair()` and `GeneratePSK()` panic if `crypto/rand` fails. This is by design—these are treated as unrecoverable system failures.
+7. **Key generation panics**: `GenerateKeyPair()` and `GeneratePSK()` panic if `crypto/rand` fails. This is by design—these are treated as unrecoverable system failures.
 
-10. **DerivePublicKey panics**: `DerivePublicKey()` panics on invalid base64 or wrong key length.
+8. **DerivePublicKey panics**: `DerivePublicKey()` panics on invalid base64 or wrong key length.
 
-### Client/Edge Names
+### Peer Names
 
-11. **Peer names are metadata**: The `Name` field in `PeerConfig` is stored as a comment (`#_Name = value`) in the config file, not as a native WireGuard field.
+9. **Peer names are metadata**: The `Name` field in `PeerConfig` is stored as a comment (`#_Name = value`) in the config file, not as a native WireGuard field.
 
 ### IP Assignment
 
-12. **Auto IP assignment** scans from `.2` to `.254` in the subnet. The `.1` address is reserved for the server.
+10. **Auto IP assignment** scans from `.2` to `.254` in the subnet. The `.1` address is reserved for the server.
 
 ### File Writes
 
-13. **Atomic writes**: `SaveServerConfig` and `Save` use atomic writes (write to `.tmp` file, then rename) to prevent corruption from partial writes.
+11. **Atomic writes**: `SaveServerConfig` and `Manager.Save` use atomic writes (write to `.tmp` file, then rename) to prevent corruption from partial writes.
 
-### Edge Server Specifics
+### GenerateHeaderRanges
 
-14. **Edge exports return `[]byte`**: `ExportEdge` returns `([]byte, error)` unlike `ExportClient` which returns `(ClientConfig, error)`.
-
-15. **Edge configs have no PostUp/PostDown**: Edge servers are traffic endpoints, not routers, so they don't need iptables rules.
-
-16. **Edge config files should use 0600 permissions**: Since edge configs contain private keys, they should be written with restricted file permissions.
+12. **GenerateHeaderRanges panics on failure**: If it fails to generate non-overlapping header ranges after 1000 attempts, it panics.
 
 ---
 
@@ -747,13 +664,17 @@ func main() {
     cfg, err := manager.Load()
     if err != nil {
         // Create new config
-        privKey, _ := amnezigo.GenerateKeyPair()
-        port, _ := amnezigo.GenerateRandomPort()
+        privateKey, publicKey := amnezigo.GenerateKeyPair()
+        port, err := amnezigo.GenerateRandomPort()
+        if err != nil {
+            log.Fatalf("Failed to generate port: %v", err)
+        }
         mainIface := amnezigo.DetectMainInterface()
 
-        cfg = &amnezigo.ServerConfig{
+        cfg = amnezigo.ServerConfig{
             Interface: amnezigo.InterfaceConfig{
-                PrivateKey:  privKey,
+                PrivateKey:  privateKey,
+                PublicKey:   publicKey,
                 Address:     "10.8.0.1/24",
                 ListenPort:  port,
                 MTU:         1280,
@@ -761,7 +682,7 @@ func main() {
                 MainIface:   mainIface,
                 PostUp:      amnezigo.GeneratePostUp("awg0", mainIface, "10.8.0.0/24", false),
                 PostDown:    amnezigo.GeneratePostDown("awg0", mainIface, "10.8.0.0/24", false),
-                Obfuscation: amnezigo.GenerateServerConfig(0, 15, 3),
+                Obfuscation: amnezigo.GenerateServerConfig("quic", 15, 3),
             },
         }
 
@@ -771,15 +692,15 @@ func main() {
         fmt.Println("Created new server configuration")
     }
 
-    // Add clients from command line args
+    // Add peers from command line args
     for _, name := range os.Args[1:] {
-        peer, err := manager.AddClient(name, "")
+        peer, err := manager.AddPeer(name, "")
         if err != nil {
             log.Printf("Failed to add %s: %v", name, err)
             continue
         }
 
-        clientCfg, err := manager.ExportClient(name, protocol, endpoint)
+        clientCfg, err := manager.ExportPeer(name, protocol, endpoint)
         if err != nil {
             log.Printf("Failed to export %s: %v", name, err)
             continue
@@ -800,9 +721,9 @@ func main() {
         file.Close()
     }
 
-    // List all clients
-    fmt.Println("\nCurrent clients:")
-    for _, peer := range manager.ListClients() {
+    // List all peers
+    fmt.Println("\nCurrent peers:")
+    for _, peer := range manager.ListPeers() {
         fmt.Printf("  - %s: %s\n", peer.Name, peer.AllowedIPs)
     }
 }

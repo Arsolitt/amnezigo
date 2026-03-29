@@ -212,7 +212,7 @@ I5 =
 PublicKey = <server-public-key>
 PresharedKey = <psk>
 Endpoint = 1.2.3.4:51820
-AllowedIPs = 0.0.0.0/0
+AllowedIPs = 0.0.0.0/0, ::/0
 PersistentKeepalive = 25
 ```
 

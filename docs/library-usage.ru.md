@@ -35,16 +35,16 @@ func main() {
         os.Exit(1)
     }
 
-    // Добавляем нового клиента (IP назначается автоматически)
-    peer, err := manager.AddClient("laptop", "")
+    // Добавляем нового пира (IP назначается автоматически)
+    peer, err := manager.AddPeer("laptop", "")
     if err != nil {
         fmt.Fprintf(os.Stderr, "Ошибка добавления: %v\n", err)
         os.Exit(1)
     }
-    fmt.Printf("Добавлен клиент: %s (IP: %s)\n", peer.Name, peer.AllowedIPs)
+    fmt.Printf("Добавлен пир: %s (IP: %s)\n", peer.Name, peer.AllowedIPs)
 
-    // Экспортируем конфигурацию клиента для передачи ему
-    clientCfg, err := manager.ExportClient("laptop", "quic", "203.0.113.50:51820")
+    // Экспортируем клиентскую конфигурацию для передачи пиру
+    clientCfg, err := manager.ExportPeer("laptop", "quic", "203.0.113.50:51820")
     if err != nil {
         fmt.Fprintf(os.Stderr, "Ошибка экспорта: %v\n", err)
         os.Exit(1)
@@ -66,7 +66,7 @@ func main() {
 
 ## API Manager
 
-`Manager` — высокоуровневый интерфейс для управления конфигурацией сервера WireGuard/AmneziaWG, клиентами и edge-серверами.
+`Manager` — высокоуровневый интерфейс для управления конфигурацией сервера WireGuard/AmneziaWG и её пирами.
 
 ### Создание менеджера
 
@@ -77,7 +77,7 @@ manager := amnezigo.NewManager("/etc/amnezia/awg0.conf")
 ### Загрузка и сохранение конфигурации
 
 ```go
-// Загрузка конфигурации с диска
+// Загрузка конфигурации с диска (возвращает значение, не указатель)
 cfg, err := manager.Load()
 if err != nil {
     panic(err)
@@ -90,68 +90,84 @@ if err != nil {
 }
 ```
 
-### Управление клиентами
+### Управление пирами
 
-#### Добавление клиента
+#### Добавление пира
 
 ```go
 // Добавление с автоматическим назначением IP
-peer, err := manager.AddClient("phone", "")
+peer, err := manager.AddPeer("phone", "")
 if err != nil {
     panic(err)
 }
 
 // Добавление с явным указанием IP
-peer, err = manager.AddClient("tablet", "10.8.0.100")
+peer, err = manager.AddPeer("tablet", "10.8.0.100")
 if err != nil {
     panic(err)
 }
 ```
 
-**Важно:** Имя должно быть уникальным среди всех пиров (клиентов и edge-серверов).
+**Важно:** Имя пира должно быть уникальным. При автоматическом назначении IP используется первый свободный адрес в подсети сервера (от .2 до .254).
 
-#### Удаление клиента
+#### Удаление пира
 
 ```go
-err := manager.RemoveClient("phone")
+err := manager.RemovePeer("phone")
 if err != nil {
     panic(err)
 }
 ```
 
-#### Поиск клиента
+#### Поиск пира
 
 ```go
-peer, err := manager.FindClient("laptop")
+peer, err := manager.FindPeer("laptop")
 if err != nil {
-    fmt.Printf("Клиент не найден: %v\n", err)
+    fmt.Printf("Пир не найден: %v\n", err)
     return
 }
-fmt.Printf("Найден клиент: %s\n", peer.Name)
+fmt.Printf("Найден пир: %s\n", peer.Name)
 ```
 
-#### Список всех клиентов
+**Важно:** `FindPeer` возвращает `*PeerConfig` (указатель), а не значение.
+
+#### Список всех пиров
 
 ```go
-peers := manager.ListClients()
+peers := manager.ListPeers()
 for _, peer := range peers {
     fmt.Printf("- %s: %s\n", peer.Name, peer.AllowedIPs)
 }
 ```
 
-#### Экспорт конфигурации клиента
+#### Экспорт конфигурации пира
 
 ```go
-// Экспорт по имени клиента
-clientCfg, err := manager.ExportClient("laptop", "quic", "203.0.113.50:51820")
+// Экспорт по имени пира (возвращает ClientConfig)
+clientCfg, err := manager.ExportPeer("laptop", "quic", "203.0.113.50:51820")
 if err != nil {
     panic(err)
 }
 
-// Или построение конфигурации из известного PeerConfig
-peer, _ := manager.FindClient("laptop")
-clientCfg, err := manager.BuildClientConfig(peer, "dns", "203.0.113.50:51820")
+// Запись конфига в файл
+file, _ := os.Create("laptop.conf")
+defer file.Close()
+amnezigo.WriteClientConfig(file, clientCfg)
 ```
+
+#### Построение конфигурации пира
+
+```go
+// Построение из известного PeerConfig
+peer, _ := manager.FindPeer("laptop")
+clientCfg, err := manager.BuildPeerConfig(*peer, "dns", "203.0.113.50:51820")
+if err != nil {
+    panic(err)
+}
+```
+
+**Важно:** `BuildPeerConfig` принимает `PeerConfig` (значение, а не указатель), а не имя строки. DNS, AllowedIPs и PersistentKeepalive захардкожены (см. раздел «Захардкоженные значения»).
 
 **Параметры протокола:**
 - `"quic"` — имитация QUIC Initial пакетов
@@ -159,86 +175,6 @@ clientCfg, err := manager.BuildClientConfig(peer, "dns", "203.0.113.50:51820")
 - `"dtls"` — имитация DTLS пакетов
 - `"stun"` — имитация STUN пакетов
 - `"random"` — детерминированный выбор шаблона (на основе длины строки)
-
-### Управление edge-серверами
-
-Edge-серверы подключаются к хабу как WireGuard-клиенты (инициируют подключение). Они делят общий IP-пул с обычными клиентами.
-
-#### Добавление edge-сервера
-
-```go
-// Добавление с автоматическим назначением IP
-edge, err := manager.AddEdge("edge1", "")
-if err != nil {
-    panic(err)
-}
-
-// Добавление с явным указанием IP
-edge, err = manager.AddEdge("edge2", "10.8.0.100")
-if err != nil {
-    panic(err)
-}
-```
-
-**Важно:** Имя должно быть уникальным среди всех пиров (клиентов и edge-серверов).
-
-#### Удаление edge-сервера
-
-```go
-err := manager.RemoveEdge("edge1")
-if err != nil {
-    panic(err)
-}
-```
-
-#### Поиск edge-сервера
-
-```go
-edge, err := manager.FindEdge("edge1")
-if err != nil {
-    fmt.Printf("Edge-сервер не найден: %v\n", err)
-    return
-}
-fmt.Printf("Найден edge-сервер: %s\n", edge.Name)
-```
-
-#### Список всех edge-серверов
-
-```go
-edges := manager.ListEdges()
-for _, edge := range edges {
-    fmt.Printf("- %s: %s\n", edge.Name, edge.AllowedIPs)
-}
-```
-
-#### Экспорт конфигурации edge-сервера
-
-В отличие от экспорта клиента, конфиг edge-сервера не содержит DNS и маршрутизирует только на IP хаба.
-
-```go
-// Возвращает сериализованный конфиг как []byte
-edgeData, err := manager.ExportEdge("edge1", "quic", "203.0.113.50:51820")
-if err != nil {
-    panic(err)
-}
-
-// Запись в файл с ограниченными правами
-if err := os.WriteFile("edge1.conf", edgeData, 0600); err != nil {
-    log.Fatal(err)
-}
-```
-
-#### Построение конфигурации edge-сервера
-
-```go
-// Возвращает ClientConfig (edge переиспользует тип ClientConfig)
-edgeCfg, err := manager.BuildEdgeConfig("edge1", "quic", "203.0.113.50:51820")
-if err != nil {
-    panic(err)
-}
-```
-
-**Важно:** `BuildEdgeConfig` принимает `name` (строку, а не `PeerConfig`) и ищет edge-сервер внутри.
 
 ## Парсинг и запись конфигураций
 
@@ -265,7 +201,7 @@ var buf bytes.Buffer
 err := amnezigo.WriteServerConfig(&buf, cfg)
 ```
 
-### Запись конфигурации клиента/edge
+### Запись конфигурации клиента
 
 ```go
 // В io.Writer
@@ -342,7 +278,7 @@ fmt.Printf("I1: %s\n", i1) // например: "<b 0xc0ff00000001>..."
 ```go
 // Заголовки H1-H4 (непересекающиеся, из разных регионов uint32)
 headers := amnezigo.GenerateHeaders()
-fmt.Printf("H1: %d, H2: %d, H3: %d, H4: %d\n", 
+fmt.Printf("H1: %d, H2: %d, H3: %d, H4: %d\n",
     headers.H1, headers.H2, headers.H3, headers.H4)
 
 // Префиксы размеров S1-S4
@@ -526,27 +462,17 @@ postDown := amnezigo.GeneratePostDown("awg0", "eth0", "10.8.0.0/24", false)
 ### С client-to-client трафиком
 
 ```go
-// Включает правило для пересылки между клиентами
+// Включает правило для пересылки между пирами
 postUp := amnezigo.GeneratePostUp("awg0", "eth0", "10.8.0.0/24", true)
 ```
 
 ## Справочник типов
 
-### Ролевые константы
-
-```go
-const (
-    RoleClient = "client"
-    RoleEdge   = "edge"
-)
-```
-
 ### ServerConfig
 
 ```go
 type ServerConfig struct {
-    Clients     []PeerConfig
-    Edges       []PeerConfig
+    Peers       []PeerConfig
     Interface   InterfaceConfig
     Obfuscation ServerObfuscationConfig
 }
@@ -561,7 +487,7 @@ type InterfaceConfig struct {
     Address        string    // CIDR, например "10.8.0.1/24"
     PostUp         string
     PostDown       string
-    MainIface      string    // Основной интерфейс (eth0, ens18, etc.)
+    MainIface      string    // Основной интерфейс (eth0, ens18, и т.д.)
     TunName        string    // Имя туннеля (awg0)
     EndpointV4     string
     EndpointV6     string
@@ -578,7 +504,6 @@ type PeerConfig struct {
     CreatedAt         time.Time
     ClientObfuscation *ClientObfuscationConfig
     Name              string
-    Role              string  // "client" или "edge"
     PrivateKey        string
     PublicKey         string
     PresharedKey      string
@@ -600,8 +525,13 @@ type ServerObfuscationConfig struct {
 
 ```go
 type ClientObfuscationConfig struct {
-    I1, I2, I3, I4, I5 string  // CPS-строки
-    ServerObfuscationConfig    // встраивает серверные параметры
+    I1 string
+    I2 string
+    I3 string
+    I4 string
+    I5 string
+
+    ServerObfuscationConfig // встраивает серверные параметры
 }
 ```
 
@@ -620,7 +550,7 @@ type ClientConfig struct {
 type ClientInterfaceConfig struct {
     PrivateKey  string
     Address     string
-    DNS         string  // Пусто для edge-серверов
+    DNS         string
     Obfuscation ClientObfuscationConfig
     MTU         int
 }
@@ -633,7 +563,7 @@ type ClientPeerConfig struct {
     PublicKey           string
     PresharedKey        string
     Endpoint            string
-    AllowedIPs          string  // "0.0.0.0/0, ::/0" для клиентов, "<hub_ip>/32" для edge
+    AllowedIPs          string
     PersistentKeepalive int
 }
 ```
@@ -657,10 +587,6 @@ type JunkParams struct {
     Jc, Jmin, Jmax int
 }
 
-type CPSConfig struct {
-    I1, I2, I3, I4, I5 string
-}
-
 type TagSpec struct {
     Type  string
     Value string
@@ -681,11 +607,9 @@ type Manager struct {
 
 | Параметр | Значение | Где используется |
 |----------|----------|------------------|
-| DNS | `"1.1.1.1, 8.8.8.8"` | `BuildClientConfig` (клиенты) |
-| DNS | `""` (пусто) | `BuildEdgeConfig` (edge-серверы) |
-| AllowedIPs | `"0.0.0.0/0, ::/0"` | `BuildClientConfig` (экспорт клиента) |
-| AllowedIPs | `"<hub_ip>/32"` | `BuildEdgeConfig` (экспорт edge) |
-| PersistentKeepalive | `25` | `BuildClientConfig` и `BuildEdgeConfig` |
+| DNS | `"1.1.1.1, 8.8.8.8"` | `BuildPeerConfig` |
+| AllowedIPs | `"0.0.0.0/0, ::/0"` | `BuildPeerConfig` |
+| PersistentKeepalive | `25` | `BuildPeerConfig` |
 
 ### Поведение GenerateKeyPair и GeneratePSK
 
@@ -702,11 +626,7 @@ type Manager struct {
 
 ### Уникальность имён пиров
 
-Имена пиров (клиентов и edge-серверов) должны быть глобально уникальными. Клиент и edge-сервер не могут иметь одинаковое имя. Проверка `isNameTaken` охватывает оба среза (`Clients` и `Edges`).
-
-### Общий IP-пул
-
-Клиенты и edge-серверы делят один IP-пул. Функция `resolveClientIP` учитывает оба среза при поиске следующего доступного IP, чтобы избежать конфликтов.
+Имена пиров должны быть уникальными. При добавлении пира через `AddPeer` проверяется, что имя не занято существующим пиром в конфигурации сервера.
 
 ### Протокол "random"
 
@@ -718,12 +638,11 @@ type Manager struct {
 - `GenerateServerConfig(_, s1, jc)` игнорирует первый параметр (протокол)
 - `GenerateCPS(protocol, mtu, s1, _)` игнорирует четвёртый параметр
 
-### Edge-серверы: особенности
+### Возврат значений вместо указателей
 
-- `ExportEdge` возвращает `([]byte, error)`, в отличие от `ExportClient`, который возвращает `(ClientConfig, error)`
-- `BuildEdgeConfig` принимает имя (строку), а не `PeerConfig`
-- Edge-конфиги не содержат PostUp/PostDown — edge-серверы являются конечными точками трафика, а не маршрутизаторами
-- Файлы конфигурации edge-серверов рекомендуется создавать с правами 0600
+- `Manager.Load()` возвращает `ServerConfig` (значение), а не `*ServerConfig`
+- `Manager.ExportPeer()` возвращает `ClientConfig` (значение), а не `[]byte`
+- `Manager.FindPeer()` возвращает `*PeerConfig` (указатель)
 
 ## Полный пример: создание сервера с нуля
 
@@ -778,18 +697,18 @@ func main() {
 
     fmt.Println("Конфигурация сервера создана!")
 
-    // Добавляем клиентов
-    clients := []string{"laptop", "phone", "tablet"}
-    for _, name := range clients {
-        peer, err := manager.AddClient(name, "")
+    // Добавляем пиров
+    peers := []string{"laptop", "phone", "tablet"}
+    for _, name := range peers {
+        peer, err := manager.AddPeer(name, "")
         if err != nil {
             fmt.Fprintf(os.Stderr, "Ошибка добавления %s: %v\n", name, err)
             continue
         }
-        fmt.Printf("Добавлен клиент: %s -> %s\n", name, peer.AllowedIPs)
+        fmt.Printf("Добавлен пир: %s -> %s\n", name, peer.AllowedIPs)
 
-        // Экспортируем конфиг клиента
-        clientCfg, err := manager.ExportClient(name, "quic", "203.0.113.50:51820")
+        // Экспортируем клиентский конфиг пира
+        clientCfg, err := manager.ExportPeer(name, "quic", "203.0.113.50:51820")
         if err != nil {
             fmt.Fprintf(os.Stderr, "Ошибка экспорта %s: %v\n", name, err)
             continue

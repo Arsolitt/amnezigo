@@ -3,335 +3,197 @@ url: /overview
 ---
 # Overview
 
-## What is Amnezigo
+Amnezigo is a CLI tool and Go library for generating and managing [AmneziaWG](https://github.com/amnezia-vpn/amneziawg) v2.0 configurations. It handles the full lifecycle of an AmneziaWG VPN: initializing a server, managing peers, exporting client configurations, and applying firewall rules — all with built-in traffic obfuscation.
 
-Amnezigo is a CLI tool and Go library for generating and managing AmneziaWG v2.0 configurations. It handles key generation, obfuscation parameter creation, client/edge management, and config file I/O.
+## What is AmneziaWG?
 
-The tool is designed for star topology networks where a central server acts as the hub, and multiple clients or edge servers connect directly to it.
+AmneziaWG is a fork of WireGuard that adds protocol obfuscation. Regular WireGuard traffic can be detected and blocked by deep packet inspection (DPI). AmneziaWG disguises WireGuard packets so they look like legitimate traffic from other protocols:
 
-## What is AmneziaWG
+| Protocol | Traffic is disguised as |
+|----------|------------------------|
+| **QUIC** | QUIC Initial packets (used by HTTP/3) |
+| **DNS** | DNS query/response packets |
+| **DTLS** | DTLS 1.2 ClientHello packets (used by WebRTC) |
+| **STUN** | STUN Binding Request packets (used by WebRTC) |
 
-AmneziaWG is a fork of WireGuard with traffic obfuscation support. It uses the same WireGuard protocol but adds obfuscation layers to disguise VPN traffic, making it harder to detect and block.
+This obfuscation is achieved through a set of parameters — junk packets, size prefixes, header values, and Custom Packet Strings (CPS) — that are generated automatically by Amnezigo.
 
-Key differences from standard WireGuard:
-- Additional obfuscation parameters (Jc, Jmin, Jmax, S1-S4, H1-H4)
-- Custom Packet Strings (I1-I5) for protocol mimicry
-- Multiple obfuscation protocol templates (QUIC, DNS, DTLS, STUN)
+## Star Topology
 
-## Network Topology
-
-Amnezigo uses a **star topology**:
+Amnezigo manages AmneziaWG in a **star topology**:
 
 ```
-                    ┌─────────────┐
-                    │   Server    │
-                    │   (Hub)     │
-                    └──────┬──────┘
-                           │
-        ┌──────────────────┼──────────────────┐
-        │                  │                  │
-   ┌────┴────┐        ┌────┴────┐        ┌────┴────┐
-   │ Client  │        │ Client  │        │  Edge   │
-   │   #1    │        │   #2    │        │ Server  │
-   └─────────┘        └─────────┘        └─────────┘
+                    laptop
+                   /
+    server --------+
+                   \
+                    phone
 ```
 
-- **Server (Hub)**: The central node that all peers connect to
-- **Clients**: End-user devices that route all traffic through the VPN
-- **Edges**: Relay servers for hub-and-spoke setups, routing only to the hub IP
+- The **server** is the central node. It holds the authoritative configuration file (`awg0.conf`) and runs the AmneziaWG daemon.
+- **Peers** (clients) connect to the server. Each peer gets its own keypair, preshared key, IP address, and per-obfuscation parameters.
+- Peers **do not** connect directly to each other (unless you enable `--client-to-client`).
+- The server's `[Interface]` section holds global settings. Each peer gets a `[Peer]` section appended to the server config.
+- Each peer's client config is exported as a separate `.conf` file (e.g., `laptop.conf`, `phone.conf`).
 
-## Features
+## Key Features
 
-- **X25519 key generation** — Secure cryptographic keypair generation compatible with WireGuard
-- **Obfuscation parameter generation** — Automatic creation of Jc/Jmin/Jmax, S1-S4, H1-H4 values
-- **CPS (Custom Packet Strings)** — Protocol templates for QUIC, DNS, DTLS, STUN traffic mimicry
-- **Client and edge peer management** — Add, remove, list, and export peer configurations
-- **IP auto-assignment** — Automatically finds the next available IP in the subnet
-- **iptables rule generation** — Creates PostUp/PostDown rules for NAT and forwarding
-- **INI config parsing and writing** — Read and write AmneziaWG configuration files
-- **Atomic file saves** — Safe writes using temp file + rename pattern
-- **IPv4 and IPv6 endpoint detection** — Auto-detect public endpoints via HTTP services
+### Obfuscation Protocols
 
-## CLI vs Library
+Four built-in protocols generate different Custom Packet String (CPS) patterns for the I1-I5 fields:
+
+- **QUIC** — mimics QUIC Initial packets with long headers, DCID fields, and timestamps
+- **DNS** — mimics DNS query packets with transaction IDs and domain structure
+- **DTLS** — mimics DTLS 1.2 ClientHello packets with handshake headers
+- **STUN** — mimics STUN Binding Request packets with magic cookies
+
+::: tip
+The `"random"` protocol option selects a protocol deterministically based on the string length. Because `len("random") % 4 = 2`, it always picks DTLS. Use explicit protocol names if you need variety.
+:::
+
+### Per-Peer CPS Strings
+
+The I1-I5 Custom Packet Strings are **generated at export time**, not stored in the server config. This means each peer gets unique obfuscation parameters, making traffic fingerprinting harder. The server config only stores shared parameters (Jc, Jmin, Jmax, S1-S4, H1-H4).
+
+### Automatic IP Assignment
+
+When adding a peer without specifying an IP, Amnezigo scans the server's subnet and assigns the next available address (starting from `.2`). Existing peer IPs are tracked and skipped automatically.
+
+### iptables NAT Rules
+
+PostUp and PostDown iptables rules are generated automatically during `init`. These rules handle:
+
+- Input/output on the tunnel interface
+- Forwarding between tunnel and main interface
+- NAT masquerading for internet access
+- Optional client-to-client forwarding
+
+The rules are embedded directly in the config file's `PostUp` and `PostDown` fields.
+
+### IPv4/IPv6 Endpoint Auto-Detection
+
+During `init`, Amnezigo auto-detects your public endpoints by querying external services:
+
+- IPv4: `https://ipv4.icanhazip.com`
+- IPv6: `https://ipv6.icanhazip.com`
+
+Detected endpoints are stored as metadata in the server config (`#_EndpointV4`, `#_EndpointV6`) and reused during export. If detection fails, the fields are left empty.
+
+::: warning
+The `export` command has **no `--endpoint` flag**. The endpoint is resolved automatically: first from stored `#_EndpointV4`/`#_EndpointV6`, then via HTTP fallback to `icanhazip.com`, and finally falling back to `"YOUR_SERVER_IP"`.
+:::
+
+## Dual Nature: CLI and Library
 
 Amnezigo can be used in two ways:
 
-### CLI Binary
+### As a CLI Tool
 
-For server administrators who want to manage AmneziaWG configurations from the command line:
+The `amnezigo` binary provides commands for the full configuration lifecycle:
+
+| Command | Purpose |
+|---------|---------|
+| `amnezigo init` | Create a new server configuration |
+| `amnezigo add <name>` | Add a new peer to the server config |
+| `amnezigo list` | List all configured peers |
+| `amnezigo export [name]` | Export peer configuration(s) as `.conf` files |
+| `amnezigo remove <name>` | Remove a peer from the server config |
+| `amnezigo edit` | Modify server configuration parameters |
 
 ```shell
 amnezigo init --ipaddr 10.8.0.1/24
-amnezigo client add laptop
-amnezigo client export laptop
+amnezigo add laptop
+amnezigo export laptop --protocol quic
 ```
 
-### Go Library
+### As a Go Library
 
-For developers building applications that need programmatic access to AmneziaWG configuration:
+All functionality is available programmatically through the `amnezigo` Go package:
 
 ```go
 import "github.com/Arsolitt/amnezigo"
 
 func main() {
     mgr := amnezigo.NewManager("awg0.conf")
-    peer, _ := mgr.AddClient("laptop", "")
-    cfg, _ := mgr.ExportClient("laptop", "quic", "1.2.3.4:51820")
+
+    peer, err := mgr.AddPeer("laptop", "")
+    clientCfg, err := mgr.ExportPeer("laptop", "quic", "1.2.3.4:51820")
 }
 ```
 
-## Project Structure
+The library exposes key generation, config parsing/writing, obfuscation generation, CPS building, iptables rule generation, and a high-level `Manager` type for CRUD operations.
 
-```
-github.com/Arsolitt/amnezigo
-|
-+-- cmd/amnezigo/main.go            # CLI entry point (package main)
-|
-+-- internal/cli/                   # Cobra CLI commands (package cli)
-|   +-- cli.go                      # Root command + Execute()
-|   +-- init.go                     # init command
-|   +-- edit.go                     # edit command
-|   +-- client.go                   # client command group (add, list, export, remove)
-|   +-- edge.go                     # edge command group (add, list, export, remove)
-|
-+-- [root package: amnezigo]        # All business logic
-    +-- types.go                    # All type definitions
-    +-- parser.go                   # INI config parser (bufio.Scanner)
-    +-- writer.go                   # Config file writers (io.Writer)
-    +-- manager.go                  # High-level CRUD Manager
-    +-- keys.go                     # X25519 key generation
-    +-- generator.go                # Obfuscation param generation
-    +-- cps.go                      # Custom Packet String generation
-    +-- helpers.go                  # IP, port, interface utilities
-    +-- iptables.go                 # iptables rule generation
-    +-- protocols.go                # Protocol template dispatcher
-    +-- quic.go, dns.go, dtls.go, stun.go  # Protocol templates
-```
+## Config File Format
 
----
-url: /installation
----
-# Installation
+Amnezigo uses INI format with `[Interface]` and `[Peer]` sections, plus commented metadata fields prefixed with `#_`.
 
-## Prerequisites
-
-- **Go 1.26+** — Required for building from source
-- **Git** — For cloning the repository
-
-## Install via go install
-
-The easiest way to install Amnezigo is using `go install`:
-
-```shell
-go install github.com/Arsolitt/amnezigo/cmd/amnezigo@latest
-```
-
-This downloads and installs the binary to your `$GOPATH/bin` directory. Make sure `$GOPATH/bin` is in your `$PATH`.
-
-## Build from Source
-
-To build from source:
-
-```shell
-git clone https://github.com/Arsolitt/amnezigo.git
-cd amnezigo
-go build -o build/amnezigo ./cmd/amnezigo/
-```
-
-The compiled binary will be available at `build/amnezigo`.
-
-## Docker
-
-Amnezigo provides a multi-stage Dockerfile for containerized deployments:
-
-### Dockerfile
-
-```dockerfile
-FROM golang:1.26-alpine AS builder
-
-WORKDIR /app
-
-COPY go.mod go.sum ./
-RUN go mod download
-
-COPY . .
-
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o ./build/amnezigo ./cmd/amnezigo/
-
-FROM alpine:3.21
-
-RUN apk --no-cache add ca-certificates
-
-COPY --from=builder /app/build/amnezigo /usr/local/bin/amnezigo
-
-ENTRYPOINT ["amnezigo"]
-```
-
-### Build and Run
-
-```shell
-docker build -t amnezigo .
-docker run --rm -v $(pwd):/data amnezigo init --ipaddr 10.8.0.1/24
-```
-
-::: tip Volume Mounting
-Mount your config directory to `/data` or use the `--config` flag to specify the config file path when running in Docker.
-:::
-
-## Verify Installation
-
-Verify Amnezigo is installed correctly:
-
-```shell
-amnezigo --help
-```
-
-Expected output:
-```
-Generate AmneziaWG v2.0 configurations for star topology networks.
-
-Usage:
-  amnezigo [command]
-
-Available Commands:
-  client      Manage client peers
-  completion  Generate the autocompletion script for the specified shell
-  edit        Edit server configuration
-  edge        Manage edge server peers
-  help        Help about any command
-  init        Initialize a new AmneziaWG server configuration
-```
-
----
-url: /quick-start
----
-# Quick Start
-
-This guide walks you through setting up an AmneziaWG server and connecting your first client.
-
-## Step 1: Initialize Server
-
-Initialize a new AmneziaWG server configuration:
-
-```shell
-amnezigo init --ipaddr 10.8.0.1/24
-```
-
-### What happens during initialization
-
-1. **Key generation** — X25519 keypair and preshared key are generated
-2. **Obfuscation parameters** — Jc, Jmin, Jmax, S1-S4, H1-H4 are randomly generated
-3. **iptables rules** — PostUp/PostDown rules for NAT and forwarding are created
-4. **Endpoint detection** — Public IPv4/IPv6 endpoints are auto-detected
-5. **Config file creation** — `awg0.conf` is written to disk
-
-### Output
-
-```
-✓ AmneziaWG configuration initialized successfully
-  Config: awg0.conf
-  Server IP: 10.8.0.1/24
-  Listen Port: 55424
-  Main Interface: eth0
-  IPv4 Endpoint: 203.0.113.50:55424
-```
-
-### Init Command Flags
-
-| Flag | Default | Required | Description |
-|------|---------|----------|-------------|
-| `--ipaddr` | — | Yes | Server IP address with subnet (e.g., 10.8.0.1/24) |
-| `--port` | random 10000-65535 | No | Listen port for WireGuard |
-| `--mtu` | 1280 | No | MTU size |
-| `--client-to-client` | false | No | Allow client-to-client traffic |
-| `--iface` | auto-detect | No | Main network interface for NAT |
-| `--iface-name` | awg0 | No | WireGuard interface name |
-| `--endpoint-v4` | auto-detect | No | IPv4 endpoint address |
-| `--endpoint-v6` | — | No | IPv6 endpoint address |
-| `--config` | awg0.conf | No | Config file path |
-
-::: warning DNS and Keepalive Flags
-The `--dns` and `--keepalive` flags exist on the init command but are not stored in the server config. DNS is hardcoded to "1.1.1.1, 8.8.8.8" and keepalive to 25 in client exports.
-:::
-
-## Step 2: Add a Client
-
-Add a client to the server configuration:
-
-```shell
-amnezigo client add myphone
-```
-
-Output:
-```
-Client 'myphone' added successfully
-  IP Address: 10.8.0.2/32
-  Public Key: abcdefghijklmnopqrstuvwxyz123456789012=
-```
-
-### Manual IP Assignment
-
-You can specify an IP address manually:
-
-```shell
-amnezigo client add laptop --ipaddr 10.8.0.3
-```
-
-Output:
-```
-Client 'laptop' added successfully
-  IP Address: 10.8.0.3/32
-  Public Key: xyz789abcdefghijklmnopqrstuvwxyz012345=
-```
-
-### Client Add Flags
-
-| Flag | Default | Required | Description |
-|------|---------|----------|-------------|
-| `--ipaddr` | auto-assign | No | Client IP address |
-| `--config` | awg0.conf | No | Server config file path |
-
-## Step 3: Export Client Config
-
-Export the client configuration for use with the AmneziaWG client application:
-
-```shell
-amnezigo client export myphone --protocol quic
-```
-
-Output:
-```
-Exported client 'myphone' to myphone.conf
-```
-
-### Export Options
-
-| Flag | Default | Required | Description |
-|------|---------|----------|-------------|
-| `--protocol` | random | No | Obfuscation protocol: random, quic, dns, dtls, stun |
-| `--config` | awg0.conf | No | Server config file path |
-
-### Generated Config File
-
-The exported `myphone.conf` contains:
+### Server Config (`awg0.conf`)
 
 ```ini
 [Interface]
-PrivateKey = <client-private-key>
+PrivateKey = <server-private-key>
+PublicKey = <server-public-key>
+Address = 10.8.0.1/24
+ListenPort = 55424
+MTU = 1280
+PostUp = iptables -A INPUT -i awg0 -j ACCEPT; iptables -t nat -A POSTROUTING ...
+PostDown = iptables -D INPUT -i awg0 -j ACCEPT; iptables -t nat -D POSTROUTING ...
+Jc = 3
+Jmin = 50
+Jmax = 1000
+S1 = 15
+S2 = 16
+S3 = 45
+S4 = 10
+H1 = 191091632-238083235
+H2 = 469298095-484308427
+H3 = 490129542-1366070158
+H4 = 1959094164-1989726207
+#_EndpointV4 = 203.0.113.1:55424
+#_EndpointV6 = [2001:db8::1]:55424
+#_ClientToClient = false
+#_TunName = awg0
+#_MainIface = eth0
+
+[Peer]
+#_Name = laptop
+#_PrivateKey = <peer-private-key>
+PublicKey = <peer-public-key>
+PresharedKey = <preshared-key>
+AllowedIPs = 10.8.0.2/32
+#_GenKeyTime = 2026-03-29T12:00:00Z
+```
+
+Metadata fields (`#_` prefix) store information that AmneziaWG itself does not read, but Amnezigo needs for management:
+
+> `#_Name`: string — human-readable peer name
+> `#_PrivateKey`: string — peer's private key (stored so export can produce a complete client config)
+> `#_GenKeyTime`: string (RFC3339) — timestamp of when the peer was created
+> `#_EndpointV4`: string — auto-detected IPv4 endpoint (IP:port)
+> `#_EndpointV6`: string — auto-detected IPv6 endpoint ([IP]:port)
+> `#_ClientToClient`: bool — whether client-to-client forwarding is enabled
+> `#_TunName`: string — tunnel interface name (default: `awg0`)
+> `#_MainIface`: string — main network interface for NAT
+
+### Client Config (`laptop.conf`)
+
+```ini
+[Interface]
+PrivateKey = <peer-private-key>
 Address = 10.8.0.2/32
 DNS = 1.1.1.1, 8.8.8.8
 MTU = 1280
-Jc = 3                    # Junk packet count
-Jmin = 50                 # Minimum junk packet size
-Jmax = 1000               # Maximum junk packet size
-S1 = 15                   # Size prefix 1
-S2 = 16                   # Size prefix 2
-S3 = 45                   # Size prefix 3
-S4 = 10                   # Size prefix 4
-H1 = 191091632-238083235  # Header range 1 (min-max)
-H2 = 469298095-484308427  # Header range 2 (min-max)
-H3 = 490129542-1366070158 # Header range 3 (min-max)
-H4 = 1959094164-1989726207 # Header range 4 (min-max)
+Jc = 3
+Jmin = 50
+Jmax = 1000
+S1 = 15
+S2 = 16
+S3 = 45
+S4 = 10
+H1 = 191091632-238083235
+H2 = 469298095-484308427
+H3 = 490129542-1366070158
+H4 = 1959094164-1989726207
 I1 = <b 0xc0ff><b 0x00000001><b 0x08><r 8><b 0x00><b 0x00><b 0x0040><b 0x00><b 0x01><t><r 40>
 I2 = <b 0xc0ff><b 0x00000001><b 0x08><r 8><b 0x00><b 0x00><b 0x0020><b 0x01><t><r 20>
 I3 = <b 0xc0ff><b 0x00000001><b 0x08><r 8><b 0x00><b 0x00><b 0x0010><b 0x01><t><r 16>
@@ -340,1604 +202,483 @@ I5 =
 
 [Peer]
 PublicKey = <server-public-key>
-PresharedKey = <psk>
-Endpoint = 203.0.113.50:55424
-AllowedIPs = 0.0.0.0/0
+PresharedKey = <preshared-key>
+Endpoint = 203.0.113.1:55424
+AllowedIPs = 0.0.0.0/0, ::/0
 PersistentKeepalive = 25
 ```
 
-## Step 4: Connect
+Client configs include the I1-I5 CPS fields that the server config lacks. These are generated fresh for each export, so every peer receives unique obfuscation patterns.
 
-Import the generated `.conf` file into your AmneziaWG client application:
+::: warning
+The `--dns` and `--keepalive` flags on `init` are accepted for compatibility but **silently ignored**. DNS is hardcoded to `"1.1.1.1, 8.8.8.8"` and keepalive to `25` in all exported client configs.
+:::
+---
+---
+url: /installation
+---
+# Installation
 
-1. **Desktop**: Open AmneziaWG client → Import Tunnel → Select `myphone.conf`
-2. **Mobile**: Open AmneziaWG app → Add Tunnel → Import from file → Select `myphone.conf`
-3. **Activate**: Enable the tunnel to establish the VPN connection
+## Prerequisites
 
-## Full Server Config Example
+Amnezigo requires **Go 1.26.1** or later. Verify your Go version:
 
-Here's a complete annotated server configuration (`awg0.conf`):
-
-```ini
-[Interface]
-# Server's private key (keep secret!)
-PrivateKey = aBcDeFgHiJkLmNoPqRsTuVwXyZ1234567890abcdefghijklmnopqr=
-
-# Server's IP address within the VPN subnet
-Address = 10.8.0.1/24
-
-# UDP port for WireGuard traffic
-ListenPort = 55424
-
-# Maximum Transmission Unit
-MTU = 1280
-
-# iptables rules applied when interface starts
-PostUp = iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o eth0 -j MASQUERADE; iptables -A INPUT -p udp --dport 55424 -j ACCEPT; iptables -A FORWARD -i awg0 -j ACCEPT; iptables -A FORWARD -o awg0 -j ACCEPT
-
-# iptables rules applied when interface stops
-PostDown = iptables -t nat -D POSTROUTING -s 10.8.0.0/24 -o eth0 -j MASQUERADE; iptables -D INPUT -p udp --dport 55424 -j ACCEPT; iptables -D FORWARD -i awg0 -j ACCEPT; iptables -D FORWARD -o awg0 -j ACCEPT
-
-# Obfuscation: Junk packet parameters
-Jc = 3
-Jmin = 50
-Jmax = 1000
-
-# Obfuscation: Size prefixes
-S1 = 15
-S2 = 16
-S3 = 45
-S4 = 10
-
-# Obfuscation: Header value ranges (min-max format)
-H1 = 191091632-238083235
-H2 = 469298095-484308427
-H3 = 490129542-1366070158
-H4 = 1959094164-1989726207
-
-# Metadata: IPv4 endpoint for client exports
-#_EndpointV4 = 203.0.113.50:55424
-
-# Metadata: IPv6 endpoint for client exports (optional)
-#_EndpointV6 = [2001:db8::1]:55424
-
-# Metadata: Allow client-to-client traffic
-#_ClientToClient = false
-
-# Metadata: Tunnel interface name
-#_TunName = awg0
-
-[Peer]
-# Role identifies this peer as a client (vs edge)
-#_Role = client
-
-# Human-readable name for this peer
-#_Name = myphone
-
-# Client's private key (stored for export convenience)
-#_PrivateKey = xYz789aBcDeFgHiJkLmNoPqRsTuVwXyZ01234567890abcdefghij=
-
-# Client's public key (used by server to identify traffic)
-PublicKey = lMnOpQrStUvWxYz0123456789aBcDeFgHiJkLmNoPqRsTuVwXyZ=
-
-# IP address assigned to this client
-AllowedIPs = 10.8.0.2/32
-
-[Peer]
-#_Role = client
-#_Name = laptop
-#_PrivateKey = aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789abcdefghijklmno=
-PublicKey = pQrStUvWxYz0123456789aBcDeFgHiJkLmNoPqRsTuVwXyZ1234=
-AllowedIPs = 10.8.0.3/32
+```shell
+go version
 ```
 
-::: tip Metadata Comments
-Lines prefixed with `#_` are metadata comments that Amnezigo uses internally. They are not standard WireGuard fields but are preserved during parsing and writing.
+## Method 1: go install (Recommended)
+
+Install the latest version directly from the source repository:
+
+```shell
+go install github.com/Arsolitt/amnezigo/cmd/amnezigo@latest
+```
+
+This compiles the binary and places it in your `GOPATH/bin` directory (typically `$HOME/go/bin/amnezigo`). Make sure `$GOPATH/bin` is in your `PATH`:
+
+```shell
+export PATH="$PATH:$(go env GOPATH)/bin"
+```
+
+Verify the installation:
+
+```shell
+amnezigo --help
+```
+
+## Method 2: Build from Source
+
+Clone the repository and build manually:
+
+```shell
+git clone https://github.com/Arsolitt/amnezigo.git
+cd amnezigo
+go build -o amnezigo ./cmd/amnezigo/
+```
+
+The binary `amnezigo` is created in the current directory. Move it to a location on your `PATH`:
+
+```shell
+sudo mv amnezigo /usr/local/bin/
+```
+
+### Build with Output Directory
+
+You can also build into the project's `build/` directory (used by CI and Docker):
+
+```shell
+go build -o build/amnezigo ./cmd/amnezigo/
+```
+
+## Method 3: Docker
+
+Build a Docker image using the provided multi-stage Dockerfile:
+
+```shell
+docker build -t amnezigo .
+```
+
+The Dockerfile uses a two-stage build:
+1. **Builder stage** (`golang:1.26-alpine`): compiles the binary with `CGO_ENABLED=0` for a static binary
+2. **Runtime stage** (`alpine:3.21`): copies only the binary and CA certificates
+
+Run commands by mounting your working directory as a volume:
+
+```shell
+docker run --rm -v $(pwd):/data amnezigo init --ipaddr 10.8.0.1/24
+docker run --rm -v $(pwd):/data amnezigo add laptop
+docker run --rm -v $(pwd):/data amnezigo export laptop
+```
+
+::: tip
+The `-v $(pwd):/data` flag mounts your current directory into the container so that generated config files (like `awg0.conf` and `laptop.conf`) are written to your host filesystem.
 :::
 
----
----
-url: /server-setup
----
-# Server Setup
+## Using as a Go Library
 
-## The init Command
-
-The `init` command creates a new AmneziaWG server configuration with all required keys and obfuscation parameters.
+Add Amnezigo as a dependency in your Go module:
 
 ```shell
-amnezigo init --ipaddr 10.8.0.1/24 [options]
+go get github.com/Arsolitt/amnezigo
 ```
 
-### Flags
-
-| Flag | Default | Required | Description |
-|------|---------|----------|-------------|
-| `--ipaddr` | - | Yes | Server IP address with subnet (e.g., `10.8.0.1/24`) |
-| `--port` | random | No | Listen port (random 10000-65535 if not specified) |
-| `--mtu` | 1280 | No | MTU size for the tunnel interface |
-| `--dns` | "1.1.1.1, 8.8.8.8" | No | DNS servers (silently ignored in client exports) |
-| `--keepalive` | 25 | No | Persistent keepalive interval (silently ignored in client exports) |
-| `--client-to-client` | false | No | Allow traffic between connected clients |
-| `--iface` | auto-detect | No | Main network interface for NAT/masquerade |
-| `--iface-name` | awg0 | No | Tunnel interface name |
-| `--endpoint-v4` | auto-detect | No | IPv4 endpoint (e.g., `1.2.3.4:51820`) |
-| `--endpoint-v6` | auto-detect | No | IPv6 endpoint (e.g., `[2001:db8::1]:51820`) |
-| `--config` | awg0.conf | No | Server config file path |
-
-::: warning Silently Ignored Flags
-The `--dns` and `--keepalive` flags exist on the init command for compatibility but are silently ignored. Client exports always use hardcoded DNS (`1.1.1.1, 8.8.8.8`) and keepalive (25 seconds).
-:::
-
-## Auto-Detection
-
-When certain flags are omitted, amnezigo automatically detects appropriate values:
-
-### Interface Detection
-
-If `--iface` is not specified, amnezigo scans network interfaces and selects the first:
-- Non-loopback interface
-- That is UP (active)
-- With at least one configured address
-
-This is typically your primary ethernet or WiFi interface (e.g., `eth0`, `enp0s3`).
-
-### Port Generation
-
-If `--port` is not specified, a random port is generated in the range 10000-65535 using cryptographic randomness.
-
-### Endpoint Detection
-
-If `--endpoint-v4` or `--endpoint-v6` are not specified, amnezigo queries external services:
-
-- **IPv4**: HTTPS request to `ipv4.icanhazip.com` to discover public IPv4 address
-- **IPv6**: HTTPS request to `ipv6.icanhazip.com` to discover public IPv6 address
-
-The discovered IP is combined with the listen port to form the endpoint string.
-
-## What Gets Created
-
-Running `init` generates and saves the following:
-
-### Key Pair
-
-- **PrivateKey**: X25519 private key (clamped according to WireGuard spec)
-- **PublicKey**: Derived from the private key
-
-### Obfuscation Parameters
-
-> `S1`: int — Random value 0-64
-
-> `Jc`: int — Random value 0-10 (junk packet count)
-
-> `Jmin`: int — Minimum junk packet size (64-1024)
-
-> `Jmax`: int — Maximum junk packet size (64-1024, always > Jmin)
-
-> `S2`, `S3`: int — Random values 0-64 (S1+56 ≠ S2 to avoid size collision)
-
-> `S4`: int — Random value 0-32
-
-> `H1`, `H2`, `H3`, `H4`: HeaderRange — Non-overlapping header ranges in uint32 space, each with Min and Max values
-
-### iptables Rules
-
-PostUp and PostDown rules are generated for:
-- Traffic forwarding between tunnel and main interface
-- NAT masquerade for internet access
-- Optional client-to-client forwarding
-
-### Config File
-
-The configuration is saved to the specified path (default: `awg0.conf`) using atomic writes:
-1. Write to temporary file (`.tmp` suffix)
-2. Rename temp file to final path
-
-This prevents corruption if the write is interrupted.
-
-### .main.config File
-
-A `.main.config` file is created in the current directory containing the path to the server config. This allows subsequent CLI commands to find the config file automatically.
-
-## The edit Command
-
-The `edit` command modifies server configuration parameters after initialization.
-
-```shell
-amnezigo edit --client-to-client true
-```
-
-### Flags
-
-| Flag | Default | Required | Description |
-|------|---------|----------|-------------|
-| `--client-to-client` | - | No | Enable/disable client-to-client (`true` or `false`) |
-| `--config` | awg0.conf | No | Server config file path |
-
-When `--client-to-client` is toggled, the iptables PostUp/PostDown rules are regenerated to include or remove the client-to-client forwarding rule.
-
-::: tip Apply Changes
-After editing, restart the AmneziaWG service to apply the new configuration.
-:::
-
-## iptables Rules
-
-The PostUp and PostDown commands manage firewall rules for the VPN tunnel.
-
-### PostUp Rules
-
-Executed when the tunnel interface comes up:
-
-1. **Accept tunnel traffic**:
-   - `iptables -A INPUT -i <tun> -j ACCEPT`
-   - `iptables -A OUTPUT -o <tun> -j ACCEPT`
-
-2. **Forward tunnel to internet**:
-   - `iptables -A FORWARD -i <tun> -o <main> -s <subnet> -j ACCEPT`
-
-3. **Allow established connections**:
-   - `iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT`
-
-4. **Allow return traffic**:
-   - `iptables -A FORWARD -i <main> -o <tun> -d <subnet> -m state --state ESTABLISHED,RELATED -j ACCEPT`
-
-5. **Client-to-client (optional)**:
-   - `iptables -A FORWARD -i <tun> -o <tun> -j ACCEPT`
-
-6. **NAT masquerade**:
-   - `iptables -t nat -A POSTROUTING -s <subnet> -o <main> -j MASQUERADE`
-
-### PostDown Rules
-
-Executed when the tunnel interface goes down. Uses `-D` (delete) instead of `-A` (append) to remove all rules added in PostUp.
-
----
----
-url: /client-management
----
-# Client Management
-
-## Adding Clients
-
-Add clients to the server configuration with auto-assigned or manual IP addresses.
-
-### Auto IP Assignment
-
-```shell
-amnezigo client add <name>
-```
-
-The IP address is automatically assigned from the server's subnet. The system:
-1. Scans the subnet from `.2` to `.254`
-2. Skips `.0` (network) and `.1` (server)
-3. Finds the first available IP not used by any existing client or edge
-
-### Manual IP Assignment
-
-```shell
-amnezigo client add <name> --ipaddr <ip>
-```
-
-### What Gets Generated
-
-When a client is added:
-
-> `PrivateKey`: string — X25519 private key for the client
-
-> `PublicKey`: string — Derived public key
-
-> `PresharedKey`: string — Random 256-bit PSK for additional security
-
-> `AllowedIPs`: string — Client IP with /32 mask (e.g., `10.8.0.2/32`)
-
-> `CreatedAt`: time — Timestamp of creation
-
-### Output Example
-
-```shell
-amnezigo client add laptop
-```
-```
-Client 'laptop' added successfully
-  IP Address: 10.8.0.2/32
-  Public Key: abcdefghijklmnopqrstuvwxyz123456789012345=
-```
-
-### Flags
-
-| Flag | Default | Required | Description |
-|------|---------|----------|-------------|
-| `--ipaddr` | auto | No | Client IP address (e.g., `10.8.0.5`) |
-| `--config` | awg0.conf | No | Server config file path |
-
-## Listing Clients
-
-List all configured clients with their IP addresses and creation times.
-
-```shell
-amnezigo client list
-```
-
-### Output Format
-
-Tab-separated columns: `NAME`, `IP`, `CREATED`
-
-```
-NAME    IP              CREATED
--------------------------------
-laptop  10.8.0.2/32     2024-01-15 10:30
-phone   10.8.0.3/32     2024-01-15 11:45
-tablet  10.8.0.4/32     2024-01-16 09:15
-```
-
-### Flags
-
-| Flag | Default | Required | Description |
-|------|---------|----------|-------------|
-| `--config` | awg0.conf | No | Server config file path |
-
-## Exporting Clients
-
-Export client configuration files for distribution to end users.
-
-### Export Single Client
-
-```shell
-amnezigo client export <name>
-```
-
-Creates `<name>.conf` with 0600 permissions (owner read/write only).
-
-### Export All Clients
-
-```shell
-amnezigo client export
-```
-
-Creates a `.conf` file for each configured client.
-
-### Protocol Selection
-
-```shell
-amnezigo client export --protocol quic laptop
-```
-
-The `--protocol` flag determines the obfuscation method:
-
-| Protocol | Description |
-|----------|-------------|
-| `quic` | QUIC-like packet structure |
-| `dns` | DNS-like packet structure |
-| `dtls` | DTLS-like packet structure |
-| `stun` | STUN-like packet structure |
-| `random` | Randomly selects based on string hash (default) |
-
-::: warning Random Protocol Behavior
-Due to how the protocol name is hashed, "random" always selects DTLS. Use explicit protocol names for predictable behavior.
-:::
-
-### Endpoint Resolution
-
-The endpoint is automatically resolved in this order:
-
-1. **Server config `EndpointV4`** — If set during init or manually configured
-2. **Server config `EndpointV6`** — If IPv4 is not available
-3. **HTTP discovery** — Query `icanhazip.com` for public IP
-
-If all methods fail, the endpoint is set to `YOUR_SERVER_IP:<port>` as a placeholder.
-
-### Flags
-
-| Flag | Default | Required | Description |
-|------|---------|----------|-------------|
-| `--protocol` | random | No | Obfuscation protocol |
-| `--config` | awg0.conf | No | Server config file path |
-
-### Exported Config Structure
-
-The exported client config includes:
-
-**[Interface] section:**
-- `PrivateKey` — Client's private key
-- `Address` — Client IP with /32 mask
-- `DNS` — Always `1.1.1.1, 8.8.8.8` (hardcoded)
-- `MTU` — From server config
-- Obfuscation parameters (Jc, Jmin, Jmax, S1-S4, H1-H4, I1-I5)
-
-**[Peer] section:**
-- `PublicKey` — Server's public key
-- `PresharedKey` — Client's PSK
-- `Endpoint` — Resolved server endpoint
-- `AllowedIPs` — Always `0.0.0.0/0, ::/0` (full tunnel)
-- `PersistentKeepalive` — Always 25 (hardcoded)
-
-## Removing Clients
-
-Remove a client from the server configuration.
-
-```shell
-amnezigo client remove <name>
-```
-
-The client is immediately removed from the config file, which is saved atomically. The client will no longer be able to connect once the server reloads its configuration.
-
-### Flags
-
-| Flag | Default | Required | Description |
-|------|---------|----------|-------------|
-| `--config` | awg0.conf | No | Server config file path |
-
-## Constraints
-
-### Name Uniqueness
-
-Client names must be unique across **all peers** — both clients and edge servers. Attempting to add a client with an existing name (whether used by another client or an edge) will fail:
-
-```
-peer with name 'laptop' already exists
-```
-
-### Shared IP Pool
-
-Clients and edge servers share the same IP address pool derived from the server's subnet. When auto-assigning IPs, the system checks against all existing peers to avoid conflicts.
-
----
----
-url: /edge-servers
----
-# Edge Servers
-
-## What are Edge Servers
-
-Edge servers extend your AmneziaWG network using a hub-and-spoke topology:
-
-- **Hub**: The main AmneziaWG server (created with `init`)
-- **Spokes/Edges**: Remote servers that connect to the hub and relay traffic
-
-Edges connect to the hub like clients, but serve a different purpose:
-- **Clients**: End-user devices that tunnel all traffic through the VPN
-- **Edges**: Remote relay points that can extend network coverage to different locations
-
-### Use Cases
-
-- **Multi-location networks**: Connect offices in different regions to a central hub
-- **Bypass ISP restrictions**: Route traffic through edges in unrestricted regions
-- **Load distribution**: Distribute client connections across multiple edge servers
-- **Geographic latency reduction**: Place edges closer to users in distant regions
-
-## Client vs Edge Differences
-
-| Property | Client | Edge |
-|----------|--------|------|
-| DNS | `1.1.1.1, 8.8.8.8` | (empty) |
-| AllowedIPs | `0.0.0.0/0, ::/0` | `<hub-ip>/32` |
-| Traffic routing | Full tunnel (all traffic) | Hub-only (relay traffic) |
-| Purpose | End-user device | Network relay point |
-
-### Why These Differences Matter
-
-- **Clients** route all traffic through the VPN (`0.0.0.0/0`), so they need DNS servers configured
-- **Edges** only need to reach the hub (`<hub-ip>/32`), so they don't need VPN DNS — they use their local DNS for resolution
-- This prevents edges from creating DNS loops and allows them to maintain their own network identity
-
-## Edge Commands
-
-### Adding Edges
-
-```shell
-amnezigo edge add <name>
-amnezigo edge add <name> --ipaddr <ip>
-```
-
-Creates an edge peer with auto-assigned or manual IP. Keys and PSK are generated automatically.
-
-### Listing Edges
-
-```shell
-amnezigo edge list
-```
-
-Output format matches client list:
-
-```
-NAME    IP              CREATED
--------------------------------
-moscow  10.8.0.10/32    2024-01-15 10:30
-berlin  10.8.0.11/32    2024-01-15 11:45
-```
-
-### Exporting Edges
-
-```shell
-amnezigo edge export <name>
-amnezigo edge export --protocol quic <name>
-```
-
-Creates `<name>.conf` with the edge configuration. Unlike clients, edges can only be exported individually.
-
-### Removing Edges
-
-```shell
-amnezigo edge remove <name>
-```
-
-### Flags (All Commands)
-
-| Flag | Default | Required | Description |
-|------|---------|----------|-------------|
-| `--ipaddr` | auto | No | Edge IP address (for `add`) |
-| `--protocol` | random | No | Obfuscation protocol (for `export`) |
-| `--config` | awg0.conf | No | Server config file path |
-
-## Edge Config Example
-
-Here's an example exported edge configuration with annotations:
-
-```ini
-[Interface]
-PrivateKey = <edge-private-key>
-Address = 10.8.0.10/32
-# No DNS field — edges use local DNS
-MTU = 1280
-
-# Obfuscation parameters (same as client)
-Jc = 5
-Jmin = 128
-Jmax = 512
-S1 = 32
-S2 = 45
-S3 = 18
-S4 = 15
-H1 = 10000000-25000000
-H2 = 1100000000-1125000000
-H3 = 2200000000-2225000000
-H4 = 3300000000-3325000000
-I1 = <b 0x...><r 50><t>
-I2 = <b 0x...><r 60><t>
-I3 = <b 0x...><r 40><t>
-I4 = <b 0x...><r 55><t>
-I5 = <b 0x...><r 45><c>
-
-[Peer]
-PublicKey = <hub-public-key>
-PresharedKey = <edge-psk>
-Endpoint = 203.0.113.50:51820
-# Only routes to hub IP, not full tunnel
-AllowedIPs = 10.8.0.1/32
-PersistentKeepalive = 25
-```
-
-### Key Differences from Client Config
-
-1. **No DNS field** — Edge uses its local system DNS
-2. **AllowedIPs = hub IP only** — Only traffic destined for the hub goes through the tunnel
-3. **Same obfuscation** — I1-I5, H1-H4, and other parameters work identically to clients
-
-## Hub-and-Spoke Topology
-
-```
-                    ┌─────────────┐
-                    │    HUB      │
-                    │ 10.8.0.1    │
-                    └──────┬──────┘
-                           │
-           ┌───────────────┼───────────────┐
-           │               │               │
-    ┌──────┴──────┐ ┌──────┴──────┐ ┌──────┴──────┐
-    │   EDGE 1    │ │   EDGE 2    │ │   EDGE 3    │
-    │  10.8.0.10  │ │  10.8.0.11  │ │  10.8.0.12  │
-    │   Moscow    │ │   Berlin    │ │   Tokyo     │
-    └──────┬──────┘ └──────┬──────┘ └──────┬──────┘
-           │               │               │
-    ┌──────┴──────┐ ┌──────┴──────┐ ┌──────┴──────┐
-    │  Clients    │ │  Clients    │ │  Clients    │
-    │ in Moscow   │ │ in Berlin   │ │ in Tokyo    │
-    └─────────────┘ └─────────────┘ └─────────────┘
-```
-
-In this topology:
-1. Edges connect to the hub over the AmneziaWG tunnel
-2. Each edge can have its own local clients connecting to it
-3. Traffic between edges routes through the hub
-4. Each location maintains its own network identity while being part of the larger VPN
-
-::: tip Edge as Client Gateway
-Edges can run their own AmneziaWG server instance for local clients, creating a two-tier VPN architecture.
-:::
-
----
----
-url: /obfuscation
----
-# Obfuscation
-
-## What is Obfuscation
-
-AmneziaWG wraps WireGuard packets in obfuscation layers to disguise VPN traffic as normal HTTPS/QUIC/DNS traffic. This makes the traffic resistant to deep packet inspection (DPI) and helps bypass network restrictions that block traditional VPN protocols.
-
-The obfuscation system uses several parameters that are generated during configuration:
-
-- **Junk Parameters** (Jc, Jmin, Jmax) — Control injection of junk packets
-- **Size Prefixes** (S1-S4) — Modify packet sizes to avoid fingerprinting
-- **Header Magic Values** (H1-H4) — Custom header values in specific uint32 regions
-- **Custom Packet Strings** (I1-I5) — Protocol-specific payload templates
-
-## Junk Parameters
-
-Junk parameters control the injection of random "junk" packets between real WireGuard packets. This adds noise to the traffic pattern, making it harder to identify VPN behavior through timing analysis.
-
-> `Jc`: int — Junk packet count (0-10)
-
-The number of junk packets to inject between real packets. A value of 0 means no junk packets are sent. Higher values add more noise but increase bandwidth usage.
-
-> `Jmin`: int — Minimum junk packet size (64-1024 bytes)
-
-The minimum size of each junk packet. Must be less than Jmax.
-
-> `Jmax`: int — Maximum junk packet size (64-1024 bytes)
-
-The maximum size of each junk packet. Must be greater than Jmin.
-
-Junk packets are generated with random sizes between Jmin and Jmax, making traffic patterns less predictable.
-
-## Size Prefixes (S1-S4)
-
-Size prefixes modify the apparent size of packets, helping to avoid fingerprinting based on WireGuard's fixed packet sizes.
-
-> `S4`: int — Size prefix 4 (0-32)
-
-Range: 0 to 32 inclusive.
-
-> `S1`: int — Size prefix 1 (0-64)
-
-Range: 0 to 64 inclusive.
-
-> `S2`: int — Size prefix 2 (0-64)
-
-Range: 0 to 64 inclusive.
-
-> `S3`: int — Size prefix 3 (0-64)
-
-Range: 0 to 64 inclusive.
-
-::: warning Size Constraint
-S1 + 56 must NOT equal S2. This constraint prevents Init/Response packet size collisions. If this condition is detected during generation, new values are generated until the constraint is satisfied.
-:::
-
-## Header Magic Values (H1-H4)
-
-Header magic values are custom identifiers placed in specific regions of the uint32 space. Each header occupies a non-overlapping region to ensure uniqueness.
-
-> `H1`: HeaderRange — Header 1 region (0x00000001 to 0x3FFFFFFF)
-
-The first header region spans from 0x00000001 to 0x3FFFFFFE.
-
-> `H2`: HeaderRange — Header 2 region (0x40000000 to 0x7FFFFFFF)
-
-The second header region starts at 0x40000000.
-
-> `H3`: HeaderRange — Header 3 region (0x80000000 to 0xBFFFFFFF)
-
-The third header region starts at 0x80000000.
-
-> `H4`: HeaderRange — Header 4 region (0xC0000000 to 0xFFFFFFFF)
-
-The fourth header region starts at 0xC0000000.
-
-Each range has a minimum span of 10,000,000 values. The generator ensures all four ranges are non-overlapping by sorting and validating before returning.
-
-```go
-type HeaderRange struct {
-    Min, Max uint32
-}
-```
-
-## Point Ranges vs True Ranges
-
-The obfuscation system uses two different approaches for generating header ranges:
-
-### Point Ranges (Client Configs)
-
-`GenerateConfig` creates point ranges where Min equals Max. This produces a single fixed value for each header:
-
-```go
-func GenerateConfig(protocol string, mtu, s1, jc int) ClientObfuscationConfig {
-    h := GenerateHeaders()
-    // ...
-    return ClientObfuscationConfig{
-        ServerObfuscationConfig: ServerObfuscationConfig{
-            H1: HeaderRange{Min: h.H1, Max: h.H1}, // Point range
-            H2: HeaderRange{Min: h.H2, Max: h.H2}, // Point range
-            H3: HeaderRange{Min: h.H3, Max: h.H3}, // Point range
-            H4: HeaderRange{Min: h.H4, Max: h.H4}, // Point range
-        },
-        // ...
-    }
-}
-```
-
-### True Ranges (Server Configs)
-
-`GenerateServerConfig` creates true ranges where Min is less than Max. This allows the server to accept a range of valid header values:
-
-```go
-func GenerateServerConfig(_, s1, jc int) ServerObfuscationConfig {
-    h := GenerateHeaderRanges()
-    // ...
-    return ServerObfuscationConfig{
-        H1: HeaderRange{Min: h[0].Min, Max: h[0].Max}, // True range
-        H2: HeaderRange{Min: h[1].Min, Max: h[1].Max}, // True range
-        H3: HeaderRange{Min: h[2].Min, Max: h[2].Max}, // True range
-        H4: HeaderRange{Min: h[3].Min, Max: h[3].Max}, // True range
-    }
-}
-```
-
-## Server vs Client Obfuscation
-
-The server and client store different obfuscation parameters:
-
-### Server Obfuscation Config
-
-```go
-type ServerObfuscationConfig struct {
-    Jc, Jmin, Jmax int
-    S1, S2, S3, S4 int
-    H1, H2, H3, H4 HeaderRange
-}
-```
-
-The server stores:
-- Junk parameters (Jc, Jmin, Jmax)
-- Size prefixes (S1, S2, S3, S4)
-- Header ranges (H1-H4 as true ranges)
-
-### Client Obfuscation Config
-
-```go
-type ClientObfuscationConfig struct {
-    I1, I2, I3, I4, I5 string  // Custom Packet Strings
-    ServerObfuscationConfig     // Embeds all server params
-}
-```
-
-The client config extends the server config with:
-- I1-I5 Custom Packet Strings (generated at export time)
-- H1-H4 as point ranges (single values, not ranges)
-
-::: tip Per-Client Generation
-CPS strings (I1-I5) are generated at export time for each client, not stored in the server config. This means each client receives unique I1-I5 values, improving traffic diversity.
-:::
-
----
-url: /cps
----
-# Custom Packet Strings
-
-## What are CPS
-
-I1-I5 are Custom Packet Strings that define how handshake intervals should look. They make the WireGuard handshake mimic other protocols by generating payloads that resemble legitimate protocol traffic.
-
-CPS strings use a tag-based syntax to describe packet structure:
-
-```ini
-I1 = <b 0xc0ff><b 0x00000001><r 8><t><r 40>
-I2 = <b 0xc0ff><b 0x00000001><r 8><t><r 20>
-I3 = <b 0xc0ff><b 0x00000001><r 8><t><r 10>
-I4 = <b 0xc0ff><b 0x00000001><r 8><t><r 5>
-I5 = 
-```
-
-## Tag Syntax
-
-CPS strings are built from the following tag types:
-
-| Tag | Syntax | Description |
-|-----|--------|-------------|
-| Fixed bytes | `<b 0xHH...>` | Fixed hexadecimal bytes (e.g., `<b 0xc0ff>`) |
-| Random bytes | `<r N>` | N random bytes (e.g., `<r 20>`) |
-| Random chars | `<rc N>` | N random ASCII characters (e.g., `<rc 8>`) |
-| Random digits | `<rd N>` | N random digits 0-9 (e.g., `<rd 4>`) |
-| Counter | `<c>` | Incrementing counter value (8 bytes) |
-| Timestamp | `<t>` | Unix timestamp (8 bytes) |
-
-### Tag Lengths
-
-- `<b 0xHH>`: len(HH) / 2 bytes (hex pairs to bytes)
-- `<r N>`, `<rc N>`, `<rd N>`: N bytes each
-- `<t>`, `<c>`: 8 bytes each
-
-## Building CPS Programmatically
-
-Use `BuildCPSTag` and `BuildCPS` to construct CPS strings in Go:
+Then import and use it in your code:
 
 ```go
 package main
 
 import (
+    "bytes"
     "fmt"
+    "log"
+
     "github.com/Arsolitt/amnezigo"
 )
 
 func main() {
-    // Build individual tags
-    headerTag := amnezigo.BuildCPSTag("b", "0xc0ff")
-    versionTag := amnezigo.BuildCPSTag("b", "00000001")
-    randomTag := amnezigo.BuildCPSTag("r", "8")
-    timestampTag := amnezigo.BuildCPSTag("t", "")
-    
-    // Combine tags into a CPS string
-    cps := amnezigo.BuildCPS([]string{
-        headerTag,
-        versionTag,
-        randomTag,
-        timestampTag,
-    })
-    
-    fmt.Println(cps)
-    // Output: <b 0xc0ff><b 0x00000001><r 8><t>
-}
-```
+    mgr := amnezigo.NewManager("awg0.conf")
 
-### Tag Type Mapping
-
-When building tags programmatically:
-
-| Function Parameter | Tag Output |
-|-------------------|------------|
-| `"b", "0xHH"` | `<b 0xHH>` |
-| `"r", "N"` | `<r N>` |
-| `"rc", "N"` | `<rc N>` |
-| `"rd", "N"` | `<rd N>` |
-| `"c", ""` | `<c>` |
-| `"t", ""` | `<t>` |
-
-## MTU Constraints
-
-CPS strings must fit within MTU constraints. The maximum I packet size is calculated as:
-
-```
-maxISize = MTU - 49 - 149 - S1
-```
-
-Where:
-- **49 bytes** — IP header (20 or 40 bytes) + UDP header (8 bytes) + safety margin
-- **149 bytes** — Fixed WireGuard handshake size (148 bytes + safety margin)
-- **S1** — Size prefix 1 value
-
-If the generated CPS exceeds maxISize, the system progressively removes tags from the end until it fits:
-
-1. Start with full template CPS
-2. If too large, remove last tag
-3. Repeat until CPS fits or all tags removed
-4. If all tags removed, fall back to `<t>` (8 bytes, guaranteed minimal)
-
-```go
-func buildAndValidateCPS(tags []TagSpec, maxSize int) string {
-    cps := buildCPSFromTemplate(tags)
-    
-    if calculateCPSLength(cps) < maxSize {
-        return cps
+    peer, err := mgr.AddPeer("laptop", "")
+    if err != nil {
+        log.Fatal(err)
     }
-    
-    // Progressively remove tags
-    for len(tags) > 0 {
-        tags = tags[:len(tags)-1]
-        cps = buildCPSFromTemplate(tags)
-        if calculateCPSLength(cps) < maxSize {
-            return cps
-        }
+    fmt.Printf("Added peer %s with IP %s\n", peer.Name, peer.AllowedIPs)
+
+    clientCfg, err := mgr.ExportPeer("laptop", "quic", "203.0.113.1:55424")
+    if err != nil {
+        log.Fatal(err)
     }
-    
-    // Fallback to minimal valid CPS
-    return "<t>"
-}
-```
 
-## Per-Client Generation
-
-CPS strings are generated at export time, not stored in the server config:
-
-```go
-func GenerateConfig(protocol string, mtu, s1, jc int) ClientObfuscationConfig {
-    h := GenerateHeaders()
-    s := GenerateSPrefixes()
-    j := GenerateJunkParams()
-    cps := generateCPSConfig(protocol, mtu, s1)  // Generated here
-    
-    return ClientObfuscationConfig{
-        I1: cps.I1,
-        I2: cps.I2,
-        I3: cps.I3,
-        I4: cps.I4,
-        I5: cps.I5,
-        // ...
+    var buf bytes.Buffer
+    if err := amnezigo.WriteClientConfig(&buf, clientCfg); err != nil {
+        log.Fatal(err)
     }
+    fmt.Println(buf.String())
 }
 ```
 
-This means:
-- Each client export produces unique I1-I5 values
-- Random bytes/tags are freshly generated each time
-- The server config remains clean (no I1-I5 stored)
+## Dependencies
 
-## I1-I5 Progression
+Amnezigo has minimal external dependencies:
 
-The five intervals represent different handshake phases with decreasing sizes:
+| Dependency | Purpose |
+|-----------|---------|
+| `github.com/spf13/cobra` | CLI framework (commands, flags, help text) |
+| `golang.org/x/crypto` | X25519 elliptic curve for WireGuard key generation |
 
-| Interval | Description | Typical Size |
-|----------|-------------|--------------|
-| I1 | First handshake (largest) | Full protocol template |
-| I2 | Second interval | Reduced payload |
-| I3 | Third interval | Minimal payload |
-| I4 | Fourth interval | Smallest payload |
-| I5 | Final interval | Usually empty |
+Indirect dependencies:
+| Dependency | Purpose |
+|-----------|---------|
+| `github.com/inconshreveable/mousetrap` | Windows executable detection for Cobra |
+| `github.com/spf13/pflag` | POSIX/GNU-style flag parsing for Cobra |
 
-I1 is the largest because it carries the most protocol-specific data. Subsequent intervals (I2-I4) have progressively smaller payloads. I5 is typically empty across all protocol templates.
+## Verifying Your Installation
 
----
-url: /protocols
----
-# Protocol Templates
+After installation, run the help command to confirm everything works:
 
-## How Templates Work
-
-Each protocol template defines tag sequences (I1I5Template) that mimic real protocol packets. Templates are used during `GenerateCPS` to produce I1-I5 strings that make WireGuard traffic resemble legitimate protocol traffic.
-
-```go
-type I1I5Template struct {
-    I1, I2, I3, I4, I5 []TagSpec
-}
-
-type TagSpec struct {
-    Type  string  // "bytes", "random", "random_chars", "random_digits", "timestamp", "counter"
-    Value string  // Hex for bytes, number for random types
-}
+```shell
+amnezigo --help
 ```
 
-The template dispatcher selects templates by protocol name:
+Expected output:
 
-```go
-func getTemplate(protocol string) I1I5Template {
-    switch protocol {
-    case "quic":
-        return QUICTemplate()
-    case "dns":
-        return DNSTemplate()
-    case "dtls":
-        return DTLSTemplate()
-    case "stun":
-        return STUNTemplate()
-    default:
-        // "random" or unknown uses modulo selection
-        protocols := []func() I1I5Template{
-            QUICTemplate, DNSTemplate, DTLSTemplate, STUNTemplate,
-        }
-        return protocols[len(protocol)%len(protocols)]()
-    }
-}
 ```
+AmneziaWG v2.0 Configuration Generator for star topology
 
-## QUIC
+Usage:
+  amnezigo [command]
 
-Mimics QUIC Initial packets with long header format.
+Available Commands:
+  add         Add a new peer to the server configuration
+  edit        Edit server configuration
+  export      Export peer configuration(s)
+  help        Help about any command
+  init        Initialize a new AmneziaWG server configuration
+  list        List all configured peers
+  remove      Remove a peer from the server configuration
 
-**QUIC Long Header Structure:**
-- Header Type (Long Header form): `0xc0ff`
-- Version Number: `0x00000001` (Version 1)
-- Destination Connection ID (DCID): 8 random bytes
-- Source Connection ID (SCID): length 0
-- Token Length: 0
-- Length field: variable
-- Packet Number: `0x01`
-- Timestamp: 8 bytes
-- Random payload: variable size
-
-**I1 Template (largest):**
-```go
-I1: []TagSpec{
-    {Type: "bytes", Value: "c0ff"},     // Long header form
-    {Type: "bytes", Value: "00000001"}, // Version 1
-    {Type: "bytes", Value: "08"},       // DCID length 8
-    {Type: "random", Value: "8"},       // Random DCID
-    {Type: "bytes", Value: "00"},       // SCID length 0
-    {Type: "bytes", Value: "00"},       // Token length 0
-    {Type: "bytes", Value: "0040"},     // Length (~64 bytes)
-    {Type: "bytes", Value: "00"},       // Packet number length
-    {Type: "bytes", Value: "01"},       // Packet number
-    {Type: "timestamp", Value: ""},     // Timestamp
-    {Type: "random", Value: "40"},      // Random payload (40 bytes)
-}
+Flags:
+  -h, --help   help for amnezigo
 ```
-
-**I2-I4:** Progressively smaller payloads (20, 10, 5 bytes)
-
-**I5:** Empty
-
-## DNS
-
-Mimics DNS query packets with standard query format.
-
-**DNS Query Structure:**
-- Transaction ID: 2 random bytes
-- Flags: `0x0100` (standard query, recursion desired)
-- Questions: `0x0001` (1 question)
-- Answer/Authority/Additional RRs: `0x0000` (0 each)
-- Query name: label sequences (length + chars)
-- Root label: `0x00`
-- Query Type: `0x0001` (A record)
-- Query Class: `0x0001` (IN class)
-
-**I1 Template (full domain):**
-```go
-I1: []TagSpec{
-    {Type: "random", Value: "2"},   // Transaction ID
-    {Type: "bytes", Value: "0100"}, // Flags: standard query
-    {Type: "bytes", Value: "0001"}, // Questions: 1
-    {Type: "bytes", Value: "0000"}, // Answer RRs: 0
-    {Type: "bytes", Value: "0000"}, // Authority RRs: 0
-    {Type: "bytes", Value: "0000"}, // Additional RRs: 0
-    {Type: "bytes", Value: "03"},   // Label length: 3
-    {Type: "rc", Value: "3"},       // Random chars (e.g., "www")
-    {Type: "bytes", Value: "07"},   // Label length: 7
-    {Type: "rc", Value: "7"},       // Random chars (e.g., "example")
-    {Type: "bytes", Value: "03"},   // Label length: 3
-    {Type: "rc", Value: "3"},       // Random chars (e.g., "com")
-    {Type: "bytes", Value: "00"},   // Root label
-    {Type: "bytes", Value: "0001"}, // Query type: A
-    {Type: "bytes", Value: "0001"}, // Query class: IN
-}
-```
-
-**I2-I4:** Progressively shorter domain names (4 chars, 2 digits, 1 char)
-
-**I5:** Empty
-
-## DTLS
-
-Mimics DTLS 1.2 ClientHello packets.
-
-**DTLS Record Header:**
-- ContentType: `0x16` (Handshake)
-- Version: `0xfefd` (DTLS 1.2)
-- Epoch: `0x0000` (initial handshake)
-- Sequence Number: `0x000000000000` (0)
-- Length: variable
-
-**DTLS Handshake (ClientHello):**
-- Handshake Type: `0x01` (ClientHello)
-- Length: variable (3 bytes)
-- Message Sequence: `0x0000`
-- Fragment Offset: `0x000000`
-- Fragment Length: variable (3 bytes)
-- Protocol Version: `0xfefd` (DTLS 1.2)
-- Random: 4 bytes timestamp + 28 bytes random
-- Session ID length: `0x00`
-- Cookie length: `0x00`
-- Cipher Suites: variable
-
-**I1 Template (4 cipher suites):**
-```go
-I1: []TagSpec{
-    // Record Header
-    {Type: "bytes", Value: "16"},           // ContentType: Handshake
-    {Type: "bytes", Value: "fefd"},         // Version: DTLS 1.2
-    {Type: "bytes", Value: "0000"},         // Epoch: 0
-    {Type: "bytes", Value: "000000000000"}, // Sequence: 0
-    {Type: "bytes", Value: "0058"},         // Length: ~88 bytes
-    // Handshake
-    {Type: "bytes", Value: "01"},           // Type: ClientHello
-    {Type: "bytes", Value: "000054"},       // Length: ~84 bytes
-    {Type: "bytes", Value: "0000"},         // Message Sequence
-    {Type: "bytes", Value: "000000"},       // Fragment Offset
-    {Type: "bytes", Value: "000054"},       // Fragment Length
-    // ClientHello body
-    {Type: "bytes", Value: "fefd"},         // Version: DTLS 1.2
-    {Type: "timestamp", Value: ""},         // Random: timestamp
-    {Type: "random", Value: "28"},          // Random: 28 bytes
-    {Type: "bytes", Value: "00"},           // Session ID length
-    {Type: "bytes", Value: "00"},           // Cookie length
-    {Type: "bytes", Value: "0010"},         // Cipher Suites length: 16
-    {Type: "bytes", Value: "cca8"},         // TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
-    {Type: "bytes", Value: "cca9"},         // TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
-    {Type: "bytes", Value: "cc02"},         // ECDHE_ECDSA_WITH_AES_256_CBC_SHA
-    {Type: "bytes", Value: "cc01"},         // ECDHE_ECDSA_WITH_AES_128_CBC_SHA
-    {Type: "bytes", Value: "01"},           // Compression length: 1
-    {Type: "bytes", Value: "00"},           // Compression: null
-}
-```
-
-**I2-I4:** Fewer cipher suites (2 suites in I3-I4)
-
-**I5:** Empty
-
-## STUN
-
-Mimics STUN Binding Request packets (RFC 5389).
-
-**STUN Message Structure:**
-- Message Type: `0x0001` (Binding Request)
-- Message Length: variable (excludes 20-byte header)
-- Magic Cookie: `0x2112a442`
-- Transaction ID: 12 random bytes
-- Attributes: optional
-
-**I1 Template (minimal):**
-```go
-I1: []TagSpec{
-    {Type: "bytes", Value: "0001"},     // Message Type: Binding Request
-    {Type: "bytes", Value: "0000"},     // Message Length: 0
-    {Type: "bytes", Value: "2112a442"}, // Magic Cookie
-    {Type: "random", Value: "12"},      // Transaction ID
-}
-```
-
-**I2 Template (with PADDING):**
-```go
-I2: []TagSpec{
-    {Type: "bytes", Value: "0001"},     // Message Type: Binding Request
-    {Type: "bytes", Value: "0004"},     // Message Length: 4
-    {Type: "bytes", Value: "2112a442"}, // Magic Cookie
-    {Type: "random", Value: "12"},      // Transaction ID
-    {Type: "bytes", Value: "0020"},     // Attribute Type: PADDING
-    {Type: "bytes", Value: "0000"},     // Attribute Length: 0
-}
-```
-
-**I3-I4:** Same as I1 (minimal header only)
-
-**I5:** Empty
-
-## Random
-
-The "random" protocol uses deterministic selection via `len(protocol) % 4`:
-
-```go
-protocols := []func() I1I5Template{
-    QUICTemplate,   // index 0
-    DNSTemplate,    // index 1
-    DTLSTemplate,   // index 2
-    STUNTemplate,   // index 3
-}
-return protocols[len(protocol)%len(protocols)]()
-```
-
-::: warning Deterministic Selection
-Since `len("random") = 6` and `6 % 4 = 2`, the "random" protocol **always selects DTLS**. Use explicit protocol names if you need variety.
-:::
-
-| Protocol | len() | len() % 4 | Selected Template |
-|----------|-------|-----------|-------------------|
-| quic | 4 | 0 | QUIC |
-| dns | 3 | 3 | STUN |
-| dtls | 4 | 0 | QUIC |
-| stun | 4 | 0 | QUIC |
-| random | 6 | 2 | DTLS |
-
-## Choosing a Protocol
-
-::: tip Protocol Selection Guide
-- **QUIC** — Best for general use. Modern protocol that blends well with HTTPS/3 traffic. Recommended for most scenarios.
-- **DNS** — Ideal for environments where DNS traffic is expected and allowed. Works well in restrictive networks that allow DNS queries.
-- **DTLS** — Good for TLS-heavy networks where encrypted UDP traffic is common. Mimics legitimate TLS/DTLS handshakes.
-- **STUN** — Minimal overhead, useful for WebRTC-heavy environments. Simplest packet structure.
-:::
-
-When in doubt, use **quic** as it most closely resembles modern HTTPS traffic and is widely supported across platforms.
-
 ---
 ---
-url: /server-config-reference
+url: /quick-start
 ---
-# Server Config Reference
+# Quick Start
 
-The server configuration file (typically `awg0.conf`) stores all WireGuard and AmneziaWG obfuscation parameters for the VPN server, along with metadata for managing clients and edge servers.
+This walkthrough covers setting up a complete AmneziaWG server with one peer from scratch. Each step is explained in detail.
 
-## [Interface] Section
+## Step 1: Initialize the Server Configuration
 
-The `[Interface]` section defines the server's network configuration and obfuscation parameters.
+Run the `init` command to create a new server configuration:
 
-### WireGuard Core Fields
+```shell
+amnezigo init --ipaddr 10.8.0.1/24
+```
 
-> `PrivateKey`: string
+This command does the following:
 
-Base64-encoded X25519 private key for the server. Generated during `init` using cryptographic random bytes with WireGuard key clamping applied.
+1. **Validates the IP address** — ensures `10.8.0.1/24` is a valid CIDR notation
+2. **Generates a random listen port** — picks a port between 10000-65535 (unless you specify `--port`)
+3. **Detects the main network interface** — auto-detects your primary network interface (e.g., `eth0`, `ens3`) for NAT rules
+4. **Auto-detects public endpoints** — queries `ipv4.icanhazip.com` and `ipv6.icanhazip.com` to find your server's public IP addresses
+5. **Generates a server keypair** — creates an X25519 private/public key pair using WireGuard key clamping
+6. **Generates obfuscation parameters** — creates random values for Jc, Jmin, Jmax, S1-S4, and H1-H4 ranges
+7. **Generates iptables rules** — creates PostUp/PostDown rules for NAT, forwarding, and optional client-to-client
+8. **Writes the config file** — saves everything to `awg0.conf` (or the path specified by `--config`)
+9. **Saves a reference file** — writes the config path to `.main.config` for other commands to find
 
-> `PublicKey`: string
+### Output Files
 
-Base64-encoded X25519 public key derived from the private key. Written to config for reference but not strictly required by WireGuard.
+After running `init`, two files are created:
 
-> `Address`: string
+| File | Purpose |
+|------|---------|
+| `awg0.conf` | The main server configuration file |
+| `.main.config` | Stores the path to the config file (contains just `awg0.conf`) |
 
-Server's VPN IP address with CIDR subnet mask (e.g., `10.8.0.1/24`). Specified via `--ipaddr` flag during `init`.
+### Example Output
 
-> `ListenPort`: int
+```
+✓ AmneziaWG configuration initialized successfully
+  Config: awg0.conf
+  Server IP: 10.8.0.1/24
+  Listen Port: 34821
+  Main Interface: eth0
+  IPv4 Endpoint: 203.0.113.42:34821
+```
 
-UDP port for incoming WireGuard connections. Defaults to a random port in range 10000-65535 if not specified via `--port`.
-
-> `MTU`: int
-
-Maximum Transmission Unit for the tunnel interface. Defaults to 1280. Specified via `--mtu` flag during `init`.
-
-### iptables Rules
-
-> `PostUp`: string
-
-Shell command executed when the interface starts. Contains iptables rules for NAT and forwarding. Auto-generated based on:
-- `--client-to-client` setting
-- `--iface` (main network interface)
-- Server subnet from `Address`
-
-> `PostDown`: string
-
-Shell command executed when the interface stops. Contains iptables rules to clean up NAT and forwarding rules.
-
-### Junk Parameters
-
-> `Jc`: int
-
-Junk packet count - number of junk packets to send before actual data.
-
-> `Jmin`: int
-
-Minimum junk packet size in bytes.
-
-> `Jmax`: int
-
-Maximum junk packet size in bytes.
-
-### Size Prefixes
-
-> `S1`: int
-
-First size prefix value for obfuscation.
-
-> `S2`: int
-
-Second size prefix value for obfuscation.
-
-> `S3`: int
-
-Third size prefix value for obfuscation.
-
-> `S4`: int
-
-Fourth size prefix value for obfuscation.
-
-### Header Magic Values
-
-> `H1`: string
-
-Header magic value range, written as `min-max` (e.g., `191091632-238083235`). Random value selected from this range at runtime.
-
-> `H2`: string
-
-Second header magic value range in `min-max` format.
-
-> `H3`: string
-
-Third header magic value range in `min-max` format.
-
-> `H4`: string
-
-Fourth header magic value range in `min-max` format.
-
-::: tip H1-H4 Format
-Header values are stored as ranges (`min-max`) in the config file. The client selects a random value within the range for each packet, making traffic patterns less identifiable.
-:::
-
-## Metadata Comments
-
-Metadata fields are prefixed with `#_` and store operational data not used by WireGuard itself.
-
-> `#_EndpointV4`: string
-
-IPv4 endpoint address (e.g., `1.2.3.4:51820`). Auto-detected during `init` or specified via `--endpoint-v4`. Used when exporting client configs.
-
-> `#_EndpointV6`: string
-
-IPv6 endpoint address (e.g., `[2001:db8::1]:51820`). Auto-detected during `init` or specified via `--endpoint-v6`. Used when exporting client configs.
-
-> `#_ClientToClient`: bool
-
-Whether clients can communicate with each other. Set via `--client-to-client` flag during `init` or `edit` command.
-
-> `#_TunName`: string
-
-WireGuard interface name (e.g., `awg0`). Set via `--iface-name` flag during `init`.
-
-> `#_MainIface`: string
-
-Main network interface for NAT (e.g., `eth0`). Auto-detected or set via `--iface` flag during `init`.
-
-## [Peer] Section
-
-Each `[Peer]` section represents a client or edge server connected to the VPN.
-
-### WireGuard Fields
-
-> `PublicKey`: string
-
-Base64-encoded X25519 public key of the peer. Used to encrypt traffic destined for this peer.
-
-> `PresharedKey`: string
-
-Optional base64-encoded 32-byte key for additional post-quantum resistance. Generated automatically when adding a peer.
-
-> `AllowedIPs`: string
-
-IP addresses this peer is allowed to use. Typically a single `/32` address (e.g., `10.8.0.2/32`).
-
-### Peer Metadata Comments
-
-> `#_Name`: string
-
-Human-readable name for the peer. Used with `client add`, `edge add`, and related commands.
-
-> `#_Role`: string
-
-Peer role, either `client` or `edge`. Required field - parser returns error if missing or invalid.
-
-> `#_PrivateKey`: string
-
-Peer's private key. Stored in server config so it can be retrieved when exporting client configs.
-
-> `#_GenKeyTime`: string
-
-RFC3339 timestamp when the peer's keys were generated (e.g., `2024-01-15T10:30:00Z`).
-
-::: warning Mandatory Role
-Every `[Peer]` section MUST have a `#_Role` field set to either `client` or `edge`. The parser returns an error if this field is missing or has an invalid value.
-:::
-
-## Full Server Config Example
+### What the Generated Config Looks Like
 
 ```ini
 [Interface]
-# Server's private key (keep secret!)
-PrivateKey = aGlzIGlzIGEgZmFrZSBwcml2YXRlIGtleSBmb3IgZGVtb25zdHJhdGlvbg==
-
-# Derived public key (for reference)
-PublicKey = cHVibGljIGtleSBkZXJpdmVkIGZyb20gcHJpdmF0ZSBrZXk=
-
-# VPN address with subnet
+# X25519 server private key (keep secret!)
+PrivateKey = WGp4k3F6aV7bN8mQ0rS1tU2wX3yZ4aB5cD6eF7gH8iJ9kL0=
+# Derived from private key — stored for convenience
+PublicKey = xY9zA1bC2dE3fG4hI5jK6lM7nO8pQ9rS0tU1vW2xY3zA4=
+# Server's VPN address with subnet
 Address = 10.8.0.1/24
-
-# UDP listen port
-ListenPort = 55424
-
-# Tunnel MTU
+# Random port for incoming connections
+ListenPort = 34821
+# Maximum Transmission Unit — 1280 is safe for all protocols
 MTU = 1280
-
-# iptables rules for NAT (auto-generated)
-PostUp = iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o eth0 -j MASQUERADE; iptables -A FORWARD -i awg0 -j ACCEPT; iptables -A FORWARD -o awg0 -j ACCEPT
-PostDown = iptables -t nat -D POSTROUTING -s 10.8.0.0/24 -o eth0 -j MASQUERADE; iptables -D FORWARD -i awg0 -j ACCEPT; iptables -D FORWARD -o awg0 -j ACCEPT
-
-# Junk packet parameters
+# iptables rules applied when the interface comes up
+PostUp = iptables -A INPUT -i awg0 -j ACCEPT; iptables -A OUTPUT -o awg0 -j ACCEPT; iptables -A FORWARD -i awg0 -o eth0 -s 10.8.0.0/24 -j ACCEPT; iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT; iptables -A FORWARD -i eth0 -o awg0 -d 10.8.0.0/24 -m state --state ESTABLISHED,RELATED -j ACCEPT; iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o eth0 -j MASQUERADE
+# iptables rules applied when the interface goes down (deletes the PostUp rules)
+PostDown = iptables -D INPUT -i awg0 -j ACCEPT; iptables -D OUTPUT -o awg0 -j ACCEPT; iptables -D FORWARD -i awg0 -o eth0 -s 10.8.0.0/24 -j ACCEPT; iptables -D FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT; iptables -D FORWARD -i eth0 -o awg0 -d 10.8.0.0/24 -m state --state ESTABLISHED,RELATED -j ACCEPT; iptables -t nat -D POSTROUTING -s 10.8.0.0/24 -o eth0 -j MASQUERADE
+# --- Obfuscation parameters (shared between server and all clients) ---
+# Number of junk packets to insert
 Jc = 3
+# Minimum junk packet size in bytes
 Jmin = 50
+# Maximum junk packet size in bytes
 Jmax = 1000
-
-# Size prefixes
+# Size prefix multipliers (S1-S4 control packet size transformation)
 S1 = 15
 S2 = 16
 S3 = 45
 S4 = 10
-
-# Header magic ranges (min-max format)
+# Header value ranges (H1-H4 must not overlap between each other)
 H1 = 191091632-238083235
 H2 = 469298095-484308427
 H3 = 490129542-1366070158
 H4 = 1959094164-1989726207
+# --- Metadata (not read by AmneziaWG, used by amnezigo) ---
+#_EndpointV4 = 203.0.113.42:34821
+#_ClientToClient = false
+#_TunName = awg0
+#_MainIface = eth0
+```
 
-# Server metadata
-#_EndpointV4 = 203.0.113.50:55424
-#_EndpointV6 = [2001:db8::50]:55424
+::: tip
+All obfuscation parameters (Jc, Jmin, Jmax, S1-S4, H1-H4) are generated with cryptographic randomness. They are shared between the server and all clients — the uniqueness that prevents fingerprinting comes from the per-peer I1-I5 CPS strings, which are generated at export time.
+:::
+
+### Additional Init Flags
+
+You can customize the initialization with optional flags:
+
+```shell
+amnezigo init --ipaddr 10.8.0.1/24 \
+  --port 51820 \
+  --mtu 1280 \
+  --iface eth0 \
+  --iface-name awg0 \
+  --endpoint-v4 203.0.113.42 \
+  --endpoint-v6 "[2001:db8::1]" \
+  --client-to-client \
+  --config /etc/amnezia/awg0.conf
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--ipaddr` | *(required)* | Server IP with CIDR subnet |
+| `--port` | random 10000-65535 | Listen port for incoming connections |
+| `--mtu` | 1280 | Maximum Transmission Unit |
+| `--iface` | auto-detected | Main network interface for NAT |
+| `--iface-name` | awg0 | Tunnel interface name |
+| `--endpoint-v4` | auto-detected | Manual IPv4 endpoint override |
+| `--endpoint-v6` | auto-detected | Manual IPv6 endpoint override |
+| `--client-to-client` | false | Allow peers to communicate with each other |
+| `--dns` | 1.1.1.1, 8.8.8.8 | DNS servers *(silently ignored, not stored)* |
+| `--keepalive` | 25 | Keepalive interval *(silently ignored, not stored)* |
+| `--config` | awg0.conf | Output config file path |
+
+::: warning
+The `--dns` and `--keepalive` flags exist on `init` but do nothing. DNS is hardcoded to `"1.1.1.1, 8.8.8.8"` and keepalive to `25` in all exported client configs. They are accepted for CLI compatibility only.
+:::
+
+## Step 2: Add a Peer
+
+Add your first peer (e.g., a laptop) to the server configuration:
+
+```shell
+amnezigo add laptop
+```
+
+This command:
+
+1. **Loads the server config** from `awg0.conf` (or `--config` path)
+2. **Checks for duplicate names** — ensures no existing peer has the name "laptop"
+3. **Assigns an IP address** — since no `--ipaddr` was specified, it scans the subnet `10.8.0.0/24` for the next available IP. The server itself uses `.1`, so the first peer gets `.2`
+4. **Generates a peer keypair** — creates a new X25519 private/public key pair for the peer
+5. **Generates a preshared key** — creates an additional 256-bit symmetric key for extra encryption
+6. **Appends a `[Peer]` section** to the server config with the peer's public key, preshared key, and allowed IPs
+7. **Saves the config** using atomic writes (writes to `.tmp`, then renames)
+
+### Example Output
+
+```
+Peer 'laptop' added successfully
+  IP Address: 10.8.0.2/32
+  Public Key: aB1cD2eF3gH4iJ5kL6mN7oP8qR9sT0uV1wX2yZ3aB4cD5=
+```
+
+### Manual IP Assignment
+
+You can specify an IP address explicitly:
+
+```shell
+amnezigo add phone --ipaddr 10.8.0.50
+```
+
+```
+Peer 'phone' added successfully
+  IP Address: 10.8.0.50/32
+  Public Key: xY9zA1bC2dE3fG4hI5jK6lM7nO8pQ9rS0tU1vW2xY3=
+```
+
+::: danger
+Make sure the manual IP is within the server's subnet and does not conflict with existing peers or the server's own address.
+:::
+
+### What the Server Config Looks Like After Adding Peers
+
+```ini
+[Interface]
+PrivateKey = WGp4k3F6aV7bN8mQ0rS1tU2wX3yZ4aB5cD6eF7gH8iJ9kL0=
+PublicKey = xY9zA1bC2dE3fG4hI5jK6lM7nO8pQ9rS0tU1vW2xY3zA4=
+Address = 10.8.0.1/24
+ListenPort = 34821
+MTU = 1280
+PostUp = iptables -A INPUT -i awg0 -j ACCEPT; ...
+PostDown = iptables -D INPUT -i awg0 -j ACCEPT; ...
+Jc = 3
+Jmin = 50
+Jmax = 1000
+S1 = 15
+S2 = 16
+S3 = 45
+S4 = 10
+H1 = 191091632-238083235
+H2 = 469298095-484308427
+H3 = 490129542-1366070158
+H4 = 1959094164-1989726207
+#_EndpointV4 = 203.0.113.42:34821
 #_ClientToClient = false
 #_TunName = awg0
 #_MainIface = eth0
 
 [Peer]
-# Regular VPN client
 #_Name = laptop
-#_Role = client
-#_PrivateKey = bGFwdG9wIHByaXZhdGUga2V5
-#_GenKeyTime = 2024-01-15T10:30:00Z
-PublicKey = bGFwdG9wIHB1YmxpYyBrZXk=
-PresharedKey = c2hhcmVkIHNlY3JldCBrZXk=
+#_PrivateKey = mN7oP8qR9sT0uV1wX2yZ3aB4cD5eF6gH7iJ8kL9mN0oP1=
+PublicKey = aB1cD2eF3gH4iJ5kL6mN7oP8qR9sT0uV1wX2yZ3aB4cD5=
+PresharedKey = qR9sT0uV1wX2yZ3aB4cD5eF6gH7iJ8kL9mN0oP1qR2sT3=
 AllowedIPs = 10.8.0.2/32
+#_GenKeyTime = 2026-03-29T12:00:00Z
 
 [Peer]
-# Edge server in hub-and-spoke topology
-#_Name = edge-dc1
-#_Role = edge
-#_PrivateKey = ZWRnZSBzZXJ2ZXIgcHJpdmF0ZSBrZXk=
-#_GenKeyTime = 2024-01-16T14:20:00Z
-PublicKey = ZWRnZSBzZXJ2ZXIgcHVibGljIGtleQ==
-PresharedKey = ZWRnZSBzaGFyZWQgc2VjcmV0
-AllowedIPs = 10.8.0.3/32
+#_Name = phone
+#_PrivateKey = pQ1rS2tU3vW4xY5zA6bC7dE8fG9hI0jK1lM2nO3pQ4rS5=
+PublicKey = xY9zA1bC2dE3fG4hI5jK6lM7nO8pQ9rS0tU1vW2xY3=
+PresharedKey = hI0jK1lM2nO3pQ4rS5tU6vW7xY8zA9bC0dE1fG2hI3jK4=
+AllowedIPs = 10.8.0.50/32
+#_GenKeyTime = 2026-03-29T12:01:00Z
 ```
 
----
----
-url: /client-config-reference
----
-# Client Config Reference
+Notice that each `[Peer]` section stores:
+- `#_Name` — the human-readable name used in CLI commands
+- `#_PrivateKey` — the peer's private key (needed to produce a complete client config at export time)
+- `PublicKey` — the peer's public key (used by the server to identify the peer)
+- `PresharedKey` — shared symmetric key for additional encryption
+- `AllowedIPs` — the peer's VPN IP address
+- `#_GenKeyTime` — when the peer was created
 
-Client configuration files are generated by the `export` command and contain all parameters needed for a WireGuard client to connect to the server with AmneziaWG obfuscation.
+## Step 3: Export Peer Configuration
 
-## [Interface] Section
+Export a client configuration file for the peer:
 
-The `[Interface]` section defines the client's local configuration and obfuscation parameters.
+```shell
+amnezigo export laptop
+```
 
-### WireGuard Core Fields
+This command:
 
-> `PrivateKey`: string
+1. **Loads the server config** from `awg0.conf`
+2. **Resolves the endpoint** — reads `#_EndpointV4` from metadata, falls back to `#_EndpointV6`, then tries `icanhazip.com`, and finally uses `"YOUR_SERVER_IP"`
+3. **Generates per-peer CPS strings** — creates unique I1-I5 Custom Packet Strings based on the selected protocol and the server's MTU and S1 values
+4. **Builds a complete client config** — combines the peer's private key, address, DNS, MTU, obfuscation params (including I1-I5), and the server's public key, preshared key, endpoint, and allowed IPs
+5. **Writes the file** — saves to `laptop.conf` with permissions `0600` (owner read/write only)
 
-Client's base64-encoded X25519 private key. Retrieved from server config's `#_PrivateKey` metadata.
+### Example Output
 
-> `Address`: string
+```
+Exported peer 'laptop' to laptop.conf
+```
 
-Client's VPN IP address with `/32` mask (e.g., `10.8.0.2/32`).
+### Specifying a Protocol
 
-> `DNS`: string
+By default, the export uses `"random"` protocol selection (which deterministically picks DTLS). To choose a specific protocol:
 
-DNS servers to use when connected. Hardcoded to `1.1.1.1, 8.8.8.8` for clients. Not present in edge configs.
+```shell
+amnezigo export laptop --protocol quic
+```
 
-> `MTU`: int
+Available protocols: `quic`, `dns`, `dtls`, `stun`, `random`
 
-Maximum Transmission Unit. Copied from server config (default: 1280).
+### Exporting All Peers
 
-### Junk Parameters
+Omit the peer name to export configurations for every peer in the server config:
 
-> `Jc`: int
+```shell
+amnezigo export
+```
 
-Junk packet count. Copied from server config.
+```
+Exported peer 'laptop' to laptop.conf
+Exported peer 'phone' to phone.conf
+```
 
-> `Jmin`: int
+Each peer gets its own `.conf` file with unique I1-I5 CPS strings, even though they share the same server-side obfuscation parameters.
 
-Minimum junk packet size. Copied from server config.
-
-> `Jmax`: int
-
-Maximum junk packet size. Copied from server config.
-
-### Size Prefixes
-
-> `S1`: int
-
-First size prefix. Copied from server config.
-
-> `S2`: int
-
-Second size prefix. Copied from server config.
-
-> `S3`: int
-
-Third size prefix. Copied from server config.
-
-> `S4`: int
-
-Fourth size prefix. Copied from server config.
-
-### Header Magic Values
-
-> `H1`: string
-
-Header magic range in `min-max` format. Copied from server config.
-
-> `H2`: string
-
-Second header magic range in `min-max` format. Copied from server config.
-
-> `H3`: string
-
-Third header magic range in `min-max` format. Copied from server config.
-
-> `H4`: string
-
-Fourth header magic range in `min-max` format. Copied from server config.
-
-### Custom Packet Strings (CPS)
-
-> `I1`: string
-
-First interval custom packet string. Generated per-client at export time based on selected protocol.
-
-> `I2`: string
-
-Second interval custom packet string.
-
-> `I3`: string
-
-Third interval custom packet string.
-
-> `I4`: string
-
-Fourth interval custom packet string.
-
-> `I5`: string
-
-Fifth interval custom packet string. May be empty for some protocols.
-
-::: tip CPS Generation
-I1-I5 are generated at export time, not stored in the server config. Each client gets unique CPS values based on the selected protocol (quic, dns, dtls, stun).
-:::
-
-## [Peer] Section
-
-The `[Peer]` section defines the server's connection details.
-
-> `PublicKey`: string
-
-Server's base64-encoded X25519 public key.
-
-> `PresharedKey`: string
-
-Pre-shared key for additional security. Copied from peer's entry in server config.
-
-> `Endpoint`: string
-
-Server's public endpoint address (e.g., `203.0.113.50:55424`). Resolved from:
-1. `#_EndpointV4` from server config
-2. `#_EndpointV6` from server config
-3. Auto-detected via HTTP service if not stored
-
-> `AllowedIPs`: string
-
-IP ranges to route through VPN. `0.0.0.0/0` for clients (all traffic), hub IP only for edges (e.g., `10.8.0.1/32`).
-
-> `PersistentKeepalive`: int
-
-Keepalive interval in seconds. Hardcoded to 25 for all exports.
-
-## Client vs Edge Config
-
-| Field | Client Config | Edge Config |
-|-------|---------------|-------------|
-| DNS | `1.1.1.1, 8.8.8.8` | Not present |
-| AllowedIPs | `0.0.0.0/0` (all traffic) | `10.8.0.1/32` (hub only) |
-| PersistentKeepalive | 25 | 25 |
-| I1-I5 | Generated per export | Generated per export |
-
-::: warning Edge Server Routing
-Edge server configs route only to the hub IP (`10.8.0.1/32`), not all traffic. This creates a hub-and-spoke topology where edge servers connect to the hub but don't intercept local traffic.
-:::
-
-## Full Client Config Example
+### What the Exported Client Config Looks Like
 
 ```ini
 [Interface]
-# Client's private key
-PrivateKey = Y2xpZW50IHByaXZhdGUga2V5IGZvciBkZW1vbnN0cmF0aW9u
-
-# Assigned VPN address
+# The peer's private key (matches #_PrivateKey in server config)
+PrivateKey = mN7oP8qR9sT0uV1wX2yZ3aB4cD5eF6gH7iJ8kL9mN0oP1=
+# The peer's VPN IP address
 Address = 10.8.0.2/32
-
-# DNS servers (hardcoded)
+# DNS servers for the tunnel (hardcoded, cannot be changed)
 DNS = 1.1.1.1, 8.8.8.8
-
-# Tunnel MTU
+# MTU must match the server
 MTU = 1280
-
-# Junk packet parameters (from server)
+# --- Obfuscation parameters (copied from server config) ---
 Jc = 3
 Jmin = 50
 Jmax = 1000
-
-# Size prefixes (from server)
 S1 = 15
 S2 = 16
 S3 = 45
 S4 = 10
-
-# Header magic ranges (from server)
 H1 = 191091632-238083235
 H2 = 469298095-484308427
 H3 = 490129542-1366070158
 H4 = 1959094164-1989726207
-
-# Custom packet strings (generated at export)
+# --- Per-peer CPS strings (unique to this peer, generated at export time) ---
+# I1-I5 define the Custom Packet Strings that mimic the chosen protocol's traffic
+# These use tag-based syntax: <b 0x...> for fixed bytes, <r N> for random bytes, <t> for timestamp
 I1 = <b 0xc0ff><b 0x00000001><b 0x08><r 8><b 0x00><b 0x00><b 0x0040><b 0x00><b 0x01><t><r 40>
 I2 = <b 0xc0ff><b 0x00000001><b 0x08><r 8><b 0x00><b 0x00><b 0x0020><b 0x01><t><r 20>
 I3 = <b 0xc0ff><b 0x00000001><b 0x08><r 8><b 0x00><b 0x00><b 0x0010><b 0x01><t><r 16>
@@ -1945,1426 +686,1491 @@ I4 = <b 0xc0ff><b 0x00000001><b 0x08><r 8><b 0x00><b 0x00><b 0x0005><b 0x01><t><
 I5 = 
 
 [Peer]
-# Server's public key
-PublicKey = c2VydmVyIHB1YmxpYyBrZXkgZm9yIGRlbW9uc3RyYXRpb24=
-
-# Pre-shared key
-PresharedKey = c2hhcmVkIHNlY3JldCBiZXR3ZWVuIHNlcnZlciBhbmQgY2xpZW50
-
-# Server endpoint
-Endpoint = 203.0.113.50:55424
-
-# Route all traffic through VPN
-AllowedIPs = 0.0.0.0/0
-
-# Keep connection alive through NAT
+# The server's public key (so the client can authenticate the server)
+PublicKey = xY9zA1bC2dE3fG4hI5jK6lM7nO8pQ9rS0tU1vW2xY3zA4=
+# The preshared key (additional layer of symmetric encryption)
+PresharedKey = qR9sT0uV1wX2yZ3aB4cD5eF6gH7iJ8kL9mN0oP1qR2sT3=
+# The server's public endpoint (auto-resolved from server config metadata)
+Endpoint = 203.0.113.42:34821
+# Route all traffic through the VPN (IPv4 and IPv6)
+AllowedIPs = 0.0.0.0/0, ::/0
+# Send keepalive packets every 25 seconds to maintain NAT mappings
 PersistentKeepalive = 25
 ```
 
-## Full Edge Config Example
-
-```ini
-[Interface]
-# Edge server's private key
-PrivateKey = ZWRnZSBwcml2YXRlIGtleSBmb3IgZGVtb25zdHJhdGlvbg==
-
-# Assigned VPN address
-Address = 10.8.0.3/32
-
-# No DNS - edge servers don't need DNS
-# DNS field is absent
-
-# Tunnel MTU
-MTU = 1280
-
-# Junk packet parameters (from server)
-Jc = 3
-Jmin = 50
-Jmax = 1000
-
-# Size prefixes (from server)
-S1 = 15
-S2 = 16
-S3 = 45
-S4 = 10
-
-# Header magic ranges (from server)
-H1 = 191091632-238083235
-H2 = 469298095-484308427
-H3 = 490129542-1366070158
-H4 = 1959094164-1989726207
-
-# Custom packet strings (generated at export)
-I1 = <b 0xc0ff><b 0x00000001><b 0x08><r 8><b 0x00><b 0x00><b 0x0040><b 0x00><b 0x01><t><r 40>
-I2 = <b 0xc0ff><b 0x00000001><b 0x08><r 8><b 0x00><b 0x00><b 0x0020><b 0x01><t><r 20>
-I3 = <b 0xc0ff><b 0x00000001><b 0x08><r 8><b 0x00><b 0x00><b 0x0010><b 0x01><t><r 16>
-I4 = <b 0xc0ff><b 0x00000001><b 0x08><r 8><b 0x00><b 0x00><b 0x0005><b 0x01><t><r 5>
-I5 = 
-
-[Peer]
-# Server's public key
-PublicKey = c2VydmVyIHB1YmxpYyBrZXkgZm9yIGRlbW9uc3RyYXRpb24=
-
-# Pre-shared key
-PresharedKey = ZWRnZSBzaGFyZWQgc2VjcmV0IGtleQ==
-
-# Server endpoint
-Endpoint = 203.0.113.50:55424
-
-# Route only to hub - not all traffic
-AllowedIPs = 10.8.0.1/32
-
-# Keep connection alive through NAT
-PersistentKeepalive = 25
-```
-
-## CPS Tag Reference
-
-Custom Packet Strings (I1-I5) use a tag-based syntax:
-
-| Tag | Description | Example |
-|-----|-------------|---------|
-| `<b 0x...>` | Fixed bytes in hexadecimal | `<b 0xc0ff>` |
-| `<r N>` | N random bytes | `<r 8>` |
-| `<t>` | 4-byte timestamp | `<t>` |
-| `<c>` | Counter value | `<c>` |
-| `<rc N>` | N random ASCII characters | `<rc 7>` |
-| `<rd N>` | N random digits | `<rd 2>` |
-
-::: tip Protocol Selection
-Different protocols (quic, dns, dtls, stun) generate different I1-I5 patterns to mimic specific protocol traffic. Use `--protocol` flag during export to select the obfuscation style.
+::: tip
+Every time you export a peer, new I1-I5 CPS strings are generated. This means re-exporting produces different obfuscation patterns, which is useful if you suspect the current patterns have been fingerprinted.
 :::
 
+## Step 4: Apply the Configuration on the Server
+
+Copy the `awg0.conf` file to your server and bring up the AmneziaWG interface:
+
+```shell
+awg-quick up awg0
+```
+
+This will:
+- Create the `awg0` tunnel interface
+- Apply the iptables rules from `PostUp`
+- Start listening on the configured port
+
+::: warning
+The exact command depends on your AmneziaWG installation. It may be `awg-quick up awg0`, `wg-quick up awg0` (if AmneziaWG patches `wg-quick`), or a systemd service. Consult your AmneziaWG distribution's documentation.
+:::
+
+Make sure your firewall allows traffic on the listen port:
+
+```shell
+ufw allow 34821/udp
+```
+
+## Step 5: Apply the Configuration on the Client
+
+Transfer the exported `laptop.conf` file to the client device. Then:
+
+- **Desktop (AmneziaWG client app):** Import `laptop.conf` through the app's GUI
+- **Mobile (AmneziaVPN app):** Open the `.conf` file or scan a QR code generated from it
+- **CLI (awg-quick):** Copy `laptop.conf` to the client machine and run:
+
+```shell
+awg-quick up laptop
+```
+
+The client will connect to the server at the endpoint address, establish an obfuscated tunnel, and route all traffic through the VPN.
+
+## Optional: Managing Peers
+
+### List All Peers
+
+```shell
+amnezigo list
+```
+
+```
+NAME      IP              CREATED
+laptop    10.8.0.2/32     2026-03-29 12:00
+phone     10.8.0.50/32    2026-03-29 12:01
+```
+
+### Remove a Peer
+
+```shell
+amnezigo remove laptop
+```
+
+```
+Peer 'laptop' removed successfully
+```
+
+This removes the peer's `[Peer]` section from the server config. The client's `laptop.conf` file is **not** deleted automatically — you must remove it manually.
+
+::: danger
+After removing a peer, you must restart the AmneziaWG service for the change to take effect. The removed peer will still be able to connect until the server reloads its configuration.
+:::
+
+### Edit Server Configuration
+
+Enable or disable client-to-client traffic:
+
+```shell
+amnezigo edit --client-to-client true
+```
+
+```
+✓ Configuration updated
+  Restart AmneziaWG service to apply changes
+```
+
+When disabling client-to-client, Amnezigo prints the iptables command you need to run immediately to remove the forwarding rule:
+
+```shell
+amnezigo edit --client-to-client false
+```
+
+```
+Run this command to disable client-to-client immediately:
+  iptables -D FORWARD -i awg0 -o awg0 -j ACCEPT
+
+✓ Configuration updated
+  Restart AmneziaWG service to apply changes
+```
 ---
 ---
 url: /cli-reference
 ---
 # CLI Reference
 
-Complete reference for all Amnezigo CLI commands and flags.
-
-## Global Flags
-
-The following flag is available on all commands that operate on a configuration file:
-
-| Flag | Default | Required | Description |
-|------|---------|----------|-------------|
-| `--config` | `awg0.conf` | No | Path to the server configuration file |
+Complete reference for all `amnezigo` CLI commands.
 
 ## amnezigo init
 
-Initialize a new AmneziaWG server configuration. Generates server keypair, preshared key, obfuscation parameters, and iptables rules.
+Initialize a new AmneziaWG v2.0 server configuration. Generates server keypair, obfuscation parameters, iptables rules, and writes the config file.
 
 ```shell
-amnezigo init --ipaddr 10.8.0.1/24 [--port 55424] [--mtu 1280]
+amnezigo init --ipaddr 10.8.0.1/24
 ```
 
-| Flag | Default | Required | Description |
-|------|---------|----------|-------------|
-| `--ipaddr` | - | Yes | Server IP address with subnet (e.g., `10.8.0.1/24`) |
-| `--port` | random (10000-65535) | No | UDP listen port |
-| `--mtu` | `1280` | No | MTU size for the tunnel interface |
-| `--dns` | `1.1.1.1, 8.8.8.8` | No | DNS servers (comma-separated) |
-| `--keepalive` | `25` | No | Persistent keepalive interval in seconds |
-| `--client-to-client` | `false` | No | Allow client-to-client traffic |
-| `--iface` | auto-detect | No | Main network interface for NAT |
-| `--iface-name` | `awg0` | No | WireGuard tunnel interface name |
-| `--endpoint-v4` | auto-detect | No | IPv4 endpoint address (e.g., `1.2.3.4:51820`) |
-| `--endpoint-v6` | - | No | IPv6 endpoint address (e.g., `[2001:db8::1]:51820`) |
-| `--config` | `awg0.conf` | No | Server config file path |
+```shell
+amnezigo init --ipaddr 10.8.0.1/24 --port 51820 --mtu 1280 --iface-name awg0 --endpoint-v4 1.2.3.4
+```
 
-::: warning Silently Ignored Flags
-The `--dns` and `--keepalive` flags are accepted for CLI compatibility but are **not stored in the server configuration**. These values are hardcoded in exported client configs:
-- DNS is always `1.1.1.1, 8.8.8.8`
-- Keepalive is always `25` seconds
+| Flag | Type | Default | Required | Description |
+|------|------|---------|----------|-------------|
+| `--ipaddr` | string | `""` | yes | Server IP address with subnet (CIDR), e.g. `10.8.0.1/24` |
+| `--port` | int | `0` | no | Listen port. `0` means random port in range 10000–65535 |
+| `--mtu` | int | `1280` | no | MTU size |
+| `--dns` | string | `"1.1.1.1, 8.8.8.8"` | no | DNS servers (comma-separated) |
+| `--keepalive` | int | `25` | no | Persistent keepalive interval in seconds |
+| `--client-to-client` | bool | `false` | no | Allow client-to-client traffic |
+| `--iface` | string | `""` | no | Main network interface. Empty = auto-detect |
+| `--iface-name` | string | `"awg0"` | no | Tunnel interface name |
+| `--endpoint-v4` | string | `""` | no | IPv4 endpoint. Empty = auto-detect via ipv4.icanhazip.com |
+| `--endpoint-v6` | string | `""` | no | IPv6 endpoint. Empty = auto-detect via ipv6.icanhazip.com |
+| `--config` | string | `"awg0.conf"` | no | Server config file path |
+
+::: warning
+The `--dns` and `--keepalive` flags are **silently ignored**. DNS is always hardcoded to `"1.1.1.1, 8.8.8.8"` and keepalive to `25` in exported client configs. These flags exist on the command but have no effect on the generated configuration.
 :::
+
+### Output
+
+On success, prints the config path, server IP, listen port, main interface, and detected endpoints.
+
+### Endpoint Auto-Detection
+
+When `--endpoint-v4` is omitted, the command fetches the server's public IPv4 from `https://ipv4.icanhazip.com` (5s HTTP timeout) and appends the listen port. When `--endpoint-v6` is omitted, it fetches from `https://ipv6.icanhazip.com`. If auto-detection fails, the field is left empty in the config.
+
+## amnezigo add
+
+Add a new WireGuard peer to the server configuration. Generates a keypair and preshared key for the peer.
+
+```shell
+amnezigo add laptop
+```
+
+```shell
+amnezigo add phone --ipaddr 10.8.0.50
+```
+
+| Flag | Type | Default | Required | Description |
+|------|------|---------|----------|-------------|
+| `--ipaddr` | string | `""` | no | Peer IP address. Empty = auto-assign next available |
+| `--config` | string | `"awg0.conf"` | no | Server config file path |
+
+**Arguments:** Exactly 1 positional argument required — the peer name.
+
+- If `--ipaddr` is omitted, the next available IP in the server subnet is automatically assigned (scans `.2` to `.254`).
+- Duplicate peer names are rejected with an error.
+
+## amnezigo list
+
+List all configured peers in a table format.
+
+```shell
+amnezigo list
+```
+
+| Flag | Type | Default | Required | Description |
+|------|------|---------|----------|-------------|
+| `--config` | string | `"awg0.conf"` | no | Server config file path |
+
+**Output format:**
+
+```
+NAME      IP              CREATED
+--------------------------------------------------------------------
+laptop    10.8.0.2/32     2025-01-15 10:30
+phone     10.8.0.3/32     2025-01-16 14:22
+```
+
+Prints `"No peers configured"` if the server config has no peers.
+
+## amnezigo export
+
+Export one or all peer configurations as client config files. Each exported peer is written to `<peer-name>.conf` in the current directory.
+
+```shell
+amnezigo export laptop
+```
+
+```shell
+amnezigo export --protocol quic laptop
+```
+
+```shell
+amnezigo export
+```
+
+| Flag | Type | Default | Required | Description |
+|------|------|---------|----------|-------------|
+| `--protocol` | string | `"random"` | no | Obfuscation protocol: `random`, `quic`, `dns`, `dtls`, `stun` |
+| `--config` | string | `"awg0.conf"` | no | Server config file path |
+
+**Arguments:** 0 or 1 positional argument — the peer name. Omit to export all peers.
+
+### Protocol Options
+
+| Protocol | Behavior |
+|----------|----------|
+| `random` | Selects DTLS (deterministic: `len("random") % 4 = 2`) |
+| `quic` | QUIC protocol template |
+| `dns` | DNS protocol template |
+| `dtls` | DTLS protocol template |
+| `stun` | STUN protocol template |
+
+::: warning
+There is **no `--endpoint` flag**. The server endpoint is automatically resolved at export time. The resolution order is:
+1. Stored `#_EndpointV4` from server config
+2. Stored `#_EndpointV6` from server config
+3. HTTP fallback to `https://icanhazip.com`
+4. Final fallback: `"YOUR_SERVER_IP:<port>"`
+:::
+
+## amnezigo remove
+
+Remove a peer from the server configuration by name.
+
+```shell
+amnezigo remove laptop
+```
+
+| Flag | Type | Default | Required | Description |
+|------|------|---------|----------|-------------|
+| `--config` | string | `"awg0.conf"` | no | Server config file path |
+
+**Arguments:** Exactly 1 positional argument required — the peer name.
+
+Returns an error if the peer name is not found. The server config file is atomically updated (write to `.tmp`, then rename).
 
 ## amnezigo edit
 
-Edit server configuration parameters. Currently supports toggling client-to-client traffic.
+Edit server configuration parameters. Currently supports toggling client-to-client routing.
 
 ```shell
 amnezigo edit --client-to-client true
 ```
 
-| Flag | Default | Required | Description |
-|------|---------|----------|-------------|
-| `--client-to-client` | - | No | Enable/disable client-to-client traffic (`true` or `false`) |
-| `--config` | `awg0.conf` | No | Server config file path |
+```shell
+amnezigo edit --client-to-client false
+```
 
-::: tip Apply Changes
-After editing, restart the AmneziaWG service to apply the new iptables rules.
+| Flag | Type | Default | Required | Description |
+|------|------|---------|----------|-------------|
+| `--client-to-client` | string | `""` | no | Set to `"true"` or `"false"` to toggle client-to-client traffic |
+| `--config` | string | `"awg0.conf"` | no | Server config file path |
+
+When toggling client-to-client, the command regenerates `PostUp` and `PostDown` iptables rules. When disabling, it prints a manual `iptables -D` command to apply the change immediately without a full service restart. Prints `"No changes specified"` if no flags are provided.
+
+After editing, the AmneziaWG service must be restarted for changes to take effect.
+---
+---
+url: /server-config
+---
+# Server Configuration
+
+Field-by-field reference for the AmneziaWG server configuration file (`awg0.conf`). The file uses INI format with `[Interface]` and `[Peer]` sections, plus commented metadata fields prefixed with `#_`.
+
+## [Interface] Section
+
+> `PrivateKey`: string — Server X25519 private key, base64-encoded, 44 characters.
+
+> `PublicKey`: string — Server X25519 public key, base64-encoded, 44 characters. Optional in file; if absent, derived from PrivateKey at export time.
+
+> `Address`: string — Server IP address in CIDR notation, e.g. `"10.8.0.1/24"`. The server always uses `.1` in the subnet.
+
+> `ListenPort`: int — UDP listen port. Random 10000–65535 if not specified during init.
+
+> `MTU`: int — Maximum transmission unit. Default `1280`.
+
+> `PostUp`: string — iptables rules executed when the interface comes up. Multiple commands joined with `"; "`. Automatically generated based on tunnel name, main interface, subnet, and client-to-client setting.
+
+> `PostDown`: string — iptables teardown rules executed when the interface goes down. Mirror of PostUp with `-A` replaced by `-D`.
+
+> `Jc`: int — Junk packet count, range 0–10. Number of junk packets to insert.
+
+> `Jmin`: int — Minimum junk size in bytes, range 64–1024.
+
+> `Jmax`: int — Maximum junk size in bytes, range 64–1024. Must be greater than Jmin.
+
+> `S1`: int — Size prefix 1, range 0–64.
+
+> `S2`: int — Size prefix 2, range 0–64. Constraint: `S1 + 56 != S2` (prevents Init/Response size collision).
+
+> `S3`: int — Size prefix 3, range 0–64.
+
+> `S4`: int — Size prefix 4, range 0–32.
+
+> `H1`: string — Header range 1, format `"min-max"` with uint32 values, e.g. `"125122511-586986378"`.
+
+> `H2`: string — Header range 2, format `"min-max"`. Ranges are non-overlapping.
+
+> `H3`: string — Header range 3, format `"min-max"`. Ranges are non-overlapping.
+
+> `H4`: string — Header range 4, format `"min-max"`. Ranges are non-overlapping.
+
+## Metadata Comments
+
+Metadata is stored as commented fields with the `#_` prefix. These are parsed by Amnezigo but ignored by standard WireGuard implementations.
+
+> `#_EndpointV4`: string — IPv4 endpoint in `"ip:port"` format, e.g. `"195.181.175.130:38762"`. Auto-detected from ipv4.icanhazip.com during init.
+
+> `#_EndpointV6`: string — IPv6 endpoint in `"[ip]:port"` format, e.g. `"[2001:db8::1]:51820"`. Auto-detected from ipv6.icanhazip.com during init.
+
+> `#_ClientToClient`: string — `"true"` or `"false"`. Controls whether peers can communicate with each other.
+
+> `#_TunName`: string — Tunnel interface name, e.g. `"awg0"`.
+
+> `#_MainIface`: string — Main network interface for routing, e.g. `"eth0"` or `"enp8s0"`. Auto-detected during init.
+
+## [Peer] Section
+
+Each peer is a separate `[Peer]` section. The server config stores each peer's private key (for export purposes) alongside their public-facing WireGuard data.
+
+> `#_Name`: string — Peer display name (commented).
+
+> `#_PrivateKey`: string — Peer's X25519 private key, base64-encoded (commented). Stored so the peer's client config can be exported.
+
+> `PublicKey`: string — Peer's X25519 public key, base64-encoded.
+
+> `PresharedKey`: string — Preshared key for this peer, base64-encoded.
+
+> `AllowedIPs`: string — Peer's assigned IP in `/32` notation, e.g. `"10.8.0.2/32"`.
+
+> `#_GenKeyTime`: string — RFC3339 timestamp of when the peer was created (commented).
+
+## Complete Annotated Example
+
+```ini
+[Interface]
+PrivateKey = cDc8BEFLgZKvoa97qzrzGCj7qpq1QsT+cMZxhCXfc2s=
+PublicKey = 50NtzbCbMoF9B3dFBQOH3+pClZ5MG/sbeaic6vkbajo=
+Address = 10.8.0.1/24
+ListenPort = 38762
+MTU = 1280
+PostUp = iptables -A INPUT -i awg0 -j ACCEPT; iptables -A OUTPUT -o awg0 -j ACCEPT; iptables -A FORWARD -i awg0 -o enp8s0 -s 10.8.0.0/24 -j ACCEPT; iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT; iptables -A FORWARD -i enp8s0 -o awg0 -d 10.8.0.0/24 -m state --state ESTABLISHED,RELATED -j ACCEPT; iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o enp8s0 -j MASQUERADE
+PostDown = iptables -D INPUT -i awg0 -j ACCEPT; iptables -D OUTPUT -o awg0 -j ACCEPT; iptables -D FORWARD -i awg0 -o enp8s0 -s 10.8.0.0/24 -j ACCEPT; iptables -D FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT; iptables -D FORWARD -i enp8s0 -o awg0 -d 10.8.0.0/24 -m state --state ESTABLISHED,RELATED -j ACCEPT; iptables -t nat -D POSTROUTING -s 10.8.0.0/24 -o enp8s0 -j MASQUERADE
+Jc = 9
+Jmin = 173
+Jmax = 695
+S1 = 46
+S2 = 19
+S3 = 44
+S4 = 15
+H1 = 125122511-586986378
+H2 = 1615087736-1720071934
+H3 = 1807192457-1897370209
+H4 = 2071070011-2081515944
+#_EndpointV4 = 195.181.175.130:38762
+#_ClientToClient = false
+#_TunName = awg0
+#_MainIface = enp8s0
+
+[Peer]
+#_Name = laptop
+#_PrivateKey = WGp2mT5K8vN1xR4yF0aB3cD6eH7jK9lM2nO5pQ8sT0U=
+PublicKey = aB3cD6eH7jK9lM2nO5pQ8sT0UvW1xR4yF0aG5iJ8kL=
+PresharedKey = zY9wX2vC5bN8mQ1rT4eA7dF0gH3jK6lO9pS2uV5xI8=
+AllowedIPs = 10.8.0.2/32
+#_GenKeyTime = 2025-01-15T10:30:00Z
+
+[Peer]
+#_Name = phone
+#_PrivateKey = Q7wE3rT6yU9iO2pA5sD8fG1hJ4kL7mN0bV3cX6zY9a=
+PublicKey = fG1hJ4kL7mN0bV3cX6zY9aQ2wE5rT8yU1iO4pA7sD=
+PresharedKey = kL7mN0bV3cX6zY9aQ2wE5rT8yU1iO4pA7sD0fG3hJ=
+AllowedIPs = 10.8.0.3/32
+#_GenKeyTime = 2025-01-16T14:22:00Z
+```
+
+### Notes
+
+- The file uses atomic writes: content is written to `awg0.conf.tmp` first, then renamed to `awg0.conf`.
+- I1–I5 fields are **not present** in the server config. They are generated per-peer at export time.
+- Header ranges (H1–H4) are generated as non-overlapping ranges during init.
+- The `PostUp`/`PostDown` rules include NAT masquerade for internet access and optional FORWARD rules for client-to-client.
+---
+---
+url: /client-config
+---
+# Client Configuration
+
+Field-by-field reference for exported AmneziaWG client configuration files. Each peer export produces a `<peer-name>.conf` file with `[Interface]` and `[Peer]` sections.
+
+## [Interface] Section
+
+> `PrivateKey`: string — Peer's X25519 private key, base64-encoded, 44 characters. Retrieved from the server config's `#_PrivateKey` field.
+
+> `Address`: string — Peer's assigned IP in `/32` notation, e.g. `"10.8.0.2/32"`.
+
+> `DNS`: string — Always hardcoded to `"1.1.1.1, 8.8.8.8"`. This value cannot be changed.
+
+> `MTU`: int — Copied from the server's MTU setting.
+
+> `Jc`: int — Junk packet count, copied from server. Range 0–10.
+
+> `Jmin`: int — Minimum junk size in bytes, copied from server. Range 64–1024.
+
+> `Jmax`: int — Maximum junk size in bytes, copied from server. Range 64–1024.
+
+> `S1`: int — Size prefix 1, copied from server. Range 0–64.
+
+> `S2`: int — Size prefix 2, copied from server. Range 0–64.
+
+> `S3`: int — Size prefix 3, copied from server. Range 0–64.
+
+> `S4`: int — Size prefix 4, copied from server. Range 0–32.
+
+> `H1`: string — Header range 1, copied from server. Format `"min-max"`.
+
+> `H2`: string — Header range 2, copied from server. Format `"min-max"`.
+
+> `H3`: string — Header range 3, copied from server. Format `"min-max"`.
+
+> `H4`: string — Header range 4, copied from server. Format `"min-max"`.
+
+> `I1`: string — Custom packet string interval 1. Generated at export time using the selected protocol template. Unique per peer per export.
+
+> `I2`: string — Custom packet string interval 2. Generated at export time.
+
+> `I3`: string — Custom packet string interval 3. Generated at export time.
+
+> `I4`: string — Custom packet string interval 4. Generated at export time.
+
+> `I5`: string — Custom packet string interval 5. Generated at export time. **Often empty** — all four protocol templates (QUIC, DNS, DTLS, STUN) have an empty I5 field.
+
+## [Peer] Section
+
+> `PublicKey`: string — Server's X25519 public key. Derived from server's PrivateKey if PublicKey is not stored in the server config.
+
+> `PresharedKey`: string — Peer's preshared key, matching the one stored in the server config.
+
+> `Endpoint`: string — Resolved server endpoint in `"ip:port"` or `"[ipv6]:port"` format. Auto-resolved at export time.
+
+> `AllowedIPs`: string — Always hardcoded to `"0.0.0.0/0, ::/0"` (route all traffic through the tunnel).
+
+> `PersistentKeepalive`: int — Always hardcoded to `25` seconds.
+
+## Hardcoded Export Values
+
+These values are always the same in every exported client config and cannot be customized:
+
+| Field | Value |
+|-------|-------|
+| `DNS` | `1.1.1.1, 8.8.8.8` |
+| `AllowedIPs` | `0.0.0.0/0, ::/0` |
+| `PersistentKeepalive` | `25` |
+
+## Complete Annotated Example
+
+```ini
+[Interface]
+PrivateKey = WGp2mT5K8vN1xR4yF0aB3cD6eH7jK9lM2nO5pQ8sT0U=
+Address = 10.8.0.2/32
+DNS = 1.1.1.1, 8.8.8.8
+MTU = 1280
+Jc = 9
+Jmin = 173
+Jmax = 695
+S1 = 46
+S2 = 19
+S3 = 44
+S4 = 15
+H1 = 125122511-586986378
+H2 = 1615087736-1720071934
+H3 = 1807192457-1897370209
+H4 = 2071070011-2081515944
+I1 = <b 0x10><r 500><t><c>
+I2 = <b 0x13><r 1000><t><c>
+I3 = <b 0x08><r 200><t><c>
+I4 = <b 0x06><r 100><t><c>
+
+[Peer]
+PublicKey = 50NtzbCbMoF9B3dFBQOH3+pClZ5MG/sbeaic6vkbajo=
+PresharedKey = zY9wX2vC5bN8mQ1rT4eA7dF0gH3jK6lO9pS2uV5xI8=
+Endpoint = 195.181.175.130:38762
+AllowedIPs = 0.0.0.0/0, ::/0
+PersistentKeepalive = 25
+```
+
+### Notes
+
+- I1–I5 are **generated fresh at each export**. Exporting the same peer twice produces different CPS strings.
+- I5 is omitted from the file when empty (which is the case for all built-in protocol templates).
+- H1–H4 use the same ranges as the server — they are copied directly, not regenerated.
+- The obfuscation parameters (Jc, Jmin, Jmax, S1–S4, H1–H4) are shared between server and all clients. They must match for the tunnel to function.
+- Client config files are written with mode `0600` (owner read/write only).
+---
+---
+url: /peer-management
+---
+# Peer Management
+
+Workflow-oriented guide for managing WireGuard peers with Amnezigo.
+
+## Adding Peers
+
+### Auto-Assign IP
+
+Omit `--ipaddr` to let Amnezigo automatically assign the next available IP:
+
+```shell
+amnezigo add laptop
+```
+
+Output:
+```
+Peer 'laptop' added successfully
+  IP Address: 10.8.0.2/32
+  Public Key: aB3cD6eH7jK9lM2nO5pQ8sT0UvW1xR4yF0aG5iJ8kL=
+```
+
+### Manual IP Assignment
+
+Specify an explicit IP with `--ipaddr`:
+
+```shell
+amnezigo add phone --ipaddr 10.8.0.50
+```
+
+### Duplicate Name Prevention
+
+Peer names must be unique. Attempting to add a peer with an existing name returns an error:
+
+```shell
+amnezigo add laptop
+# Error: peer with name 'laptop' already exists
+```
+
+### IP Assignment Details
+
+- Auto-assign scans the subnet from `.2` to `.254`
+- `.1` is always reserved for the server
+- IPs already assigned to existing peers are skipped
+- IPv4 only — IPv6 subnets are not supported for auto-assignment
+
+## Listing Peers
+
+```shell
+amnezigo list
+```
+
+Output:
+```
+NAME      IP              CREATED
+--------------------------------------------------------------------
+laptop    10.8.0.2/32     2025-01-15 10:30
+phone     10.8.0.3/32     2025-01-16 14:22
+tablet    10.8.0.4/32     2025-01-20 09:15
+```
+
+The table shows three columns: peer name, assigned IP (with `/32` suffix), and creation timestamp. Prints `"No peers configured"` when the server has no peers.
+
+## Exporting Peer Configs
+
+### Export a Single Peer
+
+```shell
+amnezigo export laptop
+```
+
+Writes `laptop.conf` to the current directory.
+
+### Export All Peers
+
+```shell
+amnezigo export
+```
+
+Writes a `.conf` file for every peer in the server config.
+
+### Select a Protocol
+
+```shell
+amnezigo export --protocol quic laptop
+```
+
+Available protocols: `random`, `quic`, `dns`, `dtls`, `stun`.
+
+::: tip
+The `random` protocol is **deterministic** — it always selects DTLS because `len("random") % 4 = 2`. Use an explicit protocol name if you need a specific one.
 :::
 
-## amnezigo client add
+### Endpoint Resolution
 
-Add a new client peer to the server configuration. Generates a keypair and assigns an IP address.
+There is no `--endpoint` flag. The endpoint is resolved automatically at export time in this order:
+
+1. **Stored EndpointV4** — the `#_EndpointV4` metadata field from the server config
+2. **Stored EndpointV6** — the `#_EndpointV6` metadata field
+3. **icanhazip.com** — HTTP fallback to `https://icanhazip.com`
+4. **Placeholder** — `"YOUR_SERVER_IP:<port>"` if all detection fails
+
+### Hardcoded Export Values
+
+These values are identical in every exported client config:
+
+| Field | Value | Notes |
+|-------|-------|-------|
+| `DNS` | `1.1.1.1, 8.8.8.8` | Cannot be changed via CLI |
+| `AllowedIPs` | `0.0.0.0/0, ::/0` | Routes all traffic through tunnel |
+| `PersistentKeepalive` | `25` | Cannot be changed via CLI |
+
+### Per-Peer CPS Strings
+
+I1–I5 custom packet strings are **generated fresh at each export**. Exporting the same peer twice produces different CPS values. I5 is typically empty for all built-in protocol templates.
+
+## Removing Peers
 
 ```shell
-amnezigo client add <name>
-amnezigo client add laptop
-amnezigo client add phone --ipaddr 10.8.0.50
+amnezigo remove laptop
 ```
 
-| Flag | Default | Required | Description |
-|------|---------|----------|-------------|
-| `--ipaddr` | auto-assign | No | Client IP address (e.g., `10.8.0.5`) |
-| `--config` | `awg0.conf` | No | Server config file path |
-
-**Arguments:**
-- `<name>` - Unique identifier for the client (required)
-
-## amnezigo client list
-
-List all configured clients in a table format.
-
-```shell
-amnezigo client list
+Output:
+```
+Peer 'laptop' removed successfully
 ```
 
-| Flag | Default | Required | Description |
-|------|---------|----------|-------------|
-| `--config` | `awg0.conf` | No | Server config file path |
+The peer is removed from the server config file. The server config is atomically updated (write to `.tmp`, then rename) to prevent corruption. The peer's exported `.conf` file on disk is **not** deleted automatically.
 
-**Output columns:** NAME, IP, CREATED
-
-## amnezigo client export
-
-Export client configuration(s) for use with WireGuard clients. Generates `.conf` files with obfuscation parameters.
+If the peer name does not exist:
 
 ```shell
-amnezigo client export <name>
-amnezigo client export laptop
-amnezigo client export laptop --protocol quic
-amnezigo client export
+amnezigo remove nonexistent
+# Error: peer 'nonexistent' not found
 ```
 
-| Flag | Default | Required | Description |
-|------|---------|----------|-------------|
-| `--protocol` | `random` | No | Obfuscation protocol: `random`, `quic`, `dns`, `dtls`, `stun` |
-| `--config` | `awg0.conf` | No | Server config file path |
+## Editing Server Config
 
-**Arguments:**
-- `<name>` - Client name to export (optional; if omitted, exports all clients)
+Currently, only the client-to-client toggle is supported:
 
-::: warning No --endpoint Flag
-The `client export` command does **not** have an `--endpoint` flag. The endpoint is automatically resolved in this order:
-
-1. **Stored IPv4 endpoint** - `EndpointV4` field from server config
-2. **Stored IPv6 endpoint** - `EndpointV6` field from server config
-3. **Auto-detected** - External IP via `icanhazip.com` HTTP service
-
-If no endpoint can be determined, the config will contain `YOUR_SERVER_IP` as a placeholder.
-:::
-
-## amnezigo client remove
-
-Remove a client from the server configuration.
+### Enable Client-to-Client
 
 ```shell
-amnezigo client remove <name>
-```
-
-| Flag | Default | Required | Description |
-|------|---------|----------|-------------|
-| `--config` | `awg0.conf` | No | Server config file path |
-
-**Arguments:**
-- `<name>` - Name of the client to remove (required)
-
-## amnezigo edge add
-
-Add a new edge server peer to the hub configuration. Edge servers connect to the hub as WireGuard clients.
-
-```shell
-amnezigo edge add <name>
-amnezigo edge add moscow
-amnezigo edge add berlin --ipaddr 10.8.0.50
-```
-
-| Flag | Default | Required | Description |
-|------|---------|----------|-------------|
-| `--ipaddr` | auto-assign | No | Edge IP address (e.g., `10.8.0.5`) |
-| `--config` | `awg0.conf` | No | Server config file path |
-
-**Arguments:**
-- `<name>` - Unique identifier for the edge server (required)
-
-## amnezigo edge list
-
-List all configured edge servers in a table format.
-
-```shell
-amnezigo edge list
-```
-
-| Flag | Default | Required | Description |
-|------|---------|----------|-------------|
-| `--config` | `awg0.conf` | No | Server config file path |
-
-**Output columns:** NAME, IP, CREATED
-
-## amnezigo edge export
-
-Export edge server configuration. Unlike `client export`, this command requires a name (no bulk export).
-
-```shell
-amnezigo edge export <name>
-amnezigo edge export moscow
-amnezigo edge export moscow --protocol quic
-```
-
-| Flag | Default | Required | Description |
-|------|---------|----------|-------------|
-| `--protocol` | `random` | No | Obfuscation protocol: `random`, `quic`, `dns`, `dtls`, `stun` |
-| `--config` | `awg0.conf` | No | Server config file path |
-
-**Arguments:**
-- `<name>` - Edge server name to export (required)
-
-::: tip Edge Config Differences
-Edge configs differ from client configs:
-- No `DNS` line (edge servers don't need DNS through the tunnel)
-- `AllowedIPs` is set to the hub IP only (e.g., `10.8.0.1/32`), not `0.0.0.0/0`
-:::
-
-## amnezigo edge remove
-
-Remove an edge server from the hub configuration.
-
-```shell
-amnezigo edge remove <name>
-```
-
-| Flag | Default | Required | Description |
-|------|---------|----------|-------------|
-| `--config` | `awg0.conf` | No | Server config file path |
-
-**Arguments:**
-- `<name>` - Name of the edge server to remove (required)
-
-## Common Patterns
-
-### New Server Setup
-
-Complete workflow to initialize a new AmneziaWG server and add the first client:
-
-```shell
-# Initialize server with custom subnet and port
-amnezigo init --ipaddr 10.8.0.1/24 --port 51820
-
-# Add first client
-amnezigo client add laptop
-
-# Export client config
-amnezigo client export laptop --protocol quic
-
-# The config file laptop.conf is now ready for the WireGuard client
-```
-
-### Adding Multiple Users
-
-Add and export multiple clients with different protocols:
-
-```shell
-# Add clients
-amnezigo client add alice
-amnezigo client add bob
-amnezigo client add charlie
-
-# Export with specific protocols per security requirement
-amnezigo client export alice --protocol quic
-amnezigo client export bob --protocol dns
-amnezigo client export charlie --protocol dtls
-```
-
-### Bulk Export All Clients
-
-Export all clients at once (useful after server changes):
-
-```shell
-# Export all clients with default random protocol
-amnezigo client export
-
-# Each client gets a <name>.conf file
-```
-
-### Rotating Client Configs
-
-Remove and re-add a client to generate new keys:
-
-```shell
-# Remove old config
-amnezigo client remove laptop
-
-# Add with same name (new keys generated)
-amnezigo client add laptop
-
-# Export new config
-amnezigo client export laptop
-```
-
-### Hub-and-Spoke with Edge Servers
-
-Set up a hub with edge server connections:
-
-```shell
-# Initialize hub
-amnezigo init --ipaddr 10.8.0.1/24
-
-# Add edge servers
-amnezigo edge add moscow
-amnezigo edge add berlin
-
-# Export edge configs
-amnezigo edge export moscow --protocol quic
-amnezigo edge export berlin --protocol quic
-
-# Add regular clients
-amnezigo client add alice
-amnezigo client export alice
-```
-
-### Enabling Client-to-Client Traffic
-
-Allow clients to communicate directly through the hub:
-
-```shell
-# Enable during init
-amnezigo init --ipaddr 10.8.0.1/24 --client-to-client
-
-# Or toggle after init
 amnezigo edit --client-to-client true
-
-# Restart service to apply iptables changes
-systemctl restart amneziawg
 ```
 
-### Custom Endpoint Configuration
+This regenerates the `PostUp` and `PostDown` iptables rules to include a FORWARD rule allowing traffic between peers on the tunnel interface.
 
-Set endpoints manually for servers behind NAT or with multiple IPs:
+### Disable Client-to-Client
 
 ```shell
-# Specify public endpoint manually
-amnezigo init --ipaddr 10.8.0.1/24 \
-  --endpoint-v4 203.0.113.50:51820 \
-  --endpoint-v6 "[2001:db8::50]:51820"
+amnezigo edit --client-to-client false
 ```
 
----
----
-url: /library-api
----
-# Library API
+Output:
+```
+Run this command to disable client-to-client immediately:
+  iptables -D FORWARD -i awg0 -o awg0 -j ACCEPT
 
-Amnezigo can be used as a Go library for managing AmneziaWG v2.0 configurations programmatically.
+✓ Configuration updated
+  Restart AmneziaWG service to apply changes
+```
 
-## Installation
+When disabling, a manual `iptables -D` command is printed so the change can be applied immediately without a full service restart.
+
+::: warning
+After running `amnezigo edit`, the AmneziaWG service must be restarted for the new iptables rules to take full effect.
+:::
+
+### No Changes
+
+If no flags are provided:
 
 ```shell
-go get github.com/Arsolitt/amnezigo
+amnezigo edit
 ```
 
-Import the root package:
-
-```go
-import "github.com/Arsolitt/amnezigo"
-```
-
-## Manager
-
-The `Manager` type provides high-level CRUD operations for server configurations, clients, and edges.
-
-### NewManager
-
-Creates a new Manager for the given config file path.
-
-```go
-func NewManager(configPath string) *Manager
-```
-
-**Parameters:**
-> `configPath`: string — Path to the server configuration file
-
-**Example:**
-```go
-manager := amnezigo.NewManager("/etc/amneziawg/awg0.conf")
-```
-
-### Load
-
-Reads and parses the server configuration from disk.
-
-```go
-func (m *Manager) Load() (ServerConfig, error)
-```
-
-**Returns:** `ServerConfig` — The parsed server configuration
-
-**Example:**
-```go
-cfg, err := manager.Load()
-if err != nil {
-    log.Fatalf("Failed to load config: %v", err)
-}
-```
-
-### Save
-
-Writes the server configuration to disk using atomic file writes.
-
-```go
-func (m *Manager) Save(cfg ServerConfig) error
-```
-
-**Parameters:**
-> `cfg`: ServerConfig — The configuration to save
-
-**Example:**
-```go
-if err := manager.Save(cfg); err != nil {
-    log.Fatalf("Failed to save config: %v", err)
-}
-```
-
-### AddClient
-
-Creates a new WireGuard peer with generated keys. If `ip` is empty, the next available IP in the server subnet is assigned automatically.
-
-```go
-func (m *Manager) AddClient(name, ip string) (PeerConfig, error)
-```
-
-**Parameters:**
-> `name`: string — Unique client name (stored as `#_Name` metadata)
-> `ip`: string — Optional explicit IP address; empty for auto-assignment
-
-**Returns:** `PeerConfig` — The newly created client configuration
-
-**Example:**
-```go
-// Auto-assign IP
-peer, err := manager.AddClient("laptop", "")
-if err != nil {
-    log.Fatal(err)
-}
-
-// Specify IP manually
-peer, err := manager.AddClient("desktop", "10.8.0.50")
-```
-
-### RemoveClient
-
-Removes a peer by name from the server configuration.
-
-```go
-func (m *Manager) RemoveClient(name string) error
-```
-
-**Parameters:**
-> `name`: string — The client name to remove
-
-**Example:**
-```go
-if err := manager.RemoveClient("laptop"); err != nil {
-    log.Printf("Failed to remove client: %v", err)
-}
-```
-
-### FindClient
-
-Returns a pointer to the peer with the given name.
-
-```go
-func (m *Manager) FindClient(name string) (*PeerConfig, error)
-```
-
-**Parameters:**
-> `name`: string — The client name to find
-
-**Returns:** `*PeerConfig` — Pointer to the client configuration
-
-**Example:**
-```go
-peer, err := manager.FindClient("laptop")
-if err != nil {
-    log.Printf("Client not found: %v", err)
-    return
-}
-fmt.Printf("Public Key: %s\n", peer.PublicKey)
-```
-
-### ListClients
-
-Returns all clients in the server configuration.
-
-```go
-func (m *Manager) ListClients() []PeerConfig
-```
-
-**Returns:** `[]PeerConfig` — Slice of all client configurations
-
-**Example:**
-```go
-peers := manager.ListClients()
-for _, peer := range peers {
-    fmt.Printf("Name: %s, IP: %s\n", peer.Name, peer.AllowedIPs)
-}
-```
-
-### ExportClient
-
-Generates a client configuration for the named peer using the specified protocol and endpoint.
-
-```go
-func (m *Manager) ExportClient(name, protocol, endpoint string) (ClientConfig, error)
-```
-
-**Parameters:**
-> `name`: string — The client name
-> `protocol`: string — Obfuscation protocol (`"quic"`, `"dns"`, `"dtls"`, `"stun"`, `"random"`)
-> `endpoint`: string — Server endpoint address (e.g., `"203.0.113.50:51820"`)
-
-**Returns:** `ClientConfig` — Complete client configuration ready for export
-
-**Example:**
-```go
-clientCfg, err := manager.ExportClient("laptop", "quic", "203.0.113.50:51820")
-if err != nil {
-    log.Fatal(err)
-}
-```
-
-### BuildClientConfig
-
-Constructs a full `ClientConfig` from a peer, protocol, and endpoint. Useful when you already have a `PeerConfig`.
-
-```go
-func (m *Manager) BuildClientConfig(peer PeerConfig, protocol, endpoint string) (ClientConfig, error)
-```
-
-**Parameters:**
-> `peer`: PeerConfig — The peer configuration
-> `protocol`: string — Obfuscation protocol
-> `endpoint`: string — Server endpoint address
-
-**Example:**
-```go
-peer, _ := manager.FindClient("laptop")
-clientCfg, err := manager.BuildClientConfig(*peer, "quic", "203.0.113.50:51820")
-```
-
-### AddEdge
-
-Creates a new edge peer with generated keys. Edge servers connect to the hub as WireGuard clients.
-
-```go
-func (m *Manager) AddEdge(name, ip string) (PeerConfig, error)
-```
-
-**Parameters:**
-> `name`: string — Unique edge name
-> `ip`: string — Optional explicit IP address; empty for auto-assignment
-
-**Returns:** `PeerConfig` — The newly created edge configuration
-
-**Example:**
-```go
-edge, err := manager.AddEdge("edge1", "")
-if err != nil {
-    log.Fatal(err)
-}
-```
-
-### RemoveEdge
-
-Removes an edge peer by name from the server configuration.
-
-```go
-func (m *Manager) RemoveEdge(name string) error
-```
-
-**Parameters:**
-> `name`: string — The edge name to remove
-
-**Example:**
-```go
-if err := manager.RemoveEdge("edge1"); err != nil {
-    log.Printf("Failed to remove edge: %v", err)
-}
-```
-
-### FindEdge
-
-Returns a pointer to the edge peer with the given name.
-
-```go
-func (m *Manager) FindEdge(name string) (*PeerConfig, error)
-```
-
-**Parameters:**
-> `name`: string — The edge name to find
-
-**Returns:** `*PeerConfig` — Pointer to the edge configuration
-
-**Example:**
-```go
-edge, err := manager.FindEdge("edge1")
-if err != nil {
-    log.Printf("Edge not found: %v", err)
-}
-```
-
-### ListEdges
-
-Returns all edge peers in the server configuration.
-
-```go
-func (m *Manager) ListEdges() []PeerConfig
-```
-
-**Returns:** `[]PeerConfig` — Slice of all edge configurations
-
-**Example:**
-```go
-edges := manager.ListEdges()
-for _, edge := range edges {
-    fmt.Printf("Edge: %s, IP: %s\n", edge.Name, edge.AllowedIPs)
-}
-```
-
-### BuildEdgeConfig
-
-Constructs a full `ClientConfig` for an edge peer. Edge configs route only to the hub IP and have no DNS.
-
-```go
-func (m *Manager) BuildEdgeConfig(name, protocol, endpoint string) (ClientConfig, error)
-```
-
-**Parameters:**
-> `name`: string — The edge name (looked up internally)
-> `protocol`: string — Obfuscation protocol
-> `endpoint`: string — Server endpoint address
-
-**Returns:** `ClientConfig` — Complete edge configuration
-
-**Example:**
-```go
-edgeCfg, err := manager.BuildEdgeConfig("edge1", "quic", "203.0.113.50:51820")
-```
-
-### ExportEdge
-
-Generates and serializes a client configuration for the named edge peer.
-
-```go
-func (m *Manager) ExportEdge(name, protocol, endpoint string) ([]byte, error)
-```
-
-**Parameters:**
-> `name`: string — The edge name
-> `protocol`: string — Obfuscation protocol
-> `endpoint`: string — Server endpoint address
-
-**Returns:** `[]byte` — Serialized configuration data
-
-**Example:**
-```go
-edgeData, err := manager.ExportEdge("edge1", "quic", "203.0.113.50:51820")
-if err != nil {
-    log.Fatal(err)
-}
-os.WriteFile("edge1.conf", edgeData, 0600)
-```
-
-## Config I/O
-
-### ParseServerConfig
-
-Parses a server configuration from an `io.Reader`.
-
-```go
-func ParseServerConfig(r io.Reader) (ServerConfig, error)
-```
-
-**Parameters:**
-> `r`: io.Reader — Reader containing INI-formatted config
-
-**Example:**
-```go
-file, _ := os.Open("awg0.conf")
-defer file.Close()
-
-cfg, err := amnezigo.ParseServerConfig(file)
-```
-
-### WriteServerConfig
-
-Writes a server configuration to an `io.Writer`.
-
-```go
-func WriteServerConfig(w io.Writer, cfg ServerConfig) error
-```
-
-**Parameters:**
-> `w`: io.Writer — Writer for output
-> `cfg`: ServerConfig — Configuration to write
-
-**Example:**
-```go
-var buf bytes.Buffer
-err := amnezigo.WriteServerConfig(&buf, cfg)
-```
-
-### WriteClientConfig
-
-Writes a client configuration to an `io.Writer`.
-
-```go
-func WriteClientConfig(w io.Writer, cfg ClientConfig) error
-```
-
-**Parameters:**
-> `w`: io.Writer — Writer for output
-> `cfg`: ClientConfig — Configuration to write
-
-**Example:**
-```go
-file, _ := os.Create("client.conf")
-defer file.Close()
-
-err := amnezigo.WriteClientConfig(file, clientCfg)
-```
-
-### LoadServerConfig
-
-Loads a server configuration from a file path.
-
-```go
-func LoadServerConfig(path string) (ServerConfig, error)
-```
-
-**Parameters:**
-> `path`: string — Path to the config file
-
-**Example:**
-```go
-cfg, err := amnezigo.LoadServerConfig("/etc/amneziawg/awg0.conf")
-```
-
-### SaveServerConfig
-
-Saves a server configuration to a file path using atomic writes (writes to `.tmp`, then renames).
-
-```go
-func SaveServerConfig(path string, cfg ServerConfig) error
-```
-
-**Parameters:**
-> `path`: string — Path to the config file
-> `cfg`: ServerConfig — Configuration to save
-
-**Example:**
-```go
-err := amnezigo.SaveServerConfig("/etc/amneziawg/awg0.conf", cfg)
-```
-
-## Key Generation
-
-### GenerateKeyPair
-
-Generates an X25519 key pair and returns base64 encoded strings.
-
-```go
-func GenerateKeyPair() (string, string)
-```
-
-**Returns:** `(privateKey, publicKey string)` — Both 44 characters (base64 encoded 32 bytes)
-
-::: danger Panics
-Panics if `crypto/rand` fails. Treated as an unrecoverable system error.
-:::
-
-**Example:**
-```go
-privateKey, publicKey := amnezigo.GenerateKeyPair()
-fmt.Printf("Private: %s\n", privateKey)
-fmt.Printf("Public: %s\n", publicKey)
-```
-
-### DerivePublicKey
-
-Derives a public key from a base64 encoded private key.
-
-```go
-func DerivePublicKey(privateKey string) string
+Output:
 ```
-
-**Parameters:**
-> `privateKey`: string — Base64 encoded private key
-
-**Returns:** `string` — 44 character base64 encoded public key
-
-::: danger Panics
-Panics on invalid base64 or wrong key length (must be 32 bytes).
-:::
-
-**Example:**
-```go
-publicKey := amnezigo.DerivePublicKey(privateKey)
-```
-
-### GeneratePSK
-
-Generates a preshared key for additional encryption.
-
-```go
-func GeneratePSK() string
-```
-
-**Returns:** `string` — 44 character base64 encoded key
-
-::: danger Panics
-Panics if `crypto/rand` fails.
-:::
-
-**Example:**
-```go
-psk := amnezigo.GeneratePSK()
-```
-
-## Obfuscation Generation
-
-### GenerateConfig
-
-Combines all obfuscation parameters into a client configuration.
-
-```go
-func GenerateConfig(protocol string, mtu, s1, jc int) ClientObfuscationConfig
-```
-
-**Parameters:**
-> `protocol`: string — Protocol for CPS generation
-> `mtu`: int — MTU value
-> `s1`: int — S1 prefix value
-> `jc`: int — Jc junk parameter
-
-**Returns:** `ClientObfuscationConfig` — Complete obfuscation config with I1-I5
-
-::: tip Note
-Uses point values for H1-H4 (same min/max), not ranges.
-:::
-
-**Example:**
-```go
-obf := amnezigo.GenerateConfig("quic", 1280, 15, 3)
-```
-
-### GenerateServerConfig
-
-Generates server obfuscation config (without I1-I5).
-
-```go
-func GenerateServerConfig(_, s1, jc int) ServerObfuscationConfig
-```
-
-**Parameters:**
-> `_`: int — First parameter is **ignored**
-> `s1`: int — S1 prefix value
-> `jc`: int — Jc junk parameter
-
-**Returns:** `ServerObfuscationConfig` — Server obfuscation config with H1-H4 ranges
-
-::: warning First Parameter Ignored
-The first parameter (protocol) is ignored. Server configs don't need protocol-specific I1-I5 values.
-:::
-
-**Example:**
-```go
-serverObf := amnezigo.GenerateServerConfig(0, 15, 3)
-```
-
-### GenerateHeaders
-
-Generates 4 non-overlapping non-zero headers.
-
-```go
-func GenerateHeaders() Headers
-```
-
-**Returns:** `Headers` — H1-H4 as point values (uint32)
-
-**Example:**
-```go
-headers := amnezigo.GenerateHeaders()
-fmt.Printf("H1: %d, H2: %d\n", headers.H1, headers.H2)
-```
-
-### GenerateSPrefixes
-
-Generates S1-S4 size prefixes with constraints.
-
-```go
-func GenerateSPrefixes() SPrefixes
-```
-
-**Returns:** `SPrefixes` — S1-S4 values
-
-::: tip Constraint
-S1+56 must NOT equal S2 to avoid Init/Response size collision.
-:::
-
-**Example:**
-```go
-prefixes := amnezigo.GenerateSPrefixes()
-```
-
-### GenerateJunkParams
-
-Generates Jc, Jmin, Jmax junk parameters.
-
-```go
-func GenerateJunkParams() JunkParams
-```
-
-**Returns:** `JunkParams` — Jc (0-10), Jmin, Jmax (64-1024, with Jmin < Jmax)
-
-**Example:**
-```go
-junk := amnezigo.GenerateJunkParams()
-```
-
-### GenerateCPS
-
-Generates I1-I5 custom packet strings based on protocol template.
-
-```go
-func GenerateCPS(protocol string, mtu, s1, _ int) (string, string, string, string, string)
-```
-
-**Parameters:**
-> `protocol`: string — Protocol name (`"quic"`, `"dns"`, `"dtls"`, `"stun"`, `"random"`)
-> `mtu`: int — MTU value
-> `s1`: int — S1 prefix value
-> `_`: int — Fourth parameter is **unused**
-
-**Returns:** `(I1, I2, I3, I4, I5 string)` — Five CPS strings
-
-**Example:**
-```go
-i1, i2, i3, i4, i5 := amnezigo.GenerateCPS("quic", 1280, 15, 0)
-```
-
-### GenerateHeaderRanges
-
-Generates 4 non-overlapping H1-H4 ranges.
-
-```go
-func GenerateHeaderRanges() [4]HeaderRange
-```
-
-**Returns:** `[4]HeaderRange` — Array of 4 non-overlapping min-max ranges
-
-::: danger Panics
-Panics if it fails to generate non-overlapping ranges after 1000 attempts.
-:::
-
-**Example:**
-```go
-ranges := amnezigo.GenerateHeaderRanges()
-fmt.Printf("H1: %d-%d\n", ranges[0].Min, ranges[0].Max)
-```
-
-## CPS Construction
-
-### BuildCPSTag
-
-Creates a CPS tag from a tag type and value.
-
-```go
-func BuildCPSTag(tagType, value string) string
-```
-
-**Parameters:**
-> `tagType`: string — Tag type (`"b"`, `"r"`, `"rc"`, `"rd"`, `"c"`, `"t"`)
-> `value`: string — Tag value
-
-**Tag Types:**
-| Type | Description | Example |
-|------|-------------|---------|
-| `b` | Bytes in hex | `BuildCPSTag("b", "0xc0ff")` → `<b 0xc0ff>` |
-| `r` | Random bytes | `BuildCPSTag("r", "16")` → `<r 16>` |
-| `rc` | Random ASCII chars | `BuildCPSTag("rc", "8")` → `<rc 8>` |
-| `rd` | Random digits | `BuildCPSTag("rd", "4")` → `<rd 4>` |
-| `c` | Counter | `BuildCPSTag("c", "")` → `<c>` |
-| `t` | Timestamp | `BuildCPSTag("t", "")` → `<t>` |
-
-**Example:**
-```go
-tag := amnezigo.BuildCPSTag("b", "0xc0ff")
-// Result: "<b 0xc0ff>"
-```
-
-### BuildCPS
-
-Concatenates multiple CPS tags into a single string.
-
-```go
-func BuildCPS(tags []string) string
-```
-
-**Parameters:**
-> `tags`: []string — Slice of tag strings
-
-**Example:**
-```go
-tags := []string{
-    amnezigo.BuildCPSTag("b", "0xc0ff"),
-    amnezigo.BuildCPSTag("r", "16"),
-    "<t>",
-}
-cps := amnezigo.BuildCPS(tags)
-// Result: "<b 0xc0ff><r 16><t>"
-```
-
-## Protocol Templates
-
-Protocol templates return `I1I5Template` containing tag specifications for each interval.
-
-### QUICTemplate
-
-Returns a template mimicking QUIC Initial packets.
-
-```go
-func QUICTemplate() I1I5Template
-```
-
-**Example:**
-```go
-quic := amnezigo.QUICTemplate()
-fmt.Printf("I1 tags: %+v\n", quic.I1)
-```
-
-### DNSTemplate
-
-Returns a template mimicking DNS Query packets.
-
-```go
-func DNSTemplate() I1I5Template
-```
-
-**Example:**
-```go
-dns := amnezigo.DNSTemplate()
-```
-
-### DTLSTemplate
-
-Returns a template mimicking DTLS 1.2 ClientHello packets.
-
-```go
-func DTLSTemplate() I1I5Template
-```
-
-**Example:**
-```go
-dtls := amnezigo.DTLSTemplate()
-```
-
-### STUNTemplate
-
-Returns a template mimicking STUN Binding Request packets.
-
-```go
-func STUNTemplate() I1I5Template
-```
-
-**Example:**
-```go
-stun := amnezigo.STUNTemplate()
-```
-
-## Network Helpers
-
-### IsValidIPAddr
-
-Checks if the given string is a valid IP address in CIDR notation.
-
-```go
-func IsValidIPAddr(ipaddr string) bool
-```
-
-**Parameters:**
-> `ipaddr`: string — IP address in CIDR notation
-
-**Example:**
-```go
-valid := amnezigo.IsValidIPAddr("10.8.0.1/24")  // true
-valid := amnezigo.IsValidIPAddr("invalid")      // false
-```
-
-### ExtractSubnet
-
-Extracts the subnet from an IP address in CIDR notation.
-
-```go
-func ExtractSubnet(ipaddr string) string
-```
-
-**Parameters:**
-> `ipaddr`: string — IP address in CIDR notation
-
-**Returns:** `string` — Subnet in CIDR notation
-
-**Example:**
-```go
-subnet := amnezigo.ExtractSubnet("10.8.0.1/24")  // "10.8.0.0/24"
-```
-
-### GenerateRandomPort
-
-Generates a random port number in the range [10000, 65535].
-
-```go
-func GenerateRandomPort() (int, error)
-```
-
-**Returns:** `(int, error)` — Random port or error
-
-**Example:**
-```go
-port, err := amnezigo.GenerateRandomPort()
-if err != nil {
-    log.Fatal(err)
-}
-fmt.Printf("Port: %d\n", port)  // e.g., 52847
-```
-
-### DetectMainInterface
-
-Returns the name of the first non-loopback network interface that is up and has at least one address.
-
-```go
-func DetectMainInterface() string
-```
-
-**Returns:** `string` — Interface name or empty string if none found
-
-**Example:**
-```go
-iface := amnezigo.DetectMainInterface()
-fmt.Printf("Main interface: %s\n", iface)  // e.g., "eth0"
-```
-
-### FindNextAvailableIP
-
-Finds the next available IP address in the subnet, skipping existing IPs.
-
-```go
-func FindNextAvailableIP(serverAddress string, existingIPs []string) (string, error)
-```
-
-**Parameters:**
-> `serverAddress`: string — Server address in CIDR notation (defines subnet)
-> `existingIPs`: []string — IPs already in use
-
-**Returns:** `(string, error)` — Next available IP or error
-
-**Example:**
-```go
-existingIPs := []string{"10.8.0.1", "10.8.0.2"}
-ip, err := amnezigo.FindNextAvailableIP("10.8.0.1/24", existingIPs)
-// ip = "10.8.0.3"
-```
-
-## iptables Rules
-
-### GeneratePostUp
-
-Generates iptables rules to set up the VPN interface for routing.
-
-```go
-func GeneratePostUp(tunName, mainIface, subnet string, clientToClient bool) string
-```
-
-**Parameters:**
-> `tunName`: string — Tunnel interface name (e.g., `"awg0"`)
-> `mainIface`: string — Main network interface (e.g., `"eth0"`)
-> `subnet`: string — VPN subnet in CIDR notation
-> `clientToClient`: bool — Whether to allow client-to-client traffic
-
-**Returns:** `string` — iptables commands joined with `"; "`
-
-**Example:**
-```go
-postUp := amnezigo.GeneratePostUp("awg0", "eth0", "10.8.0.0/24", false)
-// Result: "iptables -A INPUT -i awg0 -j ACCEPT; iptables -A OUTPUT -o awg0 -j ACCEPT; ..."
-```
-
-### GeneratePostDown
-
-Generates iptables rules to tear down the VPN interface routing.
-
-```go
-func GeneratePostDown(tunName, mainIface, subnet string, clientToClient bool) string
-```
-
-**Parameters:**
-> `tunName`: string — Tunnel interface name
-> `mainIface`: string — Main network interface
-> `subnet`: string — VPN subnet in CIDR notation
-> `clientToClient`: bool — Whether client-to-client rules were added
-
-**Returns:** `string` — iptables delete commands joined with `"; "`
-
-**Example:**
-```go
-postDown := amnezigo.GeneratePostDown("awg0", "eth0", "10.8.0.0/24", false)
-// Uses -D (delete) instead of -A (append)
+No changes specified
 ```
-
 ---
 ---
-url: /type-reference
+url: /obfuscation
 ---
-# Type Reference
+# Obfuscation Parameters
 
-Complete reference for all types used in the Amnezigo library.
+Detailed reference for all obfuscation parameters used by AmneziaWG. Parameters fall into two categories: server-side (stored in the server config's `[Interface]` section) and client-side (generated at export time and written to each peer's client config).
 
-## ServerConfig
+## Server-Side Parameters
 
-Represents the full WireGuard server configuration.
+These parameters are stored in the server configuration file and shared with all peers. They are generated by `GenerateServerConfig()`.
 
-```go
-type ServerConfig struct {
-    Clients     []PeerConfig
-    Edges       []PeerConfig
-    Interface   InterfaceConfig
-    Obfuscation ServerObfuscationConfig
-}
-```
+### Junk Packet Parameters
 
-**Fields:**
-> `Clients`: []PeerConfig — List of client peers
-> `Edges`: []PeerConfig — List of edge peers
-> `Interface`: InterfaceConfig — Server interface settings
-> `Obfuscation`: ServerObfuscationConfig — Server obfuscation parameters
+> `\`Jc\`: int (0–10)`
 
-## InterfaceConfig
+Number of junk packets injected per real packet. Higher values increase overhead but improve resistance to traffic analysis.
 
-Represents the `[Interface]` section of a WireGuard server config.
+> `\`Jmin\`: int (64–1024)`
 
-```go
-type InterfaceConfig struct {
-    PrivateKey     string
-    PublicKey      string
-    Address        string
-    PostUp         string
-    PostDown       string
-    MainIface      string
-    TunName        string
-    EndpointV4     string
-    EndpointV6     string
-    ListenPort     int
-    MTU            int
-    ClientToClient bool
-}
-```
+Minimum size of each junk packet in bytes.
 
-**Fields:**
-> `PrivateKey`: string — Server's private key (base64)
-> `PublicKey`: string — Server's public key (base64, optional in config)
-> `Address`: string — Server IP address in CIDR notation (e.g., `"10.8.0.1/24"`)
-> `PostUp`: string — Command to run on interface up
-> `PostDown`: string — Command to run on interface down
-> `MainIface`: string — Main network interface for NAT (stored as `#_MainIface`)
-> `TunName`: string — Tunnel interface name (stored as `#_TunName`)
-> `EndpointV4`: string — IPv4 endpoint (stored as `#_EndpointV4`)
-> `EndpointV6`: string — IPv6 endpoint (stored as `#_EndpointV6`)
-> `ListenPort`: int — UDP listen port
-> `MTU`: int — Maximum transmission unit
-> `ClientToClient`: bool — Allow client-to-client traffic (stored as `#_ClientToClient`)
+> `\`Jmax\`: int (64–1024)`
 
-## PeerConfig
+Maximum size of each junk packet in bytes.
 
-Represents a `[Peer]` section of a WireGuard server config. Used for both clients and edges.
-
-```go
-type PeerConfig struct {
-    CreatedAt         time.Time
-    ClientObfuscation *ClientObfuscationConfig
-    Name              string
-    Role              string
-    PrivateKey        string
-    PublicKey         string
-    PresharedKey      string
-    AllowedIPs        string
-}
-```
-
-**Fields:**
-> `CreatedAt`: time.Time — When the peer was created (stored as `#_GenKeyTime`)
-> `ClientObfuscation`: *ClientObfuscationConfig — Optional client-specific obfuscation
-> `Name`: string — Peer name (stored as `#_Name`)
-> `Role`: string — Peer role: `"client"` or `"edge"` (stored as `#_Role`, required)
-> `PrivateKey`: string — Peer's private key (stored as `#_PrivateKey`)
-> `PublicKey`: string — Peer's public key (standard WireGuard field)
-> `PresharedKey`: string — Preshared key for additional encryption
-> `AllowedIPs`: string — IP address with CIDR (e.g., `"10.8.0.2/32"`)
-
-::: warning Required Field
-Every `[Peer]` section must have `#_Role = client` or `#_Role = edge`. The parser returns an error if missing or invalid.
+::: warning
+`Jmin` must be strictly less than `Jmax`. If random generation produces equal values, `Jmax` is incremented by 1.
 :::
 
-## ServerObfuscationConfig
+### Size Prefixes
 
-Represents server-side obfuscation parameters.
+> `\`S1\`: int (0–64)`
+
+Size prefix 1. Passed as a parameter to `GenerateServerConfig()` and `GenerateConfig()` (not randomly generated).
+
+> `\`S2\`: int (0–64)`
+
+Size prefix 2.
+
+> `\`S3\`: int (0–64)`
+
+Size prefix 3.
+
+> `\`S4\`: int (0–32)`
+
+Size prefix 4. Note the smaller range compared to S1–S3.
+
+::: warning
+Constraint: `S1 + 56 != S2`. This avoids an Init/Response packet size collision. Generation retries until this constraint is satisfied.
+:::
+
+### Header Ranges (H1–H4)
+
+> `\`H1\`, \`H2\`, \`H3\`, \`H4\`: HeaderRange{Min, Max}`
+
+Four non-overlapping header value ranges used for packet obfuscation.
+
+Constraints:
+- Min >= 5 (`headerMinValue`)
+- Max <= 2,147,483,647 (`0x7FFFFFFF`, `headerMaxValue`)
+- Each range spans at least 10,000,000 values (`headerMinRange`)
+- Ranges are non-overlapping (sorted by Min after generation)
+
+Written in config files as `"min-max"` string format:
+
+```ini
+H1 = 191091632-238083235
+H2 = 456789012-567890123
+H3 = 890123456-987654321
+H4 = 1234567890-1345678901
+```
+
+## Client-Side Parameters
+
+Generated at export time (not stored in the server config). Each peer receives unique values for I1–I5.
+
+> `\`I1\`, \`I2\`, \`I3\`, \`I4\`, \`I5\`: string`
+
+Custom Packet Strings (CPS) — five interval definitions. See [/cps](/cps) for full detail.
+
+All server-side parameters (Jc, Jmin, Jmax, S1–S4, H1–H4) are copied to the client config unchanged.
+
+## Generation Functions
+
+### `GenerateServerConfig(protocol_ignored, s1, jc)`
+
+Returns `ServerObfuscationConfig`. Generates server obfuscation with **true ranges** for H1–H4 (Min < Max). The first argument (`protocol`) is ignored. Uses `GenerateHeaderRanges()` for H1–H4, `GenerateSPrefixes()` for S2–S4, and `GenerateJunkParams()` for Jc/Jmin/Jmax. S1 and Jc are taken from the caller's parameters.
+
+### `GenerateConfig(protocol, mtu, s1, jc)`
+
+Returns `ClientObfuscationConfig`. Generates client obfuscation with **point ranges** for H1–H4 (Min == Max). Also generates I1–I5 CPS strings via the protocol template. Uses `GenerateHeaders()` for H1–H4 point values.
+
+::: warning
+**Key difference:** `GenerateConfig` uses point ranges (Min==Max) for H1–H4, while `GenerateServerConfig` uses true ranges (Min<Max). This is noted as a TODO in the source code at `generator.go:139–142`.
+:::
+
+### `GenerateHeaders()`
+
+Returns `Headers{H1, H2, H3, H4}`. Generates 4 non-overlapping point values by dividing the uint32 space into 4 regions:
+- Region 1: `0x00000001` – `0x3FFFFFFE`
+- Region 2: `0x40000000` – `0x7FFFFFFE`
+- Region 3: `0x80000000` – `0xBFFFFFFE`
+- Region 4: `0xC0000000` – `0xFFFFFFFE`
+
+### `GenerateHeaderRanges()`
+
+Returns `[4]HeaderRange`. Generates 4 non-overlapping ranges with Min >= 5 and Max <= 0x7FFFFFFF. Each range spans at least 10,000,000 values. Tries up to 1000 attempts; panics on failure.
+
+### `GenerateSPrefixes()`
+
+Returns `SPrefixes{S1, S2, S3, S4}`. Generates S4 in range [0, 32] and S1–S3 in range [0, 64] with the constraint S1+56 != S2 (retries on collision).
+
+### `GenerateJunkParams()`
+
+Returns `JunkParams{Jc, Jmin, Jmax}`. Generates Jc in [0, 10], Jmin and Jmax in [64, 1024]. If Jmin >= Jmax, swaps them; if still equal, increments Jmax by 1.
+
+### `GenerateCPS(protocol, mtu, s1, _unused)`
+
+Returns `(I1, I2, I3, I4, I5 string)`. Delegates to `generateCPSConfig()`. The 4th argument is unused. See [/cps](/cps) for detail.
+
+## Type Definitions
 
 ```go
+type HeaderRange struct {
+    Min, Max uint32
+}
+
 type ServerObfuscationConfig struct {
     Jc, Jmin, Jmax int
     S1, S2, S3, S4 int
     H1, H2, H3, H4 HeaderRange
 }
-```
 
-**Fields:**
-> `Jc`: int — Junk packet count (0-10)
-> `Jmin`: int — Minimum junk packet size (64-1024)
-> `Jmax`: int — Maximum junk packet size (64-1024, must be > Jmin)
-> `S1`: int — Init packet size prefix (0-64)
-> `S2`: int — Response packet size prefix (0-64)
-> `S3`: int — Cookie packet size prefix (0-64)
-> `S4`: int — Transport packet size prefix (0-32)
-> `H1`, `H2`, `H3`, `H4`: HeaderRange — Header value ranges
-
-## ClientObfuscationConfig
-
-Represents client-side obfuscation parameters, extending `ServerObfuscationConfig` with I1-I5 CPS strings.
-
-```go
 type ClientObfuscationConfig struct {
-    I1 string
-    I2 string
-    I3 string
-    I4 string
-    I5 string
-
+    I1, I2, I3, I4, I5 string
     ServerObfuscationConfig
 }
 ```
+---
+---
+url: /protocols
+---
+# Obfuscation Protocols
 
-**Fields:**
-> `I1`: string — First interval CPS string
-> `I2`: string — Second interval CPS string
-> `I3`: string — Third interval CPS string
-> `I4`: string — Fourth interval CPS string
-> `I5`: string — Fifth interval CPS string
-> `ServerObfuscationConfig` — Embedded server obfuscation (Jc, Jmin, Jmax, S1-S4, H1-H4)
+Reference for the four obfuscation protocol templates and the protocol selection mechanism.
+
+## Protocol Selection
+
+`getTemplate(protocol)` in `protocols.go` dispatches to the appropriate template:
+
+| Protocol | Template Function |
+|----------|-------------------|
+| `"quic"` | `QUICTemplate()` |
+| `"dns"` | `DNSTemplate()` |
+| `"dtls"` | `DTLSTemplate()` |
+| `"stun"` | `STUNTemplate()` |
+| `"random"` or unknown | `protocols[len(protocol)%4]()` |
+
+::: warning
+The "random" protocol selection is **deterministic**, not random. `len("random") = 6`, and `6 % 4 = 2`, which always selects `DTLSTemplate()`. Use an explicit protocol name if you need a specific protocol.
+:::
+
+Each protocol defines five intervals (I1–I5) as `[]TagSpec`. I5 is always empty for all protocols.
+
+## QUIC
+
+**File:** `quic.go`
+**Mimics:** QUIC Initial packets (Long Header form)
+
+Structure: Long Header type byte, Version 1 (`0x00000001`), 8-byte Destination Connection ID (random), Source Connection ID length 0, Token length 0, Length field, Packet Number, timestamp, random payload.
+
+### I1 (~64 bytes)
+
+Full QUIC Initial with 40-byte random payload:
+
+| Tag | Value | Description |
+|-----|-------|-------------|
+| `bytes` | `0xc0ff` | Long Header form with type bits |
+| `bytes` | `0x00000001` | Version 1 |
+| `bytes` | `0x08` | DCID length: 8 |
+| `random` | 8 | Random DCID |
+| `bytes` | `0x00` | SCID length: 0 |
+| `bytes` | `0x00` | Token length: 0 |
+| `bytes` | `0x0040` | Length: ~64 bytes |
+| `bytes` | `0x00` | Packet number length |
+| `bytes` | `0x01` | Packet number |
+| `timestamp` | — | Timestamp |
+| `random` | 40 | Random payload |
+
+### I2 (~32 bytes)
+
+Shorter variation with 20-byte payload. Same header structure, Length `0x0020`.
+
+### I3 (~16 bytes)
+
+Minimal payload variant with 10-byte payload. Length `0x0010`.
+
+### I4 (~5 bytes)
+
+Smallest valid QUIC Initial with 5-byte payload. Length `0x0005`.
+
+### I5
+
+Empty.
+
+## DNS
+
+**File:** `dns.go`
+**Mimics:** DNS standard queries (RFC 1035)
+
+Structure: Transaction ID, Flags (standard query, recursion desired), Questions=1, Answer/Authority/Additional RRs=0, query name with DNS label encoding, Query Type A (`0x0001`), Query Class IN (`0x0001`).
+
+### I1 (3-label domain)
+
+Mimics a query for `www.example.com`:
+
+| Tag | Value | Description |
+|-----|-------|-------------|
+| `random` | 2 | Transaction ID |
+| `bytes` | `0x0100` | Flags: standard query, RD |
+| `bytes` | `0x0001` | Questions: 1 |
+| `bytes` | `0x0000` | Answer RRs: 0 |
+| `bytes` | `0x0000` | Authority RRs: 0 |
+| `bytes` | `0x0000` | Additional RRs: 0 |
+| `bytes` | `0x03` | Label length: 3 |
+| `random_chars` | 3 | e.g., "www" |
+| `bytes` | `0x07` | Label length: 7 |
+| `random_chars` | 7 | e.g., "example" |
+| `bytes` | `0x03` | Label length: 3 |
+| `random_chars` | 3 | e.g., "com" |
+| `bytes` | `0x00` | Root label terminator |
+| `bytes` | `0x0001` | Query Type: A |
+| `bytes` | `0x0001` | Query Class: IN |
+
+### I2 (single-label domain)
+
+Single 4-char label domain. Uses `random_chars` for the label.
+
+### I3 (random digits domain)
+
+Uses `random_digits` for Transaction ID and a 2-digit label domain.
+
+### I4 (single-char domain)
+
+Shortest valid DNS query: single 1-char label.
+
+### I5
+
+Empty.
+
+## DTLS
+
+**File:** `dtls.go`
+**Mimics:** DTLS 1.2 ClientHello (RFC 6347)
+
+Structure:
+- Record Header: ContentType=22 (`0x16`), Version=`0xfefd`, Epoch=0, Sequence=0, Length
+- Handshake: Type=1 (ClientHello), Length, Message Sequence=0, Fragment Offset=0, Fragment Length
+- Body: Version=`0xfefd`, 4-byte timestamp + 28 random bytes, Session ID len=0, Cookie len=0, Cipher Suites, Compression=null
+
+### I1 (4 cipher suites)
+
+Full ClientHello with TLS cipher suites:
+
+| Section | Tags |
+|---------|------|
+| Record Header | `0x16`, `0xfefd`, `0x0000` (Epoch), `0x000000000000` (Seq), `0x0058` (Length) |
+| Handshake Header | `0x01` (ClientHello), `0x000054` (Length), `0x0000` (MsgSeq), `0x000000` (FragOff), `0x000054` (FragLen) |
+| ClientHello Body | `0xfefd` (Version), timestamp, 28 random bytes, `0x00` (SessionID), `0x00` (Cookie) |
+| Cipher Suites | `0x0010` (len), `0xcca8` (ECDHE_ECDSA_AES_256_GCM_SHA384), `0xcca9` (ECDHE_ECDSA_AES_128_GCM_SHA256), `0xcc02` (ECDHE_ECDSA_AES_256_CBC_SHA), `0xcc01` (ECDHE_ECDSA_AES_128_CBC_SHA) |
+| Compression | `0x01` (len), `0x00` (null) |
+
+### I2 (1 cipher suite)
+
+Same structure, shorter lengths. Single cipher suite `0xcca8`.
+
+### I3 (1 cipher suite, different suite)
+
+Same structure with cipher suite `0xc00c` (TLS_RSA_WITH_AES_128_CBC_SHA).
+
+### I4 (null cipher suite)
+
+Same structure with cipher suite `0x0000` (SSL_NULL_WITH_NULL_NULL).
+
+### I5
+
+Empty.
+
+## STUN
+
+**File:** `stun.go`
+**Mimics:** STUN Binding Request (RFC 5389)
+
+Structure: Message Type `0x0001`, Message Length, Magic Cookie `0x2112a442`, 12-byte random Transaction ID.
+
+### I1
+
+Standard Binding Request, no attributes (Message Length `0x0000`).
+
+### I2
+
+Binding Request with PADDING attribute (Type `0x0020`, Length `0x0000`, Message Length `0x0004`).
+
+### I3
+
+Same as I1 — standard Binding Request, no attributes.
+
+### I4
+
+Same as I1 — standard Binding Request, no attributes.
+
+### I5
+
+Empty.
+
+## MTU Constraint
+
+All CPS strings must fit within the maximum interval size. The constraint is:
+
+```
+maxISize = MTU - 49 - 149 - S1
+```
+
+- `49` = IP header (20 or 40 bytes) + UDP header (8 bytes) + 1 byte safety margin
+- `149` = fixed handshake size (148 + 1 byte safety margin)
+- `S1` = size prefix 1 value
+
+If a protocol template's CPS exceeds `maxISize`, tags are **progressively removed from the end** one at a time until it fits. The ultimate fallback is `<t>` (8 bytes, guaranteed to fit).
+
+Example: MTU=1280, S1=32 → maxISize = 1280 - 49 - 149 - 32 = 1050 bytes.
+---
+---
+url: /cps
+---
+# Custom Packet Strings (CPS)
+
+Complete reference for CPS tag syntax, assembly, and generation.
+
+## Overview
+
+Custom Packet Strings define the byte patterns used for each of the five obfuscation intervals (I1–I5). Each CPS is a sequence of tags that describe fixed bytes, random data, timestamps, or counters. CPS strings are generated at export time — each peer receives unique values.
+
+## Tag Types
+
+Tags are constructed by `BuildCPSTag(tagType, value)` and produce `<...>` formatted strings.
+
+| Tag | `tagType` | `value` | Syntax | Description | Byte Size |
+|-----|-----------|---------|--------|-------------|-----------|
+| bytes | `"b"` | hex string | `<b 0xHH...>` | Fixed bytes in hex | `len(hex) / 2` |
+| random | `"r"` | N (string) | `<r N>` | N random bytes | N |
+| random_chars | `"rc"` | N (string) | `<rc N>` | N random ASCII chars | N |
+| random_digits | `"rd"` | N (string) | `<rd N>` | N random digit chars | N |
+| counter | `"c"` | `""` | `<c>` | Counter (8 bytes) | 8 |
+| timestamp | `"t"` | `""` | `<t>` | Timestamp (8 bytes) | 8 |
+
+## Tag Construction
+
+`BuildCPSTag(tagType, value string) string` in `cps.go`:
+
+```go
+BuildCPSTag("b", "0xc0ff")    → "<b 0xc0ff>"
+BuildCPSTag("b", "c0ff")      → "<b 0xc0ff>"    // auto-prefixed with "0x"
+BuildCPSTag("r", "20")        → "<r 20>"
+BuildCPSTag("rc", "8")        → "<rc 8>"
+BuildCPSTag("rd", "4")        → "<rd 4>"
+BuildCPSTag("c", "")          → "<c>"
+BuildCPSTag("t", "")          → "<t>"
+BuildCPSTag("unknown", "")    → ""               // returns empty string
+```
+
+::: tip
+For `"b"` tags, if the value does not start with `"0x"`, the prefix is automatically added. Unknown tag types return an empty string.
+:::
+
+## CPS Assembly
+
+`BuildCPS(tags []string) string` joins tags with **no separator** (empty string join):
+
+```go
+BuildCPS([]string{"<b 0xc0ff>", "<r 8>", "<t>", "<r 40>"})
+→ "<b 0xc0ff><r 8><t><r 40>"
+```
+
+## Protocol Template Tag Mapping
+
+Protocol templates use long-form type names that map to short-form CPS tags via `mapTagType()`:
+
+| Template Type | CPS Tag |
+|---------------|---------|
+| `"bytes"` | `"b"` |
+| `"random"` | `"r"` |
+| `"random_chars"` | `"rc"` |
+| `"random_digits"` | `"rd"` |
+| `"counter"` | `"c"` |
+| `"timestamp"` | `"t"` |
+
+## CPS Length Calculation
+
+`calculateCPSLength(cps string) int` parses a CPS string and sums the byte sizes of all tags:
+
+- `<b 0xHH...>`: `len(hex_string) / 2` bytes
+- `<r N>`, `<rc N>`, `<rd N>`: N bytes each
+- `<t>`, `<c>`: 8 bytes each
+
+Regex patterns used:
+- Bytes: `<b\s+0x([0-9a-fA-F]+)>`
+- Counted: `<r[c|d]?\s+(\d+)>`
+- Fixed: `<[tc]>`
+
+## Random CPS Generation
+
+Used when `protocol == "random"`. Each interval independently generates random tags via `generateRandomTags()`:
+
+- **Tag count:** 3–6 tags per interval
+- **Uniqueness constraint:** At most one `<t>` tag per interval (timestamp is unique)
+- **`"b"` tags:** 4–16 bytes of random hex data
+- **`"r"`, `"rc"`, `"rd"` tags:** 5–40 random bytes/chars/digits
+- **Available tag types:** `["b", "r", "rc", "rd", "t"]` (counter `"c"` is not used in random mode)
+- **Fit attempts:** Up to 100 attempts to generate tags that fit within `maxISize`; falls back to `<t>` (8 bytes) on failure
+
+## MTU Constraint
+
+All CPS strings must satisfy:
+
+```
+maxISize = MTU - 49 - 149 - S1
+```
+
+| Component | Value | Description |
+|-----------|-------|-------------|
+| MTU | configured | Maximum Transmission Unit (default 1280) |
+| reserve | 49 | IP header + UDP header + safety margin |
+| handshakeSize | 149 | Fixed handshake overhead + safety margin |
+| S1 | generated | Size prefix 1 value |
+
+**Example:**
+
+```
+MTU = 1280, S1 = 32
+maxISize = 1280 - 49 - 149 - 32 = 1050
+```
+
+## MTU Validation and Fallback
+
+`buildAndValidateCPS(tags []TagSpec, maxSize int)` validates protocol template output:
+
+1. Build CPS from all tags
+2. If `calculateCPSLength(cps) < maxSize` → return it
+3. Otherwise, remove one tag from the end and retry
+4. If all tags removed → return `<t>` (8 bytes, guaranteed minimal fallback)
+
+## Type Definitions
+
+```go
+type TagSpec struct {
+    Type  string  // "bytes", "random", "random_chars", "random_digits", "counter", "timestamp"
+    Value string  // hex for "bytes", number for counted tags, "" for timestamp/counter
+}
+
+type I1I5Template struct {
+    I1, I2, I3, I4, I5 []TagSpec
+}
+
+type simpleTag struct {
+    Type  string  // "b", "r", "rc", "rd", "t", "c"
+    Value string  // hex for "b", number for "r"/"rc"/"rd", empty for "t"/"c"
+}
+
+type CPSConfig struct {
+    I1, I2, I3, I4, I5 string
+}
+```
+---
+---
+url: /iptables
+---
+# iptables Rules
+
+Reference for auto-generated iptables rules used in WireGuard `PostUp` and `PostDown` hooks.
+
+## Overview
+
+Amnezigo generates iptables rules for NAT masquerading and traffic forwarding. Rules are produced by `GeneratePostUp()` and `GeneratePostDown()` in `iptables.go`, joined with `"; "` for use in WireGuard config hooks.
+
+## PostUp Rules
+
+`GeneratePostUp(tunName, mainIface, subnet string, clientToClient bool) string`
+
+Rules are appended in order:
+
+| # | Rule | Purpose |
+|---|------|---------|
+| 1 | `iptables -A INPUT -i <tunName> -j ACCEPT` | Accept incoming traffic on tunnel interface |
+| 2 | `iptables -A OUTPUT -o <tunName> -j ACCEPT` | Accept outgoing traffic on tunnel interface |
+| 3 | `iptables -A FORWARD -i <tunName> -o <mainIface> -s <subnet> -j ACCEPT` | Forward from tunnel to internet |
+| 4 | `iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT` | Allow return traffic (any interface) |
+| 5 | `iptables -A FORWARD -i <mainIface> -o <tunName> -d <subnet> -m state --state ESTABLISHED,RELATED -j ACCEPT` | Allow return traffic to tunnel |
+| 6 | `iptables -A FORWARD -i <tunName> -o <tunName> -j ACCEPT` | Allow peer-to-peer traffic (only if `clientToClient == true`) |
+| 7 | `iptables -t nat -A POSTROUTING -s <subnet> -o <mainIface> -j MASQUERADE` | NAT masquerade for internet access |
+
+**Total:** 6 rules without client-to-client, 7 with.
+
+## PostDown Rules
+
+`GeneratePostDown(tunName, mainIface, subnet string, clientToClient bool) string`
+
+Identical rules to PostUp but with `-D` (delete) instead of `-A` (append). This tears down the forwarding and NAT rules when the WireGuard interface goes down.
+
+## Example Output
+
+Without client-to-client:
+
+```shell
+iptables -A INPUT -i awg0 -j ACCEPT; iptables -A OUTPUT -o awg0 -j ACCEPT; iptables -A FORWARD -i awg0 -o eth0 -s 10.8.0.0/24 -j ACCEPT; iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT; iptables -A FORWARD -i eth0 -o awg0 -d 10.8.0.0/24 -m state --state ESTABLISHED,RELATED -j ACCEPT; iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o eth0 -j MASQUERADE
+```
+
+With client-to-client (adds rule 6):
+
+```shell
+iptables -A INPUT -i awg0 -j ACCEPT; iptables -A OUTPUT -o awg0 -j ACCEPT; iptables -A FORWARD -i awg0 -o eth0 -s 10.8.0.0/24 -j ACCEPT; iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT; iptables -A FORWARD -i eth0 -o awg0 -d 10.8.0.0/24 -m state --state ESTABLISHED,RELATED -j ACCEPT; iptables -A FORWARD -i awg0 -o awg0 -j ACCEPT; iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o eth0 -j MASQUERADE
+```
+
+## Parameters
+
+| Parameter | Source | Default | Description |
+|-----------|--------|---------|-------------|
+| `tunName` | `--iface-name` flag | `"awg0"` | WireGuard tunnel interface name |
+| `mainIface` | `--iface` flag | auto-detected via `DetectMainInterface()` | Physical network interface for forwarding |
+| `subnet` | extracted from `--ipaddr` | — | VPN subnet (e.g., `"10.8.0.0/24"` from address `10.8.0.1/24`) |
+| `clientToClient` | derived from config | `false` | Whether to allow peer-to-peer traffic |
+
+## Security
+
+::: danger
+When `clientToClient` is `false`, there is **no** permissive `iptables -A FORWARD -i <tunName> -j ACCEPT` rule. Only specific subnet-forwarding and stateful rules are used. This prevents clients from reaching each other through the tunnel.
+:::
+
+The stateful tracking rules (rules 4 and 5) use `ESTABLISHED,RELATED` to allow only return traffic, not arbitrary forwarding. This is more restrictive than a blanket FORWARD accept.
+
+::: tip
+To enable client-to-client communication, set `clientToClient` to `true`. This adds rule 6 which allows unrestricted forwarding between tunnel peers (`-i awg0 -o awg0`).
+:::
+
+## In WireGuard Config
+
+The generated rules appear in the `[Interface]` section:
+
+```ini
+[Interface]
+PrivateKey = ...
+Address = 10.8.0.1/24
+ListenPort = 51820
+MTU = 1280
+PostUp = iptables -A INPUT -i awg0 -j ACCEPT; iptables -A OUTPUT -o awg0 -j ACCEPT; ...
+PostDown = iptables -D INPUT -i awg0 -j ACCEPT; iptables -D OUTPUT -o awg0 -j ACCEPT; ...
+```
+---
+---
+url: /library-api
+---
+# Go Library API
+
+Package: `github.com/Arsolitt/amnezigo`
+
+## Manager
+
+`manager.go`
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| NewManager | `(configPath string) *Manager` | Create manager for config file |
+| Load | `() (ServerConfig, error)` | Read and parse server config |
+| Save | `(cfg ServerConfig) error` | Write server config (atomic) |
+| AddPeer | `(name, ip string) (PeerConfig, error)` | Add peer (empty ip = auto-assign) |
+| RemovePeer | `(name string) error` | Remove peer by name |
+| FindPeer | `(name string) (*PeerConfig, error)` | Find peer by name |
+| ListPeers | `() []PeerConfig` | List all peers |
+| ExportPeer | `(name, protocol, endpoint string) (ClientConfig, error)` | Export peer config |
+| BuildPeerConfig | `(peer PeerConfig, protocol, endpoint string) (ClientConfig, error)` | Build client config from PeerConfig |
+
+```go
+mgr := amnezigo.NewManager("/path/to/server.conf")
+cfg, err := mgr.Load()
+peer, err := mgr.AddPeer("myphone", "") // auto-assign IP
+clientCfg, err := mgr.ExportPeer("myphone", "quic", "1.2.3.4:51820")
+```
+
+## Config I/O
+
+`parser.go`, `writer.go`
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| ParseServerConfig | `(r io.Reader) (ServerConfig, error)` | Parse from any reader |
+| WriteServerConfig | `(w io.Writer, cfg ServerConfig) error` | Write server config |
+| WriteClientConfig | `(w io.Writer, cfg ClientConfig) error` | Write client config |
+| LoadServerConfig | `(path string) (ServerConfig, error)` | Load from file |
+| SaveServerConfig | `(path string, cfg ServerConfig) error` | Save to file (atomic) |
+
+```go
+cfg, err := amnezigo.LoadServerConfig("server.conf")
+err = amnezigo.SaveServerConfig("server.conf", cfg)
+```
+
+## Key Generation
+
+`keys.go`
+
+| Function | Signature | Notes |
+|----------|-----------|-------|
+| GenerateKeyPair | `() (string, string)` | Returns (privateKey, publicKey). Panics on crypto/rand failure. Keys are 44-char base64. Applies WireGuard clamping. |
+| DerivePublicKey | `(privateKey string) string` | Panics on invalid base64 or wrong length. |
+| GeneratePSK | `() string` | 44-char base64. Panics on crypto/rand failure. |
+
+```go
+priv, pub := amnezigo.GenerateKeyPair()
+psk := amnezigo.GeneratePSK()
+derived := amnezigo.DerivePublicKey(priv) // same as pub
+```
+
+::: danger
+`GenerateKeyPair()`, `GeneratePSK()`, and `DerivePublicKey()` panic on failure. Only use when crypto/rand is available (not in sandboxed environments).
+:::
+
+## Obfuscation
+
+`generator.go`
+
+| Function | Signature | Notes |
+|----------|-----------|-------|
+| GenerateConfig | `(protocol string, mtu, s1, jc int) ClientObfuscationConfig` | Client config. H1-H4 are point ranges (Min==Max). |
+| GenerateServerConfig | `(_, s1, jc int) ServerObfuscationConfig` | Server config. First arg (protocol) ignored. H1-H4 are true ranges. |
+| GenerateHeaders | `() Headers` | 4 non-overlapping point values from 4 uint32 regions |
+| GenerateHeaderRanges | `() [4]HeaderRange` | 4 non-overlapping ranges. Panics after 1000 attempts. |
+| GenerateSPrefixes | `() SPrefixes` | S1-S4 with S1+56!=S2 constraint |
+| GenerateJunkParams | `() JunkParams` | Jc 0-10, Jmin/Jmax 64-1024 |
+| GenerateCPS | `(protocol string, mtu, s1, _ int) (string, string, string, string, string)` | I1-I5. 4th arg unused. |
+
+```go
+clientObf := amnezigo.GenerateConfig("quic", 1280, 55, 3)
+serverObf := amnezigo.GenerateServerConfig("ignored", 55, 3)
+headers := amnezigo.GenerateHeaders()
+i1, i2, i3, i4, i5 := amnezigo.GenerateCPS("quic", 1280, 55, 0)
+```
+
+::: warning
+`GenerateServerConfig` ignores its first argument (protocol). Only `s1` and `jc` are used.
+:::
+
+## CPS
+
+`cps.go`
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| BuildCPSTag | `(tagType, value string) string` | Build single tag |
+| BuildCPS | `(tags []string) string` | Join tags into CPS string |
+
+```go
+tag := amnezigo.BuildCPSTag("bytes", "0xFF")
+cps := amnezigo.BuildCPS([]string{tag, amnezigo.BuildCPSTag("random", "32")})
+```
+
+## Protocol Templates
+
+`quic.go`, `dns.go`, `dtls.go`, `stun.go`
+
+| Function | Signature |
+|----------|-----------|
+| QUICTemplate | `() I1I5Template` |
+| DNSTemplate | `() I1I5Template` |
+| DTLSTemplate | `() I1I5Template` |
+| STUNTemplate | `() I1I5Template` |
+
+> `getTemplate(protocol)` is unexported but resolves protocol name to template function. Valid names: "quic", "dns", "dtls", "stun".
+
+## Helpers
+
+`helpers.go`
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| IsValidIPAddr | `(ipaddr string) bool` | Check if valid CIDR |
+| ExtractSubnet | `(ipaddr string) string` | Extract subnet from CIDR |
+| GenerateRandomPort | `() (int, error)` | Random port 10000-65535 |
+| DetectMainInterface | `() string` | First non-loopback up interface |
+| FindNextAvailableIP | `(serverAddress string, existingIPs []string) (string, error)` | Next IP from .2 to .254 |
+
+## iptables
+
+`iptables.go`
+
+| Function | Signature |
+|----------|-----------|
+| GeneratePostUp | `(tunName, mainIface, subnet string, clientToClient bool) string` |
+| GeneratePostDown | `(tunName, mainIface, subnet string, clientToClient bool) string` |
+
+```go
+up := amnezigo.GeneratePostUp("awg0", "eth0", "10.8.0.0/24", false)
+down := amnezigo.GeneratePostDown("awg0", "eth0", "10.8.0.0/24", false)
+```
+---
+---
+url: /types
+---
+# Type Reference
+
+All exported types with field documentation.
+
+## ServerConfig
+
+```go
+type ServerConfig struct {
+    Peers       []PeerConfig
+    Interface   InterfaceConfig
+    Obfuscation ServerObfuscationConfig
+}
+```
+
+## InterfaceConfig
+
+> `Peers`: `[]PeerConfig` — all configured peers
+
+> `Interface`: `InterfaceConfig` — server interface settings
+
+> `Obfuscation`: `ServerObfuscationConfig` — server obfuscation parameters
+
+```go
+type InterfaceConfig struct {
+    PrivateKey     string    // X25519 private key, base64, 44 chars
+    PublicKey      string    // X25519 public key, base64, 44 chars
+    Address        string    // Server IP in CIDR, e.g. "10.8.0.1/24"
+    PostUp         string    // iptables rules joined with "; "
+    PostDown       string    // iptables teardown rules joined with "; "
+    MainIface      string    // Main network interface, e.g. "eth0"
+    TunName        string    // Tunnel interface name, e.g. "awg0"
+    EndpointV4     string    // IPv4 endpoint, e.g. "1.2.3.4:51820"
+    EndpointV6     string    // IPv6 endpoint, e.g. "[2001:db8::1]:51820"
+    ListenPort     int       // UDP listen port
+    MTU            int       // Maximum transmission unit, default 1280
+    ClientToClient bool      // Allow peer-to-peer traffic
+}
+```
+
+## PeerConfig
+
+```go
+type PeerConfig struct {
+    CreatedAt         time.Time              // Key generation time
+    ClientObfuscation *ClientObfuscationConfig // Not used by Manager (always nil from CLI)
+    Name              string                 // Peer name (stored as #_Name comment)
+    PrivateKey        string                 // Peer's private key (stored as #_PrivateKey comment)
+    PublicKey         string                 // Peer's public key
+    PresharedKey      string                 // Preshared key
+    AllowedIPs        string                 // Peer's IP/32
+}
+```
+
+::: warning
+`ClientObfuscation` is always nil when returned from Manager methods. It exists for potential future use. Peer private keys are stored as `#_PrivateKey` comments in the server config file for later export.
+:::
+
+## ServerObfuscationConfig
+
+```go
+type ServerObfuscationConfig struct {
+    Jc, Jmin, Jmax int          // Junk parameters
+    S1, S2, S3, S4 int          // Size prefixes
+    H1, H2, H3, H4 HeaderRange // Header ranges
+}
+```
+
+## ClientObfuscationConfig
+
+```go
+type ClientObfuscationConfig struct {
+    I1, I2, I3, I4, I5 string // CPS strings
+    ServerObfuscationConfig    // Embedded: Jc, Jmin, Jmax, S1-S4, H1-H4
+}
+```
+
+> `I1-I5`: `string` — per-peer CPS strings generated at export time
+
+> `ServerObfuscationConfig`: embedded — shares Jc, Jmin, Jmax, S1-S4, H1-H4 with server config
 
 ## ClientConfig
-
-Represents the full WireGuard client configuration. Also used for edge exports.
 
 ```go
 type ClientConfig struct {
@@ -3373,66 +2179,31 @@ type ClientConfig struct {
 }
 ```
 
-**Fields:**
-> `Peer`: ClientPeerConfig — Client's peer section (server info)
-> `Interface`: ClientInterfaceConfig — Client's interface section
-
 ## ClientInterfaceConfig
-
-Represents the `[Interface]` section of a client config.
 
 ```go
 type ClientInterfaceConfig struct {
-    PrivateKey  string
-    Address     string
-    DNS         string
+    PrivateKey  string                // Peer's private key
+    Address     string                // Peer's IP/32
+    DNS         string                // Hardcoded "1.1.1.1, 8.8.8.8"
     Obfuscation ClientObfuscationConfig
     MTU         int
 }
 ```
 
-**Fields:**
-> `PrivateKey`: string — Client's private key
-> `Address`: string — Client IP address in CIDR notation
-> `DNS`: string — DNS servers (empty for edge exports)
-> `Obfuscation`: ClientObfuscationConfig — Client obfuscation parameters
-> `MTU`: int — Maximum transmission unit
-
-::: tip Hardcoded Values
-DNS is hardcoded to `"1.1.1.1, 8.8.8.8"` for client exports. Edge exports have empty DNS.
-:::
-
 ## ClientPeerConfig
-
-Represents the `[Peer]` section of a client config.
 
 ```go
 type ClientPeerConfig struct {
-    PublicKey           string
-    PresharedKey        string
-    Endpoint            string
-    AllowedIPs          string
-    PersistentKeepalive int
+    PublicKey           string // Server's public key
+    PresharedKey        string // Peer's PSK
+    Endpoint            string // Server endpoint
+    AllowedIPs          string // Always "0.0.0.0/0, ::/0"
+    PersistentKeepalive int    // Always 25
 }
 ```
 
-**Fields:**
-> `PublicKey`: string — Server's public key
-> `PresharedKey`: string — Preshared key
-> `Endpoint`: string — Server endpoint address
-> `AllowedIPs`: string — IPs to route through VPN
-> `PersistentKeepalive`: int — Keepalive interval in seconds
-
-::: tip AllowedIPs Values
-- **Clients**: `"0.0.0.0/0, ::/0"` (tunnel all traffic)
-- **Edges**: `"<hub_ip>/32"` (route only to hub)
-
-PersistentKeepalive is hardcoded to `25` seconds.
-:::
-
 ## HeaderRange
-
-Represents a min-max range for obfuscation headers.
 
 ```go
 type HeaderRange struct {
@@ -3440,19 +2211,11 @@ type HeaderRange struct {
 }
 ```
 
-**Fields:**
-> `Min`: uint32 — Minimum header value
-> `Max`: uint32 — Maximum header value
+> `Min`: `uint32` — lower bound (inclusive)
 
-**Example:**
-```go
-// In config file: H1 = 10000000-20000000
-range := HeaderRange{Min: 10000000, Max: 20000000}
-```
+> `Max`: `uint32` — upper bound (inclusive). Equal to Min for point ranges in client configs.
 
 ## Headers
-
-Represents H1-H4 obfuscation header point values.
 
 ```go
 type Headers struct {
@@ -3460,15 +2223,7 @@ type Headers struct {
 }
 ```
 
-**Fields:**
-> `H1`: uint32 — First header value
-> `H2`: uint32 — Second header value
-> `H3`: uint32 — Third header value
-> `H4`: uint32 — Fourth header value
-
 ## SPrefixes
-
-Represents S1-S4 obfuscation size prefixes.
 
 ```go
 type SPrefixes struct {
@@ -3476,15 +2231,7 @@ type SPrefixes struct {
 }
 ```
 
-**Fields:**
-> `S1`: int — Init packet size prefix (0-64)
-> `S2`: int — Response packet size prefix (0-64)
-> `S3`: int — Cookie packet size prefix (0-64)
-> `S4`: int — Transport packet size prefix (0-32)
-
 ## JunkParams
-
-Represents Jc, Jmin, Jmax obfuscation junk parameters.
 
 ```go
 type JunkParams struct {
@@ -3492,53 +2239,20 @@ type JunkParams struct {
 }
 ```
 
-**Fields:**
-> `Jc`: int — Junk packet count (0-10)
-> `Jmin`: int — Minimum junk packet size (64-1024)
-> `Jmax`: int — Maximum junk packet size (64-1024)
-
-## CPSConfig
-
-Holds the five intervals (I1-I5) of custom packet strings.
-
-```go
-type CPSConfig struct {
-    I1, I2, I3, I4, I5 string
-}
-```
-
-**Fields:**
-> `I1`: string — First interval CPS string
-> `I2`: string — Second interval CPS string
-> `I3`: string — Third interval CPS string
-> `I4`: string — Fourth interval CPS string
-> `I5`: string — Fifth interval CPS string
-
 ## TagSpec
-
-Defines a single CPS tag with type and value.
 
 ```go
 type TagSpec struct {
-    Type  string
+    Type  string // "bytes", "random", "random_chars", "random_digits", "counter", "timestamp"
     Value string
 }
 ```
 
-**Fields:**
-> `Type`: string — Tag type (`"bytes"`, `"random"`, `"random_chars"`, `"random_digits"`, `"counter"`, `"timestamp"`)
-> `Value`: string — Tag value (hex for bytes, number for random, empty for counter/timestamp)
+> `Type`: `string` — tag type identifier
 
-**Example:**
-```go
-TagSpec{Type: "bytes", Value: "c0ff"}
-TagSpec{Type: "random", Value: "16"}
-TagSpec{Type: "timestamp", Value: ""}
-```
+> `Value`: `string` — type-specific value (e.g., hex bytes for "bytes", count for "random")
 
 ## I1I5Template
-
-Contains the five intervals (I1-I5) for a protocol template.
 
 ```go
 type I1I5Template struct {
@@ -3546,333 +2260,135 @@ type I1I5Template struct {
 }
 ```
 
-**Fields:**
-> `I1`: []TagSpec — Tags for first interval
-> `I2`: []TagSpec — Tags for second interval
-> `I3`: []TagSpec — Tags for third interval
-> `I4`: []TagSpec — Tags for fourth interval
-> `I5`: []TagSpec — Tags for fifth interval (often empty)
+> `I1-I5`: `[]TagSpec` — ordered list of tags for each CPS instruction. I5 is always empty for all protocol templates.
 
 ## Manager
 
-Provides high-level operations for managing server configurations.
-
 ```go
 type Manager struct {
-    ConfigPath string
+    ConfigPath string // unexported
 }
 ```
 
-**Fields:**
-> `ConfigPath`: string — Path to the server configuration file
+Created via `NewManager(configPath string) *Manager`. All fields unexported.
 
-**Usage:**
-```go
-manager := amnezigo.NewManager("/etc/amneziawg/awg0.conf")
-cfg, err := manager.Load()
-```
+## Unexported Types
 
+Not part of public API:
+
+- `simpleTag` — internal CPS tag representation
+- `CPSConfig` — internal I1-I5 container
 ---
 ---
 url: /gotchas
 ---
 # Gotchas & FAQ
 
-This page documents known quirks, unexpected behaviors, and frequently asked questions about Amnezigo.
+## CLI Gotchas
 
-## 1. --dns and --keepalive on init are silently ignored
+### export has no --endpoint flag
 
-The `--dns` and `--keepalive` flags exist on the `init` command for CLI compatibility, but they are **not stored in the server configuration**.
-
-**Actual behavior:**
-- DNS is always hardcoded to `"1.1.1.1, 8.8.8.8"` in exported client configs
-- Keepalive is always hardcoded to `25` seconds in exported client configs
-
-```shell
-# These flags do nothing
-amnezigo init --ipaddr 10.8.0.1/24 --dns 8.8.4.4 --keepalive 30
-```
-
-**Workaround:** If you need custom DNS or keepalive values, manually edit the exported `.conf` files.
-
-## 2. "random" protocol always selects DTLS
-
-When using `--protocol random` (the default), the protocol selection is deterministic, not random.
-
-**Why:** The selection algorithm uses `len(protocol) % 4`:
-
-```go
-protocols := []func() I1I5Template{
-    QUICTemplate,   // index 0
-    DNSTemplate,    // index 1
-    DTLSTemplate,   // index 2
-    STUNTemplate,   // index 3
-}
-return protocols[len(protocol)%len(protocols)]()
-```
-
-Since `len("random") = 6` and `6 % 4 = 2`, "random" always maps to index 2 (DTLS).
-
-**Workaround:** Use explicit protocol names for predictable behavior:
+Endpoint is auto-resolved in order:
+1. Stored `#_EndpointV4`
+2. Stored `#_EndpointV6`
+3. HTTP fallback to `icanhazip.com`
+4. Literal string `"YOUR_SERVER_IP"`
 
 ```shell
-amnezigo client export laptop --protocol quic
-amnezigo client export phone --protocol dns
+amnezigo export myphone --protocol quic
+# No --endpoint flag exists. Set #_EndpointV4 in server config instead.
 ```
 
-## 3. Export has no --endpoint flag
+::: warning
+There is no manual endpoint override. If auto-detection fails, you get `"YOUR_SERVER_IP"` in the exported config.
+:::
 
-The `client export` and `edge export` commands do **not** have an `--endpoint` flag. The endpoint is automatically resolved.
+### --dns and --keepalive on init are silently ignored
 
-**Resolution order:**
-1. `EndpointV4` from server config (`#_EndpointV4`)
-2. `EndpointV6` from server config (`#_EndpointV6`)
-3. Auto-detected via HTTP request to `icanhazip.com`
+These flags exist on `init` but do nothing. DNS is hardcoded to `"1.1.1.1, 8.8.8.8"` and keepalive to `25` in all exports.
 
-**Workaround:** If the endpoint is wrong, set it during `init`:
+### "random" protocol is deterministic
 
-```shell
-amnezigo init --ipaddr 10.8.0.1/24 --endpoint-v4 1.2.3.4:51820
-```
+`len("random") % 4 = 2` → always selects DTLS. Use explicit protocol names (`quic`, `dns`, `dtls`, `stun`) if you need variety.
 
-## 4. #_Role is mandatory on all [Peer] sections
+## Obfuscation Gotchas
 
-Every `[Peer]` section in the INI config file must have a `#_Role` field set to either `client` or `edge`.
+### GenerateConfig vs GenerateServerConfig
 
-**What happens if missing:** The parser returns an error:
+| | `GenerateConfig` | `GenerateServerConfig` |
+|---|---|---|
+| H1-H4 | Point ranges (Min == Max) | True ranges (Min < Max) |
+| Protocol arg | Used for CPS generation | Ignored |
+| Returns | `ClientObfuscationConfig` | `ServerObfuscationConfig` |
 
-```
-peer 'laptop': missing or invalid role (must be 'client' or 'edge')
-```
+### CPS strings are per-peer
 
-**Example:**
-```ini
-[Peer]
-#_Role = client    # Required!
-#_Name = laptop
-PublicKey = ...
-AllowedIPs = 10.8.0.2/32
-```
+I1-I5 CPS strings are generated at export time, not stored in the server config. Each peer export gets unique CPS values.
 
-## 5. GenerateConfig uses point ranges, GenerateServerConfig uses true ranges
+### I5 is always empty
 
-The two obfuscation generation functions produce different H1-H4 formats:
+For all protocol templates (QUIC, DNS, DTLS, STUN), I5 is always an empty string.
 
-**GenerateConfig (client exports):**
-- H1-H4 are point ranges where `Min == Max`
-- Each header is a single fixed value
+### GenerateServerConfig ignores protocol
 
-```go
-H1: HeaderRange{Min: h.H1, Max: h.H1}  // Point range
-```
+Only `s1` and `jc` parameters are used. The first argument is discarded.
 
-**GenerateServerConfig (server init):**
-- H1-H4 are true ranges where `Min < Max`
-- Each header accepts a range of values
+## Config Gotchas
 
-```go
-H1: HeaderRange{Min: h[0].Min, Max: h[0].Max}  // True range
-```
+### Peer metadata stored as comments
 
-**Why:** The server needs to accept multiple valid header values from different clients, while each client uses a single value.
+- Peer names: `#_Name` comment lines
+- Peer private keys: `#_PrivateKey` comment lines
 
-## 6. CPS strings are per-client, generated at export time
+These are not native WireGuard fields. Standard WireGuard tools will ignore them.
 
-I1-I5 Custom Packet Strings are not stored in the server configuration. They are generated fresh each time a client or edge is exported.
+### Atomic writes
 
-**Implications:**
-- Each export produces unique I1-I5 values
-- Re-exporting the same client gives different CPS strings
-- Random bytes and timestamps are freshly generated
+`SaveServerConfig` writes to `<path>.tmp` then renames. This prevents corruption on crash but means the temp file must be on the same filesystem.
 
-**Code location:**
-```go
-func GenerateConfig(protocol string, mtu, s1, jc int) ClientObfuscationConfig {
-    cps := generateCPSConfig(protocol, mtu, s1)  // Generated here
-    // ...
-}
-```
+## Hardcoded Values in Exports
 
-## 7. Key generation functions panic on crypto/rand failure
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| DNS | `1.1.1.1, 8.8.8.8` | No CLI override |
+| AllowedIPs | `0.0.0.0/0, ::/0` | Full tunnel |
+| PersistentKeepalive | `25` | No CLI override |
 
-The key generation functions use `panic` for unrecoverable errors:
+## Error Handling
 
-**Functions that panic:**
-- `GenerateKeyPair()` — panics if `crypto/rand.Read()` fails
-- `DerivePublicKey()` — panics on invalid base64 or wrong key length
-- `GeneratePSK()` — panics if `crypto/rand.Read()` fails
+::: danger
+Several functions panic by design. Do not call these in contexts where panics are unacceptable.
+:::
 
-**Example panic message:**
-```
-crypto: failed to generate random key: <error>
-crypto: invalid base64 private key: <error>
-crypto: private key must be 32 bytes
-```
+| Function | Panics when |
+|----------|-------------|
+| `GenerateKeyPair()` | `crypto/rand` failure |
+| `GeneratePSK()` | `crypto/rand` failure |
+| `DerivePublicKey()` | Invalid base64 or wrong key length |
+| `GenerateHeaderRanges()` | Can't find non-overlapping ranges after 1000 attempts |
 
-**Why:** These failures indicate a fundamental system problem (entropy exhaustion, memory corruption) that cannot be handled gracefully.
+## IP Assignment
 
-## 8. Peer names must be globally unique across clients and edges
-
-A client and edge cannot share the same name. Names are checked against both lists when adding new peers.
-
-**Error if duplicate:**
-```
-peer with name 'laptop' already exists
-```
-
-**Code:**
-```go
-func isNameTaken(name string, cfg ServerConfig) bool {
-    for _, peer := range cfg.Clients {
-        if peer.Name == name {
-            return true
-        }
-    }
-    for _, edge := range cfg.Edges {
-        if edge.Name == name {
-            return true
-        }
-    }
-    return false
-}
-```
-
-## 9. Clients and edges share the same IP pool
-
-IP auto-assignment considers both clients and edges when finding the next available IP.
-
-**Example:**
-```
-Server: 10.8.0.1
-Client "laptop": 10.8.0.2
-Edge "relay1": 10.8.0.3
-Client "phone": 10.8.0.4  # Next available, skipping edge's IP
-```
-
-**Code:**
-```go
-existingIPs := make([]string, 0, len(serverCfg.Clients)+len(serverCfg.Edges))
-for _, peer := range serverCfg.Clients {
-    existingIPs = append(existingIPs, peerIP)
-}
-for _, edge := range serverCfg.Edges {
-    existingIPs = append(existingIPs, edgeIP)
-}
-```
-
-## 10. GenerateServerConfig ignores its first argument (protocol)
-
-The `GenerateServerConfig` function signature includes a first parameter that is intentionally unused:
-
-```go
-func GenerateServerConfig(_, s1, jc int) ServerObfuscationConfig
-```
-
-**Why:** Server configs don't need protocol-specific I1-I5 values (those are generated per-client at export time). The parameter exists for API consistency with `GenerateConfig`.
-
-**Usage:**
-```go
-// Protocol parameter (0) is ignored
-serverObf := amnezigo.GenerateServerConfig(0, 15, 3)
-```
-
-## 11. Edge exports return []byte, client exports return ClientConfig
-
-The `ExportEdge` and `ExportClient` methods return different types:
-
-**ExportClient:**
-```go
-func (m *Manager) ExportClient(name, protocol, endpoint string) (ClientConfig, error)
-```
-
-**ExportEdge:**
-```go
-func (m *Manager) ExportEdge(name, protocol, endpoint string) ([]byte, error)
-```
-
-**Why:** Edge exports are immediately serialized to bytes for convenience, while client exports return the struct for potential further manipulation.
-
-## 12. IP allocation skips .0 and .1
-
-The `FindNextAvailableIP` function only assigns IPs from `.2` to `.254`:
-
-```go
-for i := 2; i <= 254; i++ {
-    // ...
-}
-```
-
-**Skipped addresses:**
-- `.0` — Network address
-- `.1` — Server address (by convention)
-- `.255` — Broadcast address (not in loop, but subnet-dependent)
-
-**Maximum capacity:** A `/24` subnet can have up to 253 peers (clients + edges).
-
-## 13. Atomic writes prevent config corruption
-
-Configuration files are saved using atomic writes to prevent corruption during system failures:
-
-**Process:**
-1. Write content to `<path>.tmp`
-2. Close the temp file
-3. Rename `<path>.tmp` to `<path>`
-
-**Code:**
-```go
-func SaveServerConfig(path string, cfg ServerConfig) error {
-    tmpPath := path + ".tmp"
-    file, err := os.Create(tmpPath)
-    // ... write content ...
-    file.Close()
-    return os.Rename(tmpPath, path)
-}
-```
-
-**Benefit:** If the system crashes during write, the original config file remains intact.
-
----
+Auto-assign scans `.2` to `.254`. `.1` is reserved for the server. IPv4 only.
 
 ## FAQ
 
-### Can I use Amnezigo with standard WireGuard?
+### Can I use IPv6 subnets?
 
-No. Amnezigo generates AmneziaWG v2.0 configurations with obfuscation parameters (Jc, Jmin, Jmax, S1-S4, H1-H4, I1-I5) that are not compatible with standard WireGuard.
+Auto IP assignment is IPv4 only (`.2`-`.254`). Manual IPv6 IPs may work but are untested.
 
-### What's the difference between clients and edges?
+### How do I change the DNS servers in exports?
 
-- **Clients** are end-user devices that tunnel all traffic through the VPN (`AllowedIPs = 0.0.0.0/0`)
-- **Edges** are relay servers that only route traffic to the hub (`AllowedIPs = <hub-ip>/32`)
+You can't via CLI. Edit the exported `.conf` file manually after export.
 
-### Can I manually edit the config file?
+### Can I set a custom endpoint for export?
 
-Yes, but ensure:
-- Every `[Peer]` section has `#_Role = client` or `#_Role = edge`
-- H1-H4 values use the `min-max` format
-- You don't modify `#_` metadata fields inconsistently
+No. Use stored `#_EndpointV4`/`#_EndpointV6` in server config, or rely on auto-detection via `icanhazip.com`.
 
-### How do I rotate client keys?
+### What's the difference between amnezigo and amneziawg?
 
-Remove and re-add the client:
+`amnezigo` generates configs. `amneziawg` is the VPN daemon that uses them.
 
-```shell
-amnezigo client remove laptop
-amnezigo client add laptop
-amnezigo client export laptop
-```
+### Can I use this with standard WireGuard?
 
-### What happens if I run out of IP addresses?
-
-The `FindNextAvailableIP` function returns an empty string if no IPs are available in the `.2` to `.254` range. Plan your subnet size accordingly:
-- `/24`: 253 peers max
-- `/22`: 1021 peers max
-
-### Can I change the obfuscation protocol for an existing client?
-
-Yes. Just re-export with a different protocol:
-
-```shell
-amnezigo client export laptop --protocol dns
-```
-
-This generates new I1-I5 values with the DNS protocol template.
+No. The obfuscation parameters (`Jc`, `Jmin`, `Jmax`, `S1`-`S4`, `H1`-`H4`, `I1`-`I5`) are AmneziaWG-specific. Standard WireGuard will ignore them.
