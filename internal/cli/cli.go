@@ -16,7 +16,6 @@ var (
 	cfgFile string
 )
 
-// NewRootCmd creates the root command for the CLI.
 func NewRootCmd() *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:   "amnezigo",
@@ -26,13 +25,14 @@ func NewRootCmd() *cobra.Command {
 
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(editCmd)
-	rootCmd.AddCommand(NewClientCommand())
-	rootCmd.AddCommand(NewEdgeCommand())
+	rootCmd.AddCommand(NewAddCommand())
+	rootCmd.AddCommand(NewListCommand())
+	rootCmd.AddCommand(NewExportCommand())
+	rootCmd.AddCommand(NewRemoveCommand())
 
 	return rootCmd
 }
 
-// Execute runs the CLI application.
 func Execute() {
 	rootCmd := NewRootCmd()
 	if err := rootCmd.Execute(); err != nil {

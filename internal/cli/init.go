@@ -140,7 +140,7 @@ func runInit(_ *cobra.Command, _ []string) error {
 			EndpointV6:     endpointV6,
 			ClientToClient: initClientToClient,
 		},
-		Clients:     []amnezigo.PeerConfig{},
+		Peers:       []amnezigo.PeerConfig{},
 		Obfuscation: obfConfig,
 	}
 
