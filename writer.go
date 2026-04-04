@@ -17,6 +17,13 @@ func WriteServerConfig(w io.Writer, cfg ServerConfig) error {
 	fmt.Fprintf(w, "ListenPort = %d\n", cfg.Interface.ListenPort)
 	fmt.Fprintf(w, "MTU = %d\n", cfg.Interface.MTU)
 
+	if cfg.Interface.DNS != "" {
+		fmt.Fprintf(w, "DNS = %s\n", cfg.Interface.DNS)
+	}
+	if cfg.Interface.PersistentKeepalive != 0 {
+		fmt.Fprintf(w, "PersistentKeepalive = %d\n", cfg.Interface.PersistentKeepalive)
+	}
+
 	if cfg.Interface.PostUp != "" {
 		fmt.Fprintf(w, "PostUp = %s\n", cfg.Interface.PostUp)
 	}

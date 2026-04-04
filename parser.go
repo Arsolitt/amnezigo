@@ -99,6 +99,12 @@ func ParseServerConfig(r io.Reader) (ServerConfig, error) {
 				if mtu, err := strconv.Atoi(value); err == nil {
 					cfg.Interface.MTU = mtu
 				}
+			case "DNS":
+				cfg.Interface.DNS = value
+			case "PersistentKeepalive":
+				if ka, err := strconv.Atoi(value); err == nil {
+					cfg.Interface.PersistentKeepalive = ka
+				}
 			case "PostUp":
 				cfg.Interface.PostUp = value
 			case "PostDown":

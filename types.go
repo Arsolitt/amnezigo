@@ -16,18 +16,20 @@ type ServerConfig struct {
 
 // InterfaceConfig represents the [Interface] section of a WireGuard config.
 type InterfaceConfig struct {
-	PrivateKey     string
-	PublicKey      string
-	Address        string
-	PostUp         string
-	PostDown       string
-	MainIface      string
-	TunName        string
-	EndpointV4     string
-	EndpointV6     string
-	ListenPort     int
-	MTU            int
-	ClientToClient bool
+	TunName             string
+	DNS                 string
+	Address             string
+	PostUp              string
+	PostDown            string
+	MainIface           string
+	EndpointV6          string
+	PrivateKey          string
+	PublicKey           string
+	EndpointV4          string
+	MTU                 int
+	ListenPort          int
+	PersistentKeepalive int
+	ClientToClient      bool
 }
 
 // PeerConfig represents a [Peer] section of a WireGuard server config.

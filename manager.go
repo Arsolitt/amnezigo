@@ -218,11 +218,21 @@ func (m *Manager) BuildPeerConfig(peer PeerConfig, protocol, endpoint string) (C
 		I5:                      i5,
 	}
 
+	dns := serverCfg.Interface.DNS
+	if dns == "" {
+		dns = "1.1.1.1, 8.8.8.8"
+	}
+
+	keepalive := serverCfg.Interface.PersistentKeepalive
+	if keepalive == 0 {
+		keepalive = defaultPersistentKeepalive
+	}
+
 	peerConfig := ClientConfig{
 		Interface: ClientInterfaceConfig{
 			PrivateKey:  peer.PrivateKey,
 			Address:     peerIP + "/32",
-			DNS:         "1.1.1.1, 8.8.8.8",
+			DNS:         dns,
 			MTU:         serverCfg.Interface.MTU,
 			Obfuscation: obfConfig,
 		},
@@ -231,7 +241,7 @@ func (m *Manager) BuildPeerConfig(peer PeerConfig, protocol, endpoint string) (C
 			PresharedKey:        peer.PresharedKey,
 			Endpoint:            endpoint,
 			AllowedIPs:          allowedIPs,
-			PersistentKeepalive: defaultPersistentKeepalive,
+			PersistentKeepalive: keepalive,
 		},
 	}
 

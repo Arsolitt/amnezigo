@@ -391,6 +391,100 @@ func TestLoadServerConfig(t *testing.T) {
 	}
 }
 
+func TestBuildPeerConfig_CustomDNSAndKeepalive(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.conf")
+
+	cfg := ServerConfig{
+		Interface: InterfaceConfig{
+			PrivateKey:          "serverpriv=",
+			PublicKey:           "serverpub=",
+			Address:             "10.8.0.1/24",
+			ListenPort:          12345,
+			MTU:                 1280,
+			DNS:                 "9.9.9.9, 1.0.0.1",
+			PersistentKeepalive: 15,
+		},
+		Obfuscation: ServerObfuscationConfig{
+			Jc: 5, Jmin: 100, Jmax: 200, S1: 10, S2: 20, S3: 30, S4: 5,
+			H1: HeaderRange{Min: 100, Max: 200},
+			H2: HeaderRange{Min: 300, Max: 400},
+			H3: HeaderRange{Min: 500, Max: 600},
+			H4: HeaderRange{Min: 700, Max: 800},
+		},
+		Peers: []PeerConfig{
+			{
+				Name:         "testpeer",
+				PrivateKey:   "clientpriv=",
+				PublicKey:    "clientpub=",
+				PresharedKey: "psk=",
+				AllowedIPs:   "10.8.0.2/32",
+			},
+		},
+	}
+
+	mgr := NewManager(path)
+	_ = mgr.Save(cfg)
+
+	clientCfg, err := mgr.ExportPeer("testpeer", "quic", "1.2.3.4:12345")
+	if err != nil {
+		t.Fatalf("ExportPeer failed: %v", err)
+	}
+
+	if clientCfg.Interface.DNS != "9.9.9.9, 1.0.0.1" {
+		t.Errorf("expected DNS '9.9.9.9, 1.0.0.1', got '%s'", clientCfg.Interface.DNS)
+	}
+	if clientCfg.Peer.PersistentKeepalive != 15 {
+		t.Errorf("expected PersistentKeepalive 15, got %d", clientCfg.Peer.PersistentKeepalive)
+	}
+}
+
+func TestBuildPeerConfig_DefaultDNSAndKeepalive(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.conf")
+
+	cfg := ServerConfig{
+		Interface: InterfaceConfig{
+			PrivateKey: "serverpriv=",
+			PublicKey:  "serverpub=",
+			Address:    "10.8.0.1/24",
+			ListenPort: 12345,
+			MTU:        1280,
+		},
+		Obfuscation: ServerObfuscationConfig{
+			Jc: 5, Jmin: 100, Jmax: 200, S1: 10, S2: 20, S3: 30, S4: 5,
+			H1: HeaderRange{Min: 100, Max: 200},
+			H2: HeaderRange{Min: 300, Max: 400},
+			H3: HeaderRange{Min: 500, Max: 600},
+			H4: HeaderRange{Min: 700, Max: 800},
+		},
+		Peers: []PeerConfig{
+			{
+				Name:         "testpeer",
+				PrivateKey:   "clientpriv=",
+				PublicKey:    "clientpub=",
+				PresharedKey: "psk=",
+				AllowedIPs:   "10.8.0.2/32",
+			},
+		},
+	}
+
+	mgr := NewManager(path)
+	_ = mgr.Save(cfg)
+
+	clientCfg, err := mgr.ExportPeer("testpeer", "quic", "1.2.3.4:12345")
+	if err != nil {
+		t.Fatalf("ExportPeer failed: %v", err)
+	}
+
+	if clientCfg.Interface.DNS != "1.1.1.1, 8.8.8.8" {
+		t.Errorf("expected default DNS '1.1.1.1, 8.8.8.8', got '%s'", clientCfg.Interface.DNS)
+	}
+	if clientCfg.Peer.PersistentKeepalive != 25 {
+		t.Errorf("expected default PersistentKeepalive 25, got %d", clientCfg.Peer.PersistentKeepalive)
+	}
+}
+
 func TestSaveServerConfig(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.conf")
