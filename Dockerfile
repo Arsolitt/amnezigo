@@ -9,10 +9,8 @@ COPY . .
 
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o ./build/amnezigo ./cmd/amnezigo/
 
-FROM alpine:3.21
+FROM amneziavpn/amneziawg-go:0.2.16
 
-RUN apk --no-cache add ca-certificates
+RUN apk --no-cache add ca-certificates bash
 
 COPY --from=builder /app/build/amnezigo /usr/local/bin/amnezigo
-
-ENTRYPOINT ["amnezigo"]

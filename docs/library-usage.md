@@ -1,6 +1,23 @@
-# Using Amnezigo as a Go Library
+# Using as a Go Library
 
-This guide explains how to use `github.com/Arsolitt/amnezigo` as a Go library for managing AmneziaWG v2.0 configurations programmatically.
+> Use Amnezigo as a Go library to generate and manage AmneziaWG configurations programmatically.
+
+## Table of Contents
+
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Manager API](#manager-api)
+- [Config Parsing & Writing](#config-parsing--writing)
+- [Key Generation](#key-generation)
+- [Obfuscation](#obfuscation)
+- [CPS Construction](#cps-construction)
+- [Protocol Templates](#protocol-templates)
+- [Network Helpers](#network-helpers)
+- [iptables Rules](#iptables-rules)
+- [Type Reference](#type-reference)
+- [Gotchas & Important Notes](#gotchas--important-notes)
+
+---
 
 ## Installation
 
@@ -8,730 +25,697 @@ This guide explains how to use `github.com/Arsolitt/amnezigo` as a Go library fo
 go get github.com/Arsolitt/amnezigo
 ```
 
-Import the root package in your Go code:
+All business logic lives in the root package `amnezigo`. CLI commands are in `internal/cli` as thin wrappers over this package.
 
-```go
-import "github.com/Arsolitt/amnezigo"
-```
+---
 
 ## Quick Start
 
-Here's a complete example that creates a server configuration, adds a peer, and exports the peer config:
+This example demonstrates the full workflow: creating a manager, adding a peer, and exporting a client configuration.
 
 ```go
 package main
 
 import (
+    "bytes"
     "fmt"
     "log"
-    "os"
 
     "github.com/Arsolitt/amnezigo"
 )
 
 func main() {
-    // Create a manager for the server config file
-    manager := amnezigo.NewManager("awg0.conf")
+    mgr := amnezigo.NewManager("awg0.conf")
 
-    // Create a new server configuration
-    privateKey, publicKey := amnezigo.GenerateKeyPair()
-    cfg := amnezigo.ServerConfig{
-        Interface: amnezigo.InterfaceConfig{
-            PrivateKey:  privateKey,
-            PublicKey:   publicKey,
-            Address:     "10.8.0.1/24",
-            ListenPort:  51820,
-            MTU:         1280,
-            Obfuscation: amnezigo.GenerateServerConfig("quic", 15, 3),
-        },
-    }
-
-    // Save the initial config
-    if err := manager.Save(cfg); err != nil {
-        log.Fatalf("Failed to save config: %v", err)
-    }
-
-    // Add a peer with auto-assigned IP
-    peer, err := manager.AddPeer("laptop", "")
+    peer, err := mgr.AddPeer("laptop", "")
     if err != nil {
-        log.Fatalf("Failed to add peer: %v", err)
+        log.Fatal(err)
     }
-    fmt.Printf("Added peer 'laptop' with IP: %s\n", peer.AllowedIPs)
+    fmt.Printf("Added peer %s with IP %s\n", peer.Name, peer.AllowedIPs)
 
-    // Export peer configuration for connection
-    clientCfg, err := manager.ExportPeer("laptop", "quic", "203.0.113.50:51820")
+    clientCfg, err := mgr.ExportPeer("laptop", "quic", "1.2.3.4:51820")
     if err != nil {
-        log.Fatalf("Failed to export peer: %v", err)
+        log.Fatal(err)
     }
 
-    // Write client config to file
-    clientFile, err := os.Create("laptop.conf")
-    if err != nil {
-        log.Fatalf("Failed to create client file: %v", err)
+    var buf bytes.Buffer
+    if err := amnezigo.WriteClientConfig(&buf, clientCfg); err != nil {
+        log.Fatal(err)
     }
-    defer clientFile.Close()
-
-    if err := amnezigo.WriteClientConfig(clientFile, clientCfg); err != nil {
-        log.Fatalf("Failed to write client config: %v", err)
-    }
-
-    fmt.Println("Client configuration exported to laptop.conf")
+    fmt.Println(buf.String())
 }
 ```
+
+> **Note:** Before adding peers, you need a server configuration file. Use the `amnezigo init` CLI command or build a `ServerConfig` struct manually and save it with `amnezigo.SaveServerConfig`.
 
 ---
 
 ## Manager API
 
-The `Manager` type provides a high-level CRUD interface for managing server configurations and peers.
-
-### Creating a Manager
+The `Manager` struct provides high-level CRUD operations for server configurations and peers. It wraps config file I/O and peer management into a single interface.
 
 ```go
-manager := amnezigo.NewManager("/path/to/awg0.conf")
+mgr := amnezigo.NewManager("awg0.conf")
 ```
 
-### Loading Configuration
+### NewManager
 
 ```go
-cfg, err := manager.Load()
-if err != nil {
-    // Handle error - file may not exist or be malformed
+func NewManager(configPath string) *Manager
+```
+
+Creates a new Manager bound to a config file path. No file is read at this point.
+
+### Load
+
+```go
+func (m *Manager) Load() (ServerConfig, error)
+```
+
+Reads and parses the server configuration from disk.
+
+### Save
+
+```go
+func (m *Manager) Save(cfg ServerConfig) error
+```
+
+Writes the server configuration to disk using atomic writes (write to `.tmp`, then rename).
+
+### AddPeer
+
+```go
+func (m *Manager) AddPeer(name, ip string) (PeerConfig, error)
+```
+
+Creates a new peer with generated keys. If `ip` is empty, the next available IP in the server's subnet is auto-assigned. Returns the created `PeerConfig`.
+
+Errors: `"peer with name '<name>' already exists"`, `"failed to load server config: ..."`, `"failed to assign IP address: ..."`
+
+```go
+peer, err := mgr.AddPeer("phone", "")
+peer, err := mgr.AddPeer("desktop", "10.8.0.50")
+```
+
+### RemovePeer
+
+```go
+func (m *Manager) RemovePeer(name string) error
+```
+
+Removes a peer by name.
+
+Error: `"peer '<name>' not found"`
+
+### FindPeer
+
+```go
+func (m *Manager) FindPeer(name string) (*PeerConfig, error)
+```
+
+Returns a pointer to the peer with the given name.
+
+> **Warning:** The returned pointer points into the loaded config. Modifying it does **not** persist changes — you must call `Save` afterward.
+
+Error: `"peer '<name>' not found"`
+
+### ListPeers
+
+```go
+func (m *Manager) ListPeers() []PeerConfig
+```
+
+Returns all peers.
+
+> **Warning:** Returns `nil` on load error instead of returning an error. Always check for `nil`.
+
+```go
+peers := mgr.ListPeers()
+if peers == nil {
+    // load error occurred
+    return
 }
-// cfg is a ServerConfig value (not a pointer)
-```
-
-### Saving Configuration
-
-```go
-err := manager.Save(cfg)
-if err != nil {
-    // Handle error
+for _, p := range peers {
+    fmt.Println(p.Name, p.AllowedIPs)
 }
 ```
 
-### Adding a Peer
+### ExportPeer
 
 ```go
-// Auto-assign IP from subnet
-peer, err := manager.AddPeer("laptop", "")
-
-// Specify IP manually
-peer, err := manager.AddPeer("desktop", "10.8.0.50")
+func (m *Manager) ExportPeer(name, protocol, endpoint string) (ClientConfig, error)
 ```
 
-**Returns:** `PeerConfig` with the new peer's configuration.
+Generates a full client configuration for the named peer. The `protocol` parameter determines the I1-I5 CPS strings: `"quic"`, `"dns"`, `"dtls"`, `"stun"`, or `"random"`. The `endpoint` is the server address (e.g., `"1.2.3.4:51820"`).
 
-**Note:** The peer name is stored in the config file as a metadata comment (`#_Name = laptop`). Names must be unique across all peers.
+The exported client config always uses `AllowedIPs = 0.0.0.0/0, ::/0` (routes all traffic). If the server's DNS is empty, it defaults to `"1.1.1.1, 8.8.8.8"`. If `PersistentKeepalive` is 0, it defaults to 25.
 
-### Removing a Peer
+Error: `"peer '<name>' not found"`
+
+### BuildPeerConfig
 
 ```go
-err := manager.RemovePeer("laptop")
-if err != nil {
-    // Peer not found or other error
-}
+func (m *Manager) BuildPeerConfig(peer PeerConfig, protocol, endpoint string) (ClientConfig, error)
 ```
 
-### Finding a Peer
-
-```go
-peer, err := manager.FindPeer("laptop")
-if err != nil {
-    // Peer not found
-}
-fmt.Printf("Public Key: %s\n", peer.PublicKey)
-fmt.Printf("IP: %s\n", peer.AllowedIPs)
-```
-
-**Returns:** `*PeerConfig` (pointer to the peer).
-
-### Listing All Peers
-
-```go
-peers := manager.ListPeers()
-for _, peer := range peers {
-    fmt.Printf("Name: %s, IP: %s\n", peer.Name, peer.AllowedIPs)
-}
-```
-
-### Exporting Peer Configuration
-
-Generate a complete client configuration for a named peer:
-
-```go
-// Protocol options: "quic", "dns", "dtls", "stun", "random"
-clientCfg, err := manager.ExportPeer("laptop", "quic", "203.0.113.50:51820")
-if err != nil {
-    // Peer not found
-}
-// Returns ClientConfig (not []byte)
-```
-
-### Building Peer Configuration from PeerConfig
-
-If you already have a `PeerConfig` value, use `BuildPeerConfig`:
-
-```go
-peer, _ := manager.FindPeer("laptop")
-clientCfg, err := manager.BuildPeerConfig(*peer, "quic", "203.0.113.50:51820")
-```
-
-**Note:** `BuildPeerConfig` takes a `PeerConfig` value (not a name string) and looks up the server config internally to build the full `ClientConfig`.
+Constructs a `ClientConfig` from an existing `PeerConfig`, protocol, and endpoint. Use this when you already have a `PeerConfig` and don't need to look it up by name.
 
 ---
 
 ## Config Parsing & Writing
 
-### Parsing Server Config from Reader
+Low-level I/O functions that work with any `io.Reader`/`io.Writer`.
+
+### ParseServerConfig
 
 ```go
-file, err := os.Open("awg0.conf")
-if err != nil {
-    log.Fatal(err)
-}
-defer file.Close()
-
-cfg, err := amnezigo.ParseServerConfig(file)
-if err != nil {
-    log.Fatal(err)
-}
+func ParseServerConfig(r io.Reader) (ServerConfig, error)
 ```
 
-### Writing Server Config to Writer
+Parses an INI-format server config from any reader. See [configuration.md](configuration.md) for the full config format.
+
+### WriteServerConfig
 
 ```go
-var buf bytes.Buffer
-err := amnezigo.WriteServerConfig(&buf, cfg)
-if err != nil {
-    log.Fatal(err)
-}
-fmt.Println(buf.String())
+func WriteServerConfig(w io.Writer, cfg ServerConfig) error
 ```
 
-### Writing Client Config to Writer
+Writes a server config in INI format to any writer.
+
+### WriteClientConfig
 
 ```go
-clientFile, err := os.Create("client.conf")
-if err != nil {
-    log.Fatal(err)
-}
-defer clientFile.Close()
-
-err = amnezigo.WriteClientConfig(clientFile, clientCfg)
+func WriteClientConfig(w io.Writer, cfg ClientConfig) error
 ```
 
-### Convenience File Functions
+Writes a client config in INI format to any writer.
+
+### LoadServerConfig / SaveServerConfig
 
 ```go
-// Load from file path
+func LoadServerConfig(path string) (ServerConfig, error)
+func SaveServerConfig(path string, cfg ServerConfig) error
+```
+
+Convenience wrappers that open files and delegate to `ParseServerConfig` / `WriteServerConfig`. `SaveServerConfig` uses atomic writes.
+
+```go
 cfg, err := amnezigo.LoadServerConfig("awg0.conf")
-
-// Save to file path (uses atomic write: writes to .tmp, then renames)
-err := amnezigo.SaveServerConfig("awg0.conf", cfg)
+if err != nil {
+    log.Fatal(err)
+}
+err = amnezigo.SaveServerConfig("awg0.conf", cfg)
 ```
+
+> **Tip:** Use `strings.NewReader` and `bytes.Buffer` in tests instead of real files.
 
 ---
 
 ## Key Generation
 
-### Generate Key Pair
+Functions for generating WireGuard X25519 key pairs and preshared keys.
 
-Generates a WireGuard-compatible X25519 key pair:
+> **Danger:** `GenerateKeyPair`, `DerivePublicKey`, and `GeneratePSK` **panic** on error instead of returning errors. Only use these when failure is unrecoverable (e.g., in `main()` or during initialization).
+
+### GenerateKeyPair
+
+```go
+func GenerateKeyPair() (string, string)
+```
+
+Returns `(privateKey, publicKey)` as base64 strings (44 chars each). Uses WireGuard key clamping: `priv[0] &= 248; priv[31] &= 127; priv[31] |= 64`.
 
 ```go
 privateKey, publicKey := amnezigo.GenerateKeyPair()
-fmt.Printf("Private: %s\n", privateKey)
-fmt.Printf("Public: %s\n", publicKey)
 ```
 
-**Returns:** `(string, string)` — both the private key and public key as base64-encoded strings.
-
-**Note:** Panics if `crypto/rand` fails (treated as unrecoverable system error).
-
-### Derive Public Key from Private
+### DerivePublicKey
 
 ```go
-privateKey := "aBcDeFgHiJkLmNoPqRsTuVwXyZ1234567890ABCDEF="
-publicKey := amnezigo.DerivePublicKey(privateKey)
+func DerivePublicKey(privateKey string) string
 ```
 
-### Generate Preshared Key
+Derives a public key from a base64-encoded private key. Panics on invalid base64 or wrong key length.
+
+```go
+pubKey := amnezigo.DerivePublicKey(privateKey)
+```
+
+### GeneratePSK
+
+```go
+func GeneratePSK() string
+```
+
+Generates a 256-bit preshared key as a 44-character base64 string.
 
 ```go
 psk := amnezigo.GeneratePSK()
 ```
 
-**Note:** Also panics on `crypto/rand` failure.
-
 ---
 
 ## Obfuscation
 
-AmneziaWG uses obfuscation parameters to disguise WireGuard traffic as other protocols.
+Functions for generating AmneziaWG obfuscation parameters. See [obfuscation.md](obfuscation.md) for detailed explanations of what these parameters mean.
 
-### Generate Client Obfuscation Config
+### GenerateConfig
 
 ```go
-// Parameters: protocol, mtu, s1, jc
-clientObf := amnezigo.GenerateConfig("quic", 1280, 15, 3)
+func GenerateConfig(protocol string, mtu, s1, jc int) ClientObfuscationConfig
 ```
 
-This generates:
-- `I1-I5` CPS strings for the protocol
-- `H1-H4` header values (point ranges where Min == Max)
-- `S1-S4` prefix values
-- `Jc`, `Jmin`, `Jmax` junk parameters
-
-### Generate Server Obfuscation Config
+Generates all client obfuscation parameters: Jc/Jmin/Jmax, S1-S4, H1-H4, and I1-I5 CPS strings.
 
 ```go
-// Parameters: protocol (ignored), s1, jc
+obf := amnezigo.GenerateConfig("quic", 1280, 15, 3)
+```
+
+### GenerateServerConfig
+
+```go
+func GenerateServerConfig(_, s1, jc int) ServerObfuscationConfig
+```
+
+Generates server obfuscation parameters (Jc/Jmin/Jmax, S1-S4, H1-H4). Does not include I1-I5.
+
+> **Note:** The first argument (`_`) is **ignored**. Only `s1` and `jc` are used.
+
+```go
 serverObf := amnezigo.GenerateServerConfig("quic", 15, 3)
 ```
 
-**Note:** The first parameter (protocol) is ignored by `GenerateServerConfig`. Server uses true ranges for H1-H4 (Min != Max in general).
+### GenerateSPrefixes
 
-### Generate CPS Strings
+```go
+func GenerateSPrefixes() SPrefixes
+```
 
-Generate only the I1-I5 CPS strings:
+Generates S1-S4 size prefixes. S1-S3 range from 0-64, S4 from 0-32. Enforces the constraint `S1+56 != S2` to avoid Init/Response size collisions.
+
+### GenerateJunkParams
+
+```go
+func GenerateJunkParams() JunkParams
+```
+
+Generates junk packet parameters: Jc (0-10), Jmin and Jmax (64-1024, with Jmin < Jmax).
+
+### GenerateCPS
+
+```go
+func GenerateCPS(protocol string, mtu, s1, _ int) (string, string, string, string, string)
+```
+
+Generates I1-I5 custom packet strings. The `protocol` parameter accepts `"random"`, `"quic"`, `"dns"`, `"dtls"`, or `"stun"`. The 4th argument is unused.
 
 ```go
 i1, i2, i3, i4, i5 := amnezigo.GenerateCPS("quic", 1280, 15, 0)
-fmt.Printf("I1: %s\n", i1)
 ```
 
-**Note:** The 4th parameter is unused.
-
-### Individual Generators
+### GenerateHeaderRanges
 
 ```go
-// Header values (H1-H4 as point values)
-headers := amnezigo.GenerateHeaders()
-fmt.Printf("H1: %d, H2: %d, H3: %d, H4: %d\n",
-    headers.H1, headers.H2, headers.H3, headers.H4)
-
-// SPrefixes (S1-S4)
-prefixes := amnezigo.GenerateSPrefixes()
-fmt.Printf("S1: %d, S2: %d, S3: %d, S4: %d\n",
-    prefixes.S1, prefixes.S2, prefixes.S3, prefixes.S4)
-
-// Junk parameters
-junk := amnezigo.GenerateJunkParams()
-fmt.Printf("Jc: %d, Jmin: %d, Jmax: %d\n", junk.Jc, junk.Jmin, junk.Jmax)
-
-// Header ranges (for server config)
-ranges := amnezigo.GenerateHeaderRanges()
-fmt.Printf("H1: %d-%d\n", ranges[0].Min, ranges[0].Max)
+func GenerateHeaderRanges() [4]HeaderRange
 ```
+
+Generates 4 non-overlapping header ranges (H1-H4).
+
+> **Danger:** Panics if non-overlapping ranges cannot be generated after 1000 attempts. Extremely unlikely in practice.
 
 ---
 
 ## CPS Construction
 
-CPS (Custom Packet String) strings are built from tag specifications.
+Low-level functions for building Custom Packet String tags and combining them.
 
-### Building Tags
+### BuildCPSTag
 
 ```go
-// Byte tag: <b 0xc0ff>
-tag := amnezigo.BuildCPSTag("b", "0xc0ff")
-
-// Random bytes tag: <r 16>
-tag := amnezigo.BuildCPSTag("r", "16")
-
-// Random chars tag: <rc 8>
-tag := amnezigo.BuildCPSTag("rc", "8")
-
-// Random digits tag: <rd 4>
-tag := amnezigo.BuildCPSTag("rd", "4")
-
-// Counter tag: <c>
-tag := amnezigo.BuildCPSTag("c", "")
-
-// Timestamp tag: <t>
-tag := amnezigo.BuildCPSTag("t", "")
+func BuildCPSTag(tagType, value string) string
 ```
 
-### Building Complete CPS
+Creates a single CPS tag. Supported types:
+
+| Type | Description | Example | Output |
+|------|-------------|---------|--------|
+| `"b"` | Fixed bytes (hex) | `BuildCPSTag("b", "0xc0ff")` | `<b 0xc0ff>` |
+| `"r"` | Random bytes | `BuildCPSTag("r", "8")` | `<r 8>` |
+| `"rc"` | Random characters | `BuildCPSTag("rc", "7")` | `<rc 7>` |
+| `"rd"` | Random digits | `BuildCPSTag("rd", "2")` | `<rd 2>` |
+| `"c"` | Counter | `BuildCPSTag("c", "")` | `<c>` |
+| `"t"` | Timestamp | `BuildCPSTag("t", "")` | `<t>` |
+
+Returns an empty string for unknown tag types.
+
+### BuildCPS
 
 ```go
-tags := []string{
+func BuildCPS(tags []string) string
+```
+
+Concatenates CPS tags into a single CPS string.
+
+```go
+cps := amnezigo.BuildCPS([]string{
     amnezigo.BuildCPSTag("b", "0xc0ff"),
-    amnezigo.BuildCPSTag("r", "16"),
-    "<t>",
-    "<c>",
-}
-cps := amnezigo.BuildCPS(tags)
-// Result: "<b 0xc0ff><r 16><t><c>"
+    amnezigo.BuildCPSTag("b", "0x01"),
+    amnezigo.BuildCPSTag("r", "8"),
+    amnezigo.BuildCPSTag("t"),
+})
+// cps: "<b 0xc0ff><b 0x01><r 8><t>"
 ```
 
 ---
 
 ## Protocol Templates
 
-Get the I1-I5 tag templates for each protocol:
+Protocol templates define the I1-I5 tag structure that mimics real protocol packets. Each returns an `I1I5Template` containing `[]TagSpec` slices for each interval.
+
+### Available Templates
+
+| Function | Protocol | Intervals |
+|----------|----------|-----------|
+| `QUICTemplate()` | QUIC Initial packets | I1-I4 (I5 empty) |
+| `DNSTemplate()` | DNS Query packets | I1-I4 (I5 empty) |
+| `DTLSTemplate()` | DTLS 1.2 ClientHello | I1-I4 (I5 empty) |
+| `STUNTemplate()` | STUN Binding Request | I1-I4 (I5 empty) |
 
 ```go
-// QUIC protocol template
-quic := amnezigo.QUICTemplate()
-fmt.Printf("I1 tags: %+v\n", quic.I1)
-
-// DNS protocol template
-dns := amnezigo.DNSTemplate()
-
-// DTLS protocol template
-dtls := amnezigo.DTLSTemplate()
-
-// STUN protocol template
-stun := amnezigo.STUNTemplate()
+tmpl := amnezigo.QUICTemplate()
+for _, tag := range tmpl.I1 {
+    fmt.Printf("Type: %s, Value: %s\n", tag.Type, tag.Value)
+}
 ```
 
-Each template contains `I1`, `I2`, `I3`, `I4`, `I5` fields, each being a `[]TagSpec`. Protocol template resolution is unexported (`getTemplate`), but all four template functions are exported.
+> **Note:** I5 is always empty for all named protocol templates. It is only populated in random/simple CPS mode.
 
 ---
 
 ## Network Helpers
 
-### IP Address Validation
+Utility functions for IP address handling, port generation, and interface detection.
+
+### IsValidIPAddr
 
 ```go
-valid := amnezigo.IsValidIPAddr("10.8.0.1/24")  // true
-valid := amnezigo.IsValidIPAddr("invalid")      // false
+func IsValidIPAddr(ipaddr string) bool
 ```
 
-### Subnet Extraction
+Checks if a string is a valid IP address in CIDR notation.
 
 ```go
-subnet := amnezigo.ExtractSubnet("10.8.0.1/24")  // "10.8.0.0/24"
+amnezigo.IsValidIPAddr("10.8.0.1/24")  // true
+amnezigo.IsValidIPAddr("not-an-ip")     // false
 ```
 
-### Random Port Generation
+### ExtractSubnet
 
 ```go
-port, err := amnezigo.GenerateRandomPort()
-if err != nil {
-    log.Fatal(err)
-}
-fmt.Printf("Port: %d\n", port)  // e.g., 52847
+func ExtractSubnet(ipaddr string) string
 ```
 
-### Main Interface Detection
+Extracts the subnet from a CIDR address (e.g., `"10.8.0.1/24"` → `"10.8.0.0/24"`).
+
+> **Note:** Returns the original string on parse error instead of returning an error.
+
+### GenerateRandomPort
 
 ```go
-iface := amnezigo.DetectMainInterface()
-fmt.Printf("Main interface: %s\n", iface)  // e.g., "eth0"
+func GenerateRandomPort() (int, error)
 ```
 
-### Find Next Available IP
+Generates a random port in the range [10000, 65535].
+
+### DetectMainInterface
 
 ```go
-existingIPs := []string{"10.8.0.1", "10.8.0.2"}
+func DetectMainInterface() string
+```
 
-ip, err := amnezigo.FindNextAvailableIP("10.8.0.1/24", existingIPs)
-if err != nil {
-    log.Fatal(err)
-}
-fmt.Printf("Next available: %s\n", ip)  // "10.8.0.3"
+Returns the first non-loopback, up interface that has addresses.
+
+> **Note:** Returns an empty string on failure. No error is returned.
+
+### FindNextAvailableIP
+
+```go
+func FindNextAvailableIP(serverAddress string, existingIPs []string) (string, error)
+```
+
+Finds the next available IP in the subnet, iterating from `.2` to `.254`. IPv4 only.
+
+Errors: `"not an IPv4 address"`, `"invalid CIDR"`
+
+> **Warning:** Returns an empty string and `nil` error if all IPs are exhausted. Check for empty string.
+
+```go
+ip, err := amnezigo.FindNextAvailableIP("10.8.0.1/24", []string{"10.8.0.2", "10.8.0.3"})
+// ip: "10.8.0.4"
 ```
 
 ---
 
 ## iptables Rules
 
-Generate PostUp and PostDown commands for NAT/masquerade:
+Functions for generating iptables NAT and forwarding rules for WireGuard interfaces.
+
+### GeneratePostUp
 
 ```go
-tunName := "awg0"
-mainIface := "eth0"
-subnet := "10.8.0.0/24"
-clientToClient := false
-
-postUp := amnezigo.GeneratePostUp(tunName, mainIface, subnet, clientToClient)
-postDown := amnezigo.GeneratePostDown(tunName, mainIface, subnet, clientToClient)
-
-fmt.Println("PostUp commands:")
-fmt.Println(postUp)
-fmt.Println("\nPostDown commands:")
-fmt.Println(postDown)
+func GeneratePostUp(tunName, mainIface, subnet string, clientToClient bool) string
 ```
 
-Example output:
+Generates iptables rules for the `PostUp` hook. Rules are joined with `; `. Returns 6 rules by default, or 7 when `clientToClient` is `true`.
+
+### GeneratePostDown
+
+```go
+func GeneratePostDown(tunName, mainIface, subnet string, clientToClient bool) string
 ```
-PostUp: iptables -A INPUT -i awg0 -j ACCEPT; iptables -A OUTPUT -o awg0 -j ACCEPT; iptables -A FORWARD -i awg0 -o eth0 -s 10.8.0.0/24 -j ACCEPT; ...
-PostDown: iptables -D INPUT -i awg0 -j ACCEPT; iptables -D OUTPUT -o awg0 -j ACCEPT; iptables -D FORWARD -i awg0 -o eth0 -s 10.8.0.0/24 -j ACCEPT; ...
+
+Same as `GeneratePostUp` but uses `-D` (delete) instead of `-A` (append), suitable for cleanup.
+
+```go
+postUp := amnezigo.GeneratePostUp("awg0", "eth0", "10.8.0.0/24", false)
+postDown := amnezigo.GeneratePostDown("awg0", "eth0", "10.8.0.0/24", false)
 ```
 
 ---
 
 ## Type Reference
 
-### Configuration Types
+### Core Config Types
 
-```go
-// Main server configuration
-type ServerConfig struct {
-    Peers       []PeerConfig
-    Interface   InterfaceConfig
-    Obfuscation ServerObfuscationConfig
-}
+#### ServerConfig
 
-// Server interface section
-type InterfaceConfig struct {
-    PrivateKey     string
-    PublicKey      string
-    Address        string
-    PostUp         string
-    PostDown       string
-    MainIface      string
-    TunName        string
-    EndpointV4     string
-    EndpointV6     string
-    ListenPort     int
-    MTU            int
-    ClientToClient bool
-}
+Top-level server configuration containing the interface, obfuscation settings, and peers.
 
-// Peer configuration (server-side)
-type PeerConfig struct {
-    CreatedAt         time.Time
-    ClientObfuscation *ClientObfuscationConfig
-    Name              string
-    PrivateKey        string
-    PublicKey         string
-    PresharedKey      string
-    AllowedIPs        string
-}
+| Field | Type | Description |
+|-------|------|-------------|
+| `Interface` | `InterfaceConfig` | WireGuard interface settings |
+| `Obfuscation` | `ServerObfuscationConfig` | Server obfuscation parameters |
+| `Peers` | `[]PeerConfig` | Registered peers |
 
-// Client configuration (for export)
-type ClientConfig struct {
-    Peer      ClientPeerConfig
-    Interface ClientInterfaceConfig
-}
+#### InterfaceConfig
 
-// Client interface section
-type ClientInterfaceConfig struct {
-    PrivateKey  string
-    Address     string
-    DNS         string
-    Obfuscation ClientObfuscationConfig
-    MTU         int
-}
+WireGuard interface configuration.
 
-// Client peer section
-type ClientPeerConfig struct {
-    PublicKey           string
-    PresharedKey        string
-    Endpoint            string
-    AllowedIPs          string
-    PersistentKeepalive int
-}
-```
+| Field | Type | Description |
+|-------|------|-------------|
+| `TunName` | `string` | Tunnel interface name (e.g., `awg0`) |
+| `PrivateKey` | `string` | Server private key (base64) |
+| `PublicKey` | `string` | Server public key (base64) |
+| `Address` | `string` | Server address in CIDR notation |
+| `ListenPort` | `int` | Listening port |
+| `MTU` | `int` | Maximum transmission unit |
+| `DNS` | `string` | DNS servers (comma-separated) |
+| `PostUp` | `string` | PostUp iptables commands |
+| `PostDown` | `string` | PostDown iptables commands |
+| `MainIface` | `string` | Main network interface for NAT |
+| `EndpointV4` | `string` | IPv4 endpoint address |
+| `EndpointV6` | `string` | IPv6 endpoint address |
+| `PersistentKeepalive` | `int` | Keepalive interval in seconds |
+| `ClientToClient` | `bool` | Allow peer-to-peer traffic |
+
+#### PeerConfig
+
+A single peer registered on the server.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `Name` | `string` | Peer display name |
+| `PrivateKey` | `string` | Peer private key (base64) |
+| `PublicKey` | `string` | Peer public key (base64) |
+| `PresharedKey` | `string` | Preshared key (base64) |
+| `AllowedIPs` | `string` | Peer allowed IPs (CIDR) |
+| `CreatedAt` | `time.Time` | Creation timestamp |
+| `ClientObfuscation` | `*ClientObfuscationConfig` | Client obfuscation params (nil until export) |
+
+### Client Config Types
+
+#### ClientConfig
+
+Top-level client configuration.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `Interface` | `ClientInterfaceConfig` | Client interface settings |
+| `Peer` | `ClientPeerConfig` | Server peer settings |
+
+#### ClientInterfaceConfig
+
+Client-side WireGuard interface configuration.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `PrivateKey` | `string` | Client private key (base64) |
+| `Address` | `string` | Client address (CIDR) |
+| `DNS` | `string` | DNS servers |
+| `MTU` | `int` | Maximum transmission unit |
+| `Obfuscation` | `ClientObfuscationConfig` | Client obfuscation parameters |
+
+#### ClientPeerConfig
+
+Client-side server peer configuration.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `PublicKey` | `string` | Server public key (base64) |
+| `PresharedKey` | `string` | Preshared key (base64) |
+| `Endpoint` | `string` | Server endpoint address |
+| `AllowedIPs` | `string` | Routes through VPN (always `0.0.0.0/0, ::/0`) |
+| `PersistentKeepalive` | `int` | Keepalive interval |
 
 ### Obfuscation Types
 
-```go
-// Server-side obfuscation (H1-H4 as ranges)
-type ServerObfuscationConfig struct {
-    Jc, Jmin, Jmax int
-    S1, S2, S3, S4 int
-    H1, H2, H3, H4 HeaderRange
-}
+#### ServerObfuscationConfig
 
-// Client-side obfuscation (extends server config with I1-I5 CPS strings)
-type ClientObfuscationConfig struct {
-    I1, I2, I3, I4, I5 string
-    ServerObfuscationConfig
-}
+Server-side obfuscation parameters.
 
-// Header range (min-max)
-type HeaderRange struct {
-    Min uint32
-    Max uint32
-}
+| Field | Type | Description |
+|-------|------|-------------|
+| `Jc` | `int` | Junk count |
+| `Jmin` | `int` | Minimum junk size |
+| `Jmax` | `int` | Maximum junk size |
+| `S1` - `S4` | `int` | Size prefixes |
+| `H1` - `H4` | `HeaderRange` | Header value ranges |
 
-// Header point values
-type Headers struct {
-    H1, H2, H3, H4 uint32
-}
+#### ClientObfuscationConfig
 
-// SPrefixes (S1-S4)
-type SPrefixes struct {
-    S1, S2, S3, S4 int
-}
+Client-side obfuscation parameters. Embeds all `ServerObfuscationConfig` fields plus I1-I5.
 
-// Junk parameters
-type JunkParams struct {
-    Jc, Jmin, Jmax int
-}
-```
+| Field | Type | Description |
+|-------|------|-------------|
+| *(embedded)* | `ServerObfuscationConfig` | Jc, Jmin, Jmax, S1-S4, H1-H4 |
+| `I1` - `I5` | `string` | Custom Packet Strings |
 
-### CPS & Template Types
+#### HeaderRange
 
-```go
-// Tag specification for CPS construction
-type TagSpec struct {
-    Type  string  // "bytes", "random", "random_chars", "random_digits", "counter", "timestamp"
-    Value string
-}
+A range of header values stored as min-max.
 
-// I1-I5 template for a protocol
-type I1I5Template struct {
-    I1, I2, I3, I4, I5 []TagSpec
-}
-```
+| Field | Type | Description |
+|-------|------|-------------|
+| `Min` | `uint32` | Minimum header value |
+| `Max` | `uint32` | Maximum header value |
 
-**Note:** `CPSConfig` (unexported) and `simpleTag` (unexported) are internal types used by CPS generation and are not part of the public API.
+#### SPrefixes
 
-### Manager Type
+Size prefix parameters.
 
-```go
-type Manager struct {
-    ConfigPath string  // unexported field
-}
-```
+| Field | Type | Description |
+|-------|------|-------------|
+| `S1` - `S4` | `int` | Size prefix values |
+
+#### JunkParams
+
+Junk packet parameters.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `Jc` | `int` | Junk count (0-10) |
+| `Jmin` | `int` | Minimum junk size (64-1024) |
+| `Jmax` | `int` | Maximum junk size (64-1024) |
+
+#### TagSpec
+
+A single CPS tag specification.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `Type` | `string` | Tag type (`b`, `r`, `rc`, `rd`, `c`, `t`) |
+| `Value` | `string` | Tag value (hex for `b`, size for `r`/`rc`/`rd`) |
+
+#### I1I5Template
+
+A protocol template defining CPS tag structure for intervals I1-I5.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `I1` - `I5` | `[]TagSpec` | Tag specifications for each interval |
+
+#### Manager
+
+High-level config manager.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `ConfigPath` | `string` | Path to the server config file |
 
 ---
 
 ## Gotchas & Important Notes
 
-### Hardcoded Values in BuildPeerConfig
+### Panicking Functions
 
-1. **DNS** is hardcoded to `"1.1.1.1, 8.8.8.8"` in `BuildPeerConfig`.
+`GenerateKeyPair`, `DerivePublicKey`, `GeneratePSK`, and `GenerateHeaderRanges` all **panic** on error instead of returning errors. Only use these when failure is unrecoverable, or wrap them in `recover()`.
 
-2. **AllowedIPs** is always `"0.0.0.0/0, ::/0"` (tunnel all traffic).
+### ListPeers Returns Nil on Error
 
-3. **PersistentKeepalive** is hardcoded to `25` seconds.
-
-### Protocol Behavior
-
-4. **"random" protocol** deterministically selects DTLS due to `len("random") % 4 = 2`. It's not truly random.
-
-5. **GenerateServerConfig ignores the protocol parameter**. The server config doesn't need protocol-specific I1-I5 values.
-
-### Obfuscation Differences
-
-6. **GenerateConfig vs GenerateServerConfig**:
-   - `GenerateConfig`: Uses point values for H1-H4 (Min == Max), for clients
-   - `GenerateServerConfig`: Uses true ranges for H1-H4 (Min != Max in general), for servers
-
-### Error Handling
-
-7. **Key generation panics**: `GenerateKeyPair()` and `GeneratePSK()` panic if `crypto/rand` fails. This is by design—these are treated as unrecoverable system failures.
-
-8. **DerivePublicKey panics**: `DerivePublicKey()` panics on invalid base64 or wrong key length.
-
-### Peer Names
-
-9. **Peer names are metadata**: The `Name` field in `PeerConfig` is stored as a comment (`#_Name = value`) in the config file, not as a native WireGuard field.
-
-### IP Assignment
-
-10. **Auto IP assignment** scans from `.2` to `.254` in the subnet. The `.1` address is reserved for the server.
-
-### File Writes
-
-11. **Atomic writes**: `SaveServerConfig` and `Manager.Save` use atomic writes (write to `.tmp` file, then rename) to prevent corruption from partial writes.
-
-### GenerateHeaderRanges
-
-12. **GenerateHeaderRanges panics on failure**: If it fails to generate non-overlapping header ranges after 1000 attempts, it panics.
-
----
-
-## Complete Example: VPN Setup Script
+`Manager.ListPeers()` returns `nil` on load error — it does not return an error. Always check for `nil`:
 
 ```go
-package main
-
-import (
-    "fmt"
-    "log"
-    "os"
-
-    "github.com/Arsolitt/amnezigo"
-)
-
-func main() {
-    configPath := "/etc/amneziawg/awg0.conf"
-    endpoint := "203.0.113.50:51820"
-    protocol := "quic"
-
-    // Create manager
-    manager := amnezigo.NewManager(configPath)
-
-    // Check if config exists
-    cfg, err := manager.Load()
-    if err != nil {
-        // Create new config
-        privateKey, publicKey := amnezigo.GenerateKeyPair()
-        port, err := amnezigo.GenerateRandomPort()
-        if err != nil {
-            log.Fatalf("Failed to generate port: %v", err)
-        }
-        mainIface := amnezigo.DetectMainInterface()
-
-        cfg = amnezigo.ServerConfig{
-            Interface: amnezigo.InterfaceConfig{
-                PrivateKey:  privateKey,
-                PublicKey:   publicKey,
-                Address:     "10.8.0.1/24",
-                ListenPort:  port,
-                MTU:         1280,
-                TunName:     "awg0",
-                MainIface:   mainIface,
-                PostUp:      amnezigo.GeneratePostUp("awg0", mainIface, "10.8.0.0/24", false),
-                PostDown:    amnezigo.GeneratePostDown("awg0", mainIface, "10.8.0.0/24", false),
-                Obfuscation: amnezigo.GenerateServerConfig("quic", 15, 3),
-            },
-        }
-
-        if err := manager.Save(cfg); err != nil {
-            log.Fatalf("Failed to save config: %v", err)
-        }
-        fmt.Println("Created new server configuration")
-    }
-
-    // Add peers from command line args
-    for _, name := range os.Args[1:] {
-        peer, err := manager.AddPeer(name, "")
-        if err != nil {
-            log.Printf("Failed to add %s: %v", name, err)
-            continue
-        }
-
-        clientCfg, err := manager.ExportPeer(name, protocol, endpoint)
-        if err != nil {
-            log.Printf("Failed to export %s: %v", name, err)
-            continue
-        }
-
-        filename := fmt.Sprintf("%s.conf", name)
-        file, err := os.Create(filename)
-        if err != nil {
-            log.Printf("Failed to create %s: %v", filename, err)
-            continue
-        }
-
-        if err := amnezigo.WriteClientConfig(file, clientCfg); err != nil {
-            log.Printf("Failed to write %s: %v", filename, err)
-        } else {
-            fmt.Printf("Created %s for %s (%s)\n", filename, name, peer.AllowedIPs)
-        }
-        file.Close()
-    }
-
-    // List all peers
-    fmt.Println("\nCurrent peers:")
-    for _, peer := range manager.ListPeers() {
-        fmt.Printf("  - %s: %s\n", peer.Name, peer.AllowedIPs)
-    }
+peers := mgr.ListPeers()
+if peers == nil {
+    // config load failed
 }
 ```
 
----
+### FindPeer Returns a Mutable Pointer
 
-## See Also
+`Manager.FindPeer()` returns `*PeerConfig` pointing into the loaded config struct. Modifying the returned object does **not** persist changes. You must call `Save` to write changes.
 
-- [AmneziaWG Protocol Documentation](https://docs.amnezia.org/)
-- [WireGuard Go Implementation](https://github.com/WireGuard/wireguard-go)
+### IPv4 Only for IP Allocation
+
+`FindNextAvailableIP` only supports IPv4 addresses. Passing an IPv6 CIDR returns the error `"not an IPv4 address"`.
+
+### Silent IP Exhaustion
+
+`FindNextAvailableIP` returns an empty string and `nil` error when all IPs (.2 through .254) are exhausted. Check for an empty return value.
+
+### GenerateServerConfig Ignores Protocol
+
+The first argument to `GenerateServerConfig` (the protocol string) is **completely ignored**. Only `s1` and `jc` are used.
+
+### Unused Argument in GenerateCPS
+
+The 4th argument to `GenerateCPS` is unused (named `_` in the function signature).
+
+### Silent Fallbacks
+
+Several helper functions return fallback values instead of errors:
+- `ExtractSubnet` — returns the original string on parse error
+- `DetectMainInterface` — returns empty string on failure
+- `BuildCPSTag` — returns empty string for unknown tag types
+
+### I1-I5 Are Client-Only
+
+I1-I5 fields are not present in server config files. They are generated at export time and only appear in client configurations.
+
+### Peer Private Keys in Server Config
+
+Peer private keys are stored in the server config as `#_PrivateKey` metadata comments. This is required for the export workflow.
+
+### Atomic Writes
+
+`SaveServerConfig` and `Manager.Save` use atomic writes: the config is first written to a `.tmp` file, then renamed to the target path. The `.tmp` file is cleaned up on error.
