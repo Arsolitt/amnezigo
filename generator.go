@@ -7,8 +7,6 @@ import (
 )
 
 const (
-	headerRegion1Max  = 0x3FFFFFFE
-	headerRegion23Max = 0x3FFFFFFF
 	s4RangeMax        = 33
 	sPrefixRangeMax   = 65
 	jcRangeMax        = 11
@@ -18,39 +16,7 @@ const (
 	headerMaxValue    = uint32(2147483647)
 	headerMinRange    = uint32(10000000)
 	headerMaxAttempts = 1000
-
-	headerRegion2Start = uint32(0x40000000)
-	headerRegion3Start = uint32(0x80000000)
-	headerRegion4Start = uint32(0xC0000000)
 )
-
-// GenerateHeaders generates 4 non-overlapping non-zero headers.
-func GenerateHeaders() Headers {
-	// Divide uint32 space into 4 non-overlapping regions
-	// Region 1: 0x00000001 - 0x3FFFFFFF
-	// Region 2: 0x40000000 - 0x7FFFFFFF
-	// Region 3: 0x80000000 - 0xBFFFFFFF
-	// Region 4: 0xC0000000 - 0xFFFFFFFF
-
-	h1, _ := rand.Int(rand.Reader, big.NewInt(headerRegion1Max))
-	h1Val := uint32(h1.Uint64()) + 1 //nolint:gosec // G115: values bounded by crypto/rand Int ranges
-
-	h2, _ := rand.Int(rand.Reader, big.NewInt(headerRegion23Max))
-	h2Val := uint32(h2.Uint64()) + headerRegion2Start //nolint:gosec // G115: bounded by crypto/rand range
-
-	h3, _ := rand.Int(rand.Reader, big.NewInt(headerRegion23Max))
-	h3Val := uint32(h3.Uint64()) + headerRegion3Start //nolint:gosec // G115: bounded by crypto/rand range
-
-	h4, _ := rand.Int(rand.Reader, big.NewInt(headerRegion23Max))
-	h4Val := uint32(h4.Uint64()) + headerRegion4Start //nolint:gosec // G115: bounded by crypto/rand range
-
-	return Headers{
-		H1: h1Val,
-		H2: h2Val,
-		H3: h3Val,
-		H4: h4Val,
-	}
-}
 
 // GenerateSPrefixes generates S1-S4 size prefixes with constraints.
 func GenerateSPrefixes() SPrefixes {
@@ -122,7 +88,7 @@ func GenerateCPS(protocol string, mtu, s1, _ int) (string, string, string, strin
 
 // GenerateConfig combines all obfuscation parameters into a config.
 func GenerateConfig(protocol string, mtu, s1, jc int) ClientObfuscationConfig {
-	h := GenerateHeaders()
+	h := GenerateHeaderRanges()
 	s := GenerateSPrefixes()
 	j := GenerateJunkParams()
 	cps := generateCPSConfig(protocol, mtu, s1)
@@ -136,10 +102,10 @@ func GenerateConfig(protocol string, mtu, s1, jc int) ClientObfuscationConfig {
 			S2:   s.S2,
 			S3:   s.S3,
 			S4:   s.S4,
-			H1:   HeaderRange{Min: h.H1, Max: h.H1}, // TODO: Use ranges instead
-			H2:   HeaderRange{Min: h.H2, Max: h.H2}, // TODO: Use ranges instead
-			H3:   HeaderRange{Min: h.H3, Max: h.H3}, // TODO: Use ranges instead
-			H4:   HeaderRange{Min: h.H4, Max: h.H4}, // TODO: Use ranges instead
+			H1:   h[0],
+			H2:   h[1],
+			H3:   h[2],
+			H4:   h[3],
 		},
 		I1: cps.I1,
 		I2: cps.I2,

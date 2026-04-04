@@ -84,11 +84,6 @@ type ClientPeerConfig struct {
 	PersistentKeepalive int
 }
 
-// Headers represents H1-H4 obfuscation headers.
-type Headers struct {
-	H1, H2, H3, H4 uint32
-}
-
 // SPrefixes represents S1-S4 obfuscation size prefixes.
 type SPrefixes struct {
 	S1, S2, S3, S4 int

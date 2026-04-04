@@ -5,34 +5,6 @@ import (
 	"testing"
 )
 
-func TestGenerateHeaders(t *testing.T) {
-	h := GenerateHeaders()
-
-	// All headers must be non-zero
-	if h.H1 == 0 {
-		t.Error("H1 must be non-zero")
-	}
-	if h.H2 == 0 {
-		t.Error("H2 must be non-zero")
-	}
-	if h.H3 == 0 {
-		t.Error("H3 must be non-zero")
-	}
-	if h.H4 == 0 {
-		t.Error("H4 must be non-zero")
-	}
-
-	// All headers must be different (no overlap)
-	headers := []uint32{h.H1, h.H2, h.H3, h.H4}
-	for i := range headers {
-		for j := i + 1; j < len(headers); j++ {
-			if headers[i] == headers[j] {
-				t.Errorf("Headers must not overlap: H%d (%d) == H%d (%d)", i+1, headers[i], j+1, headers[j])
-			}
-		}
-	}
-}
-
 func TestGenerateSPrefixes(t *testing.T) {
 	s := GenerateSPrefixes()
 
@@ -88,19 +60,14 @@ func TestGenerateConfig(t *testing.T) {
 		t.Errorf("Jc must be in range 0-10, got %d", cfg.Jc)
 	}
 
-	// All header ranges must be valid
-	// TODO: Update to require Min < Max once GenerateConfig uses GenerateHeaderRanges
-	if cfg.H1.Min == 0 || cfg.H1.Max == 0 {
-		t.Error("H1 must have non-zero Min and Max")
-	}
-	if cfg.H2.Min == 0 || cfg.H2.Max == 0 {
-		t.Error("H2 must have non-zero Min and Max")
-	}
-	if cfg.H3.Min == 0 || cfg.H3.Max == 0 {
-		t.Error("H3 must have non-zero Min and Max")
-	}
-	if cfg.H4.Min == 0 || cfg.H4.Max == 0 {
-		t.Error("H4 must have non-zero Min and Max")
+	// All header ranges must be true ranges (Min < Max)
+	for i, hr := range []HeaderRange{cfg.H1, cfg.H2, cfg.H3, cfg.H4} {
+		if hr.Min >= hr.Max {
+			t.Errorf("H%d must have Min < Max, got Min=%d Max=%d", i+1, hr.Min, hr.Max)
+		}
+		if hr.Min < 5 {
+			t.Errorf("H%d Min must be >= 5, got %d", i+1, hr.Min)
+		}
 	}
 
 	// S1-S3: 0-64, S4: 0-32
