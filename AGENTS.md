@@ -41,17 +41,6 @@ github.com/Arsolitt/amnezigo
     +-- quic.go, dns.go, dtls.go, stun.go  # Protocol templates
 ```
 
-## Known Gotchas
-
-### CLI Behavior
-- **export has no --endpoint flag**: Endpoint is auto-resolved from server config's `#_EndpointV4`/`#_EndpointV6` metadata fields, with HTTP fallback to icanhazip.com, and final fallback to `"YOUR_SERVER_IP"`. There is no manual override.
-- **--dns and --keepalive on init are silently ignored**: These flags exist on the init command but do nothing. DNS is hardcoded to "1.1.1.1, 8.8.8.8" and keepalive to 25 in exports.
-- **"random" protocol is deterministic**: Due to `len("random") % 4 = 2`, the random protocol always selects DTLS. Use explicit protocol names if you need variety.
-
-### Obfuscation Generation
-- **GenerateConfig vs GenerateServerConfig**: `GenerateConfig` uses point ranges for H1-H4 (single values masquerading as ranges). `GenerateServerConfig` uses true ranges with different min/max values.
-- **CPS strings are per-peer**: I1-I5 CPS strings are generated at export time, not stored in the server config. Each peer gets unique CPS values.
-
 ## Library API
 
 ### Manager (manager.go)
@@ -81,7 +70,6 @@ High-level CRUD operations for server configs and peers:
 ### Obfuscation (generator.go)
 - `GenerateConfig(protocol string, mtu, s1, jc int) ClientObfuscationConfig`
 - `GenerateServerConfig(_, s1, jc int) ServerObfuscationConfig` — first arg (protocol) ignored
-- `GenerateHeaders() Headers`
 - `GenerateSPrefixes() SPrefixes`
 - `GenerateJunkParams() JunkParams`
 - `GenerateCPS(protocol string, mtu, s1, _ int) (string, string, string, string, string)` — 4th arg unused
