@@ -1,5 +1,10 @@
 package amnezigo
 
+import (
+	"crypto/rand"
+	"math/big"
+)
+
 // getTemplate returns the I1I5Template for the specified protocol.
 // Valid protocols: "quic", "dns", "dtls", "stun", "random" (default).
 func getTemplate(protocol string) I1I5Template {
@@ -13,14 +18,13 @@ func getTemplate(protocol string) I1I5Template {
 	case "stun":
 		return STUNTemplate()
 	default:
-		// Random selection for "random" or unknown protocols
 		protocols := []func() I1I5Template{
 			QUICTemplate,
 			DNSTemplate,
 			DTLSTemplate,
 			STUNTemplate,
 		}
-		// Simple modulo-based selection
-		return protocols[len(protocol)%len(protocols)]()
+		n, _ := rand.Int(rand.Reader, big.NewInt(int64(len(protocols))))
+		return protocols[n.Int64()]()
 	}
 }
