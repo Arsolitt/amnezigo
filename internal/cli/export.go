@@ -16,6 +16,7 @@ import (
 )
 
 var peerProtocol string
+var peerEndpoint string
 
 func NewExportCommand() *cobra.Command {
 	cmd := &cobra.Command{
@@ -35,6 +36,7 @@ Example:
 		RunE: runExport,
 	}
 	cmd.Flags().StringVar(&peerProtocol, "protocol", "random", "Obfuscation protocol")
+	cmd.Flags().StringVar(&peerEndpoint, "endpoint", "", "Override endpoint (skip auto-detection)")
 	cmd.Flags().StringVar(&cfgFile, "config", "awg0.conf", "config file path")
 	return cmd
 }
@@ -46,7 +48,12 @@ func runExport(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load server config: %w", err)
 	}
 
-	endpoint := resolveExportEndpoint(serverCfg)
+	var endpoint string
+	if peerEndpoint != "" {
+		endpoint = peerEndpoint
+	} else {
+		endpoint = resolveExportEndpoint(serverCfg)
+	}
 
 	peersToExport, err := selectPeersToExport(serverCfg.Peers, args)
 	if err != nil {

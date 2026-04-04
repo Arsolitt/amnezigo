@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -221,8 +222,8 @@ AllowedIPs = 10.8.0.3/32
 		}
 	})
 
-	// Test 3: Export rejects --endpoint flag (removed feature)
-	t.Run("export rejects --endpoint flag", func(t *testing.T) {
+	// Test 3: Export with --endpoint flag overrides auto-detection
+	t.Run("export with --endpoint flag overrides auto-detection", func(t *testing.T) {
 		cfgFile = ""
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, "awg0.conf")
@@ -261,13 +262,29 @@ AllowedIPs = 10.8.0.4/32
 			t.Fatal(err)
 		}
 
-		// Execute export command with --endpoint flag (should fail)
+		// Change to tmpDir so exported files are created there
+		t.Chdir(tmpDir)
+
+		// Execute export command with --endpoint flag (should override config endpoint)
 		cmd := NewExportCommand()
 		cmd.SetArgs([]string{"--config", configPath, "--endpoint", "1.2.3.4:55424", "tablet"})
 
-		// Should fail because --endpoint flag is removed
-		if err := cmd.Execute(); err == nil {
-			t.Error("expected error when using --endpoint flag (removed)")
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("export with --endpoint flag failed: %v", err)
+		}
+
+		// Verify the exported config uses the overridden endpoint
+		exportedPath := filepath.Join(tmpDir, "tablet.conf")
+		data, err := os.ReadFile(exportedPath)
+		if err != nil {
+			t.Fatalf("failed to read exported config: %v", err)
+		}
+		if !bytes.Contains(data, []byte("Endpoint = 1.2.3.4:55424")) {
+			t.Errorf("exported config does not contain overridden endpoint 1.2.3.4:55424, got:\n%s", string(data))
+		}
+		// Make sure it doesn't use the config's endpoint
+		if bytes.Contains(data, []byte("Endpoint = 5.6.7.8:9999")) {
+			t.Errorf("exported config should not contain config endpoint 5.6.7.8:9999 when --endpoint is specified")
 		}
 	})
 
