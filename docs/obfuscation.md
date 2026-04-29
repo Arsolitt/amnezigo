@@ -114,7 +114,6 @@ CPS strings are composed of tags enclosed in angle brackets. Each tag produces a
 | `<r N>` | `random` | N random bytes | N bytes |
 | `<rc N>` | `random_chars` | N random ASCII characters | N bytes |
 | `<rd N>` | `random_digits` | N random digit characters | N bytes |
-| `<c>` | `counter` | Incrementing counter value | 8 bytes |
 | `<t>` | `timestamp` | Timestamp value | 8 bytes |
 
 ### Examples
@@ -124,7 +123,6 @@ CPS strings are composed of tags enclosed in angle brackets. Each tag produces a
 <r 8>               — Eight random bytes
 <rc 7>              — Seven random ASCII characters (e.g., "aB3xK9p")
 <rd 2>              — Two random digits (e.g., "47")
-<c>                 — 8-byte counter (increments each packet)
 <t>                 — 8-byte timestamp
 ```
 

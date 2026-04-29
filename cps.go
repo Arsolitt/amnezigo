@@ -19,16 +19,13 @@ const (
 	// Source: amneziawg-go device/obf_timestamp.go writes
 	// binary.BigEndian.PutUint32(buf, uint32(time.Now().Unix())) — 4 bytes.
 	cpsTimestampSize = 4
-	// cpsCounterSize is the byte length of the <c> tag.
-	// Kernel-module-only; full removal scheduled in roadmap P0.1.
-	cpsCounterSize = 8
-	maxByteLen     = 16
-	minByteLen     = 4
-	maxSize        = 40
-	minSize        = 5
-	maxTagCount    = 6
-	minTagCount    = 3
-	tagTerminate   = "<t>"
+	maxByteLen       = 16
+	minByteLen       = 4
+	maxSize          = 40
+	minSize          = 5
+	maxTagCount      = 6
+	minTagCount      = 3
+	tagTerminate     = "<t>"
 
 	// cpsRcAlphabet is the canonical alphabet used by amneziawg-go to fill
 	// <rc N> tags at packet emission time. 52 ASCII letters, lowercase first
@@ -61,8 +58,13 @@ func calculateMaxISize(mtu, s1 int) int {
 //   - "rc" + value → tag for N random letters from [a-zA-Z] (52 chars, see cpsRcAlphabet)
 //     (e.g., "rc" + "8" → "<rc 8>"; the receiver fills 8 random letters at emit time)
 //   - "rd" + value → random digits (e.g., "rd" + "4" → "<rd 4>")
-//   - "c" → counter (e.g., "c" → "<c>")
 //   - "t" → timestamp (e.g., "t" → "<t>").
+//
+// The legacy "c" (counter) tag is intentionally NOT supported: it is recognised
+// only by amneziawg-linux-kernel-module. amneziawg-go and all AmneziaVPN
+// clients (iOS, Android, Windows, macOS) reject "<c>" with "unknown tag",
+// breaking generated configs. Passing "c" returns the empty string sentinel
+// like any other unknown tag type.
 func BuildCPSTag(tagType, value string) string {
 	switch tagType {
 	case "b":
@@ -76,8 +78,6 @@ func BuildCPSTag(tagType, value string) string {
 		return fmt.Sprintf("<rc %s>", value)
 	case "rd":
 		return fmt.Sprintf("<rd %s>", value)
-	case "c":
-		return "<c>"
 	case "t":
 		return tagTerminate
 	default:
@@ -177,7 +177,9 @@ func cpsAcceptable(cps string, maxSize int, forbidden [4]int) bool {
 	return true
 }
 
-// mapTagType maps protocol tag types to CPS tag types.
+// mapTagType maps protocol tag types to CPS tag types. The legacy "counter"
+// type is intentionally not mapped — see BuildCPSTag for rationale; it falls
+// through to the empty-string default along with any other unknown type.
 func mapTagType(tagType string) string {
 	switch tagType {
 	case "bytes":
@@ -188,8 +190,6 @@ func mapTagType(tagType string) string {
 		return "rc"
 	case "random_digits":
 		return "rd"
-	case "counter":
-		return "c"
 	case "timestamp":
 		return "t"
 	default:
@@ -201,7 +201,11 @@ func mapTagType(tagType string) string {
 // It supports:
 // - <b 0xNN>: len(NN)/2 bytes (hex string to bytes)
 // - <r N>, <rc N>, <rd N>: N bytes each
-// - <t>: 4 bytes, <c>: 8 bytes.
+// - <t>: 4 bytes.
+//
+// Unknown tag literals (including the legacy kernel-only "<c>" tag, which
+// AmneziaVPN clients reject) contribute 0 bytes — the receiver would error
+// out on them anyway, and accounting for them here would mask the regression.
 func calculateCPSLength(cps string) int {
 	total := 0
 
@@ -224,10 +228,6 @@ func calculateCPSLength(cps string) int {
 	// Match <t> tags (4 bytes each — uint32 BigEndian timestamp)
 	tsMatches := regexp.MustCompile(`<t>`).FindAllString(cps, -1)
 	total += len(tsMatches) * cpsTimestampSize
-
-	// Match <c> tags (8 bytes each — uint64 counter, kernel-only)
-	ctrMatches := regexp.MustCompile(`<c>`).FindAllString(cps, -1)
-	total += len(ctrMatches) * cpsCounterSize
 
 	return total
 }

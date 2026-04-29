@@ -98,8 +98,8 @@ type JunkParams struct {
 
 // simpleTag represents a CPS tag with type and value.
 type simpleTag struct {
-	Type  string // "b", "r", "rc", "rd", "t", "c"
-	Value string // hex for "b", number for "r"/"rc"/"rd", empty for "t"/"c"
+	Type  string // "b", "r", "rc", "rd", "t"
+	Value string // hex for "b", number for "r"/"rc"/"rd", empty for "t"
 }
 
 // CPSConfig holds the five intervals (I1-I5) of custom packet strings.

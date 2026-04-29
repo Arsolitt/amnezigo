@@ -85,11 +85,15 @@ func TestBuildCPSTagRandomDigits(t *testing.T) {
 	}
 }
 
-func TestBuildCPSTagCounter(t *testing.T) {
+// TestBuildCPSTagCounterRejected locks the removal of the kernel-only `<c>`
+// (counter) tag. amneziawg-go and all mobile/desktop AmneziaVPN clients reject
+// `<c>` with "unknown tag", so emitting it is a regression. This test asserts
+// that BuildCPSTag treats "c" as an unknown tag type and returns the empty
+// string sentinel (same as any other unknown type).
+func TestBuildCPSTagCounterRejected(t *testing.T) {
 	tag := BuildCPSTag("c", "")
-	expected := "<c>"
-	if tag != expected {
-		t.Errorf("BuildCPSTag(\"c\", \"\") = %q, want %q", tag, expected)
+	if tag != "" {
+		t.Errorf("BuildCPSTag(\"c\", \"\") = %q, want %q (counter tag must be rejected)", tag, "")
 	}
 }
 
@@ -105,7 +109,6 @@ func TestBuildCPS(t *testing.T) {
 	tags := []string{
 		BuildCPSTag("b", "0xc00000000108"),
 		BuildCPSTag("r", "8"),
-		BuildCPSTag("c", ""),
 		BuildCPSTag("t", ""),
 		BuildCPSTag("r", "50"),
 	}
@@ -115,7 +118,6 @@ func TestBuildCPS(t *testing.T) {
 	expectedParts := []string{
 		"<b 0xc00000000108>",
 		"<r 8>",
-		"<c>",
 		"<t>",
 		"<r 50>",
 	}
@@ -159,7 +161,7 @@ func TestMapTagType(t *testing.T) {
 		{"random maps to r", "random", "r"},
 		{"random_chars maps to rc", "random_chars", "rc"},
 		{"random_digits maps to rd", "random_digits", "rd"},
-		{"counter maps to c", "counter", "c"},
+		{"counter is no longer mapped", "counter", ""},
 		{"timestamp maps to t", "timestamp", "t"},
 		{"unknown type returns empty", "unknown", ""},
 	}
@@ -198,13 +200,15 @@ func TestCalculateCPSLength(t *testing.T) {
 		cps      string
 		expected int
 	}{
-		{"bytes_counter_timestamp", "<b 0xdeadbeef><c><t>", 16}, // 4 + 8 + 4
-		{"random_types", "<r 10><rc 5><rd 3>", 18},              // 10 + 5 + 3
-		{"single_byte_and_counter", "<b 0xff><c>", 9},           // 1 + 8
+		{"bytes_timestamp", "<b 0xdeadbeef><t>", 8}, // 4 + 4
+		{"random_types", "<r 10><rc 5><rd 3>", 18},  // 10 + 5 + 3
 		{"empty", "", 0},
-		{"only_counter", "<c>", 8},           // 8
-		{"only_timestamp", "<t>", 4},         // 4
-		{"mixed", "<b 0x11><c><r 5><t>", 18}, // 1 + 8 + 5 + 4
+		{"only_timestamp", "<t>", 4},      // 4
+		{"mixed", "<b 0x11><r 5><t>", 10}, // 1 + 5 + 4
+		// Regression: <c> tag was removed in P0.1 (kernel-only, rejected by
+		// amneziawg-go and all mobile/desktop clients). calculateCPSLength
+		// must treat <c> as an unknown tag literal contributing 0 bytes.
+		{"counter_tag_unknown", "<c>", 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

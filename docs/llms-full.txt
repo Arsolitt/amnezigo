@@ -1115,12 +1115,7 @@ Protocol templates use descriptive type names that are mapped to CPS tag types v
 | `"random"`       | `"r"`    | N random bytes                |
 | `"random_chars"` | `"rc"`   | N random ASCII characters     |
 | `"random_digits"`| `"rd"`   | N random digit characters     |
-| `"counter"`      | `"c"`    | 8 bytes                       |
 | `"timestamp"`    | `"t"`    | 8 bytes                       |
-
-::: warning
-The `"counter"` (`c`) CPS tag type is supported by `BuildCPSTag` but **not used by any of the four protocol templates**.
-:::
 
 ## QUIC Template
 
@@ -1205,8 +1200,8 @@ Key details:
 
 ```go
 type TagSpec struct {
-    Type  string  // "bytes", "random", "random_chars", "random_digits", "counter", "timestamp"
-    Value string  // hex for "bytes", size for "random"/"rc"/"rd", empty for "t"/"c"
+    Type  string  // "bytes", "random", "random_chars", "random_digits", "timestamp"
+    Value string  // hex for "bytes", size for "random"/"rc"/"rd", empty for "t"
 }
 
 type I1I5Template struct {
@@ -1229,7 +1224,6 @@ CPS strings define the content of obfuscated packets. They are composed of tags 
 | random      | `<r N>`          | N bytes           | N random bytes                   |
 | random chars| `<rc N>`         | N bytes           | N random ASCII characters        |
 | random digits| `<rd N>`        | N bytes           | N random digit characters        |
-| counter     | `<c>`            | 8 bytes           | Monotonically increasing counter |
 | timestamp   | `<t>`            | 8 bytes           | Current timestamp                |
 
 Multiple tags are concatenated: `<b 0xc00000000108><r 20><t>` produces 2 + 20 + 8 = 30 bytes on the wire.
@@ -1246,8 +1240,8 @@ BuildCPSTag("b", "deadbeef")     // "<b 0xdeadbeef>" (auto-prepends 0x)
 BuildCPSTag("r", "20")           // "<r 20>"
 BuildCPSTag("rc", "8")           // "<rc 8>"
 BuildCPSTag("rd", "4")           // "<rd 4>"
-BuildCPSTag("c", "")             // "<c>"
 BuildCPSTag("t", "")             // "<t>"
+BuildCPSTag("c", "")             // "" (counter tag rejected — kernel-only, mobile clients fail)
 BuildCPSTag("x", "")             // "" (unknown type)
 ```
 
@@ -1279,9 +1273,8 @@ Examples:
 Calculates the wire byte length of a CPS string by parsing its tags:
 
 ```go
-calculateCPSLength("<b 0xdeadbeef><c><t>")  // 20  (4 + 8 + 8)
+calculateCPSLength("<b 0xdeadbeef><t>")     // 12  (4 + 8)
 calculateCPSLength("<r 10><rc 5><rd 3>")     // 18  (10 + 5 + 3)
-calculateCPSLength("<c>")                     // 8
 calculateCPSLength("<t>")                     // 8
 ```
 
@@ -1327,9 +1320,9 @@ When `maxISize <= 0` (very small MTU or large S1), **all CPS intervals fall back
 
 CPS strings are **not stored** in the server config. They are regenerated fresh each time a peer is exported. The same peer exported twice will have different I1-I5 values.
 
-## Counter Tag
+## Counter Tag (Removed)
 
-The `"c"` (counter) tag type is fully supported by `BuildCPSTag` and `calculateCPSLength`, but is **not used by any of the four protocol templates** (QUIC, DNS, DTLS, STUN). It is also not available in random CPS generation (the `generateRandomTags` function only selects from `"b"`, `"r"`, `"rc"`, `"rd"`, `"t"`).
+The legacy `"c"` (counter) tag type was removed in roadmap step P0.1. It is recognised only by `amneziawg-linux-kernel-module`; `amneziawg-go` and all AmneziaVPN clients (iOS, Android, Windows, macOS) reject `<c>` with `unknown tag`, breaking generated configs. Calling `BuildCPSTag("c", "")` now returns the empty-string sentinel like any other unknown tag type, and `calculateCPSLength` no longer accounts for `<c>` literals. `generateRandomTags` continues to only select from `"b"`, `"r"`, `"rc"`, `"rd"`, `"t"`.
 ---
 ---
 url: /iptables
@@ -1587,7 +1580,6 @@ Creates a CPS tag from type and value. Supported types:
 | `"r"` | byte count (e.g., `"20"`) | `<r 20>` |
 | `"rc"` | char count (e.g., `"8"`) | `<rc 8>` |
 | `"rd"` | digit count (e.g., `"4"`) | `<rd 4>` |
-| `"c"` | (ignored) | `<c>` |
 | `"t"` | (ignored) | `<t>` |
 
 Returns empty string for unknown tag types.
@@ -1816,8 +1808,8 @@ Holds the five intervals of custom packet strings.
 
 A single CPS tag specification used in protocol templates.
 
-> `Type`: `string` — Tag type (`bytes`, `random`, `random_chars`, `random_digits`, `counter`, `timestamp`)
-> `Value`: `string` — Tag value (hex for `bytes`, number for random types, empty for `counter`/`timestamp`)
+> `Type`: `string` — Tag type (`bytes`, `random`, `random_chars`, `random_digits`, `timestamp`)
+> `Value`: `string` — Tag value (hex for `bytes`, number for random types, empty for `timestamp`)
 
 ### `I1I5Template`
 
@@ -1937,9 +1929,9 @@ All four protocol templates (QUIC, DNS, DTLS, STUN) set I5 to an empty slice. On
 
 CPS strings are generated at export time, not stored in the server config. The `ServerObfuscationConfig` only contains Jc, Jmin, Jmax, S1-S4, and H1-H4.
 
-### The "c" (counter) CPS tag is supported but unused
+### The "c" (counter) CPS tag has been removed
 
-`BuildCPSTag` supports the `"c"` counter tag type, but none of the four protocol templates use it. Random mode also does not include `"c"` in its tag types.
+The legacy `"c"` (counter) tag was removed in roadmap step P0.1 for mobile compatibility — it is recognised only by the Linux kernel module and rejected as `unknown tag` by `amneziawg-go` and every AmneziaVPN client. `BuildCPSTag("c", "")` now returns the empty-string sentinel like any other unknown tag type, and `calculateCPSLength` ignores `<c>` literals.
 
 ### GenerateServerConfig ignores the protocol parameter
 

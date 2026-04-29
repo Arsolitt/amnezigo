@@ -2,3 +2,4 @@ bin
 *.conf
 *.config
 /amnezigo
+build

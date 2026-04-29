@@ -363,7 +363,6 @@ Creates a single CPS tag. Supported types:
 | `"r"` | Random bytes | `BuildCPSTag("r", "8")` | `<r 8>` |
 | `"rc"` | Random characters | `BuildCPSTag("rc", "7")` | `<rc 7>` |
 | `"rd"` | Random digits | `BuildCPSTag("rd", "2")` | `<rd 2>` |
-| `"c"` | Counter | `BuildCPSTag("c", "")` | `<c>` |
 | `"t"` | Timestamp | `BuildCPSTag("t", "")` | `<t>` |
 
 Returns an empty string for unknown tag types.
