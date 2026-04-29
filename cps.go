@@ -29,6 +29,23 @@ const (
 	maxTagCount    = 6
 	minTagCount    = 3
 	tagTerminate   = "<t>"
+
+	// cpsRcAlphabet is the canonical alphabet used by amneziawg-go to fill
+	// <rc N> tags at packet emission time. 52 ASCII letters, lowercase first
+	// then uppercase, sorted alphabetically.
+	//
+	// Source of truth: amneziawg-go device/obf_randchars.go.
+	//
+	// IMPORTANT — common pitfall: the Habr article describing AWG 2.0
+	// incorrectly states the alphabet is [a-zA-Z0-9]. It is NOT.
+	// For mixed letter+digit fields, use tag concatenation:
+	//   <rc 4><rd 2>  →  4 letters followed by 2 digits.
+	// Do NOT introduce a separate alphanumeric tag.
+	//
+	// amnezigo itself only emits the tag literal "<rc N>"; the bytes
+	// are produced by the AmneziaWG receiver. This constant exists to
+	// document the contract and to anchor the regression test.
+	cpsRcAlphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 )
 
 // calculateMaxISize calculates the maximum I packet size based on MTU constraints.
@@ -39,12 +56,13 @@ func calculateMaxISize(mtu, s1 int) int {
 
 // BuildCPSTag creates a CPS (Custom Packet String) tag from a tag type and value.
 // Supported tag types:
-// - "b" + value → bytes in hex (e.g., "b" + "0xc00000000108" → "<b 0xc00000000108>")
-// - "r" + value → random bytes (e.g., "r" + "20" → "<r 20>")
-// - "rc" + value → random ASCII chars (e.g., "rc" + "8" → "<rc 8>")
-// - "rd" + value → random digits (e.g., "rd" + "4" → "<rd 4>")
-// - "c" → counter (e.g., "c" → "<c>")
-// - "t" → timestamp (e.g., "t" → "<t>").
+//   - "b" + value → bytes in hex (e.g., "b" + "0xc00000000108" → "<b 0xc00000000108>")
+//   - "r" + value → random bytes (e.g., "r" + "20" → "<r 20>")
+//   - "rc" + value → tag for N random letters from [a-zA-Z] (52 chars, see cpsRcAlphabet)
+//     (e.g., "rc" + "8" → "<rc 8>"; the receiver fills 8 random letters at emit time)
+//   - "rd" + value → random digits (e.g., "rd" + "4" → "<rd 4>")
+//   - "c" → counter (e.g., "c" → "<c>")
+//   - "t" → timestamp (e.g., "t" → "<t>").
 func BuildCPSTag(tagType, value string) string {
 	switch tagType {
 	case "b":

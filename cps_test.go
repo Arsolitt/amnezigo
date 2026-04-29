@@ -30,6 +30,53 @@ func TestBuildCPSTagRandomChars(t *testing.T) {
 	}
 }
 
+// TestRcAlphabetMatchesReference locks the <rc> tag's alphabet contract to
+// [a-zA-Z] (52 ASCII letters, lowercase first then uppercase, alphabetical),
+// matching amneziawg-go device/obf_randchars.go. amnezigo only emits the
+// "<rc N>" tag literal; the receiver fills random bytes at packet emission
+// time. This test guards against alphabet drift (e.g., the alphanumeric form
+// incorrectly cited in third-party articles).
+//
+// For mixed letter+digit fields, use tag concatenation: "<rc 4><rd 2>"
+// produces 4 letters then 2 digits. Do not introduce a separate
+// alphanumeric tag.
+func TestRcAlphabetMatchesReference(t *testing.T) {
+	// Reference alphabet from amneziawg-go device/obf_randchars.go:
+	// 52 ASCII letters, lowercase first, then uppercase, sorted alphabetically.
+	// Source of truth — DO NOT modify without verifying upstream first.
+	const reference = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+	if cpsRcAlphabet != reference {
+		t.Errorf("cpsRcAlphabet drift: got %q, want %q", cpsRcAlphabet, reference)
+	}
+
+	t.Run("length is 52", func(t *testing.T) {
+		if got := len(cpsRcAlphabet); got != 52 {
+			t.Errorf("cpsRcAlphabet length = %d, want 52 (26 lowercase + 26 uppercase)", got)
+		}
+	})
+
+	t.Run("no digits", func(t *testing.T) {
+		for _, r := range cpsRcAlphabet {
+			if r >= '0' && r <= '9' {
+				t.Errorf(
+					"cpsRcAlphabet contains digit %q — must be letters only "+
+						"per amneziawg-go/device/obf_randchars.go", r)
+			}
+		}
+	})
+
+	t.Run("only ASCII letters", func(t *testing.T) {
+		for _, r := range cpsRcAlphabet {
+			isLower := r >= 'a' && r <= 'z'
+			isUpper := r >= 'A' && r <= 'Z'
+			if !isLower && !isUpper {
+				t.Errorf("cpsRcAlphabet contains non-letter %q — must be [a-zA-Z]", r)
+			}
+		}
+	})
+}
+
 func TestBuildCPSTagRandomDigits(t *testing.T) {
 	tag := BuildCPSTag("rd", "4")
 	expectedPrefix := "<rd 4>"
