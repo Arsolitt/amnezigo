@@ -52,6 +52,123 @@ func TestGenerateJunkParams(t *testing.T) {
 	}
 }
 
+// TestGenerateSPrefixes_SixPairsDistinct asserts that the six pairwise
+// S-padded sizes are distinct across many runs. Catches regressions of the
+// pre-roadmap behavior where only the S1+56 != S2 pair was checked.
+func TestGenerateSPrefixes_SixPairsDistinct(t *testing.T) {
+	const iterations = 1000
+	for i := range iterations {
+		s := GenerateSPrefixes()
+		padded := [4]int{s.S1 + 148, s.S2 + 92, s.S3 + 64, s.S4 + 32}
+		labels := [4]string{"S1+148", "S2+92", "S3+64", "S4+32"}
+		for a := range 4 {
+			for b := a + 1; b < 4; b++ {
+				if padded[a] == padded[b] {
+					t.Fatalf("iteration %d: collision %s == %s == %d (S=%v)",
+						i, labels[a], labels[b], padded[a], s)
+				}
+			}
+		}
+	}
+}
+
+// TestGenerateSPrefixesWithS1_RespectsFixedS1 verifies the new helper
+// generates S2/S3/S4 such that all six pairs are distinct against the
+// caller-supplied S1.
+func TestGenerateSPrefixesWithS1_RespectsFixedS1(t *testing.T) {
+	const iterations = 1000
+	for fixedS1 := range 65 { // exhaustive over the legal user S1 range [0..64]
+		for i := range iterations / 65 {
+			s := GenerateSPrefixesWithS1(fixedS1)
+			if s.S1 != fixedS1 {
+				t.Fatalf("S1 must equal fixed value: want %d, got %d", fixedS1, s.S1)
+			}
+			padded := [4]int{s.S1 + 148, s.S2 + 92, s.S3 + 64, s.S4 + 32}
+			for a := range 4 {
+				for b := a + 1; b < 4; b++ {
+					if padded[a] == padded[b] {
+						t.Fatalf("S1=%d iter=%d: pair %d/%d collision (S=%v)",
+							fixedS1, i, a, b, s)
+					}
+				}
+			}
+		}
+	}
+}
+
+// TestGenerateJunkParamsWithForbidden_ExcludesPaddedAndRawWGSizes asserts the
+// generated [Jmin..Jmax] range excludes every forbidden size plus the four
+// raw WG message sizes (148, 92, 64, 32).
+func TestGenerateJunkParamsWithForbidden_ExcludesPaddedAndRawWGSizes(t *testing.T) {
+	const iterations = 1000
+	for i := range iterations {
+		s := GenerateSPrefixes()
+		forbidden := [4]int{s.S1 + 148, s.S2 + 92, s.S3 + 64, s.S4 + 32}
+		j, err := GenerateJunkParamsWithForbidden(forbidden)
+		if err != nil {
+			t.Fatalf("iter %d: forbidden=%v: %v", i, forbidden, err)
+		}
+		all := append([]int{}, forbidden[:]...)
+		all = append(all, 148, 92, 64, 32)
+		for _, f := range all {
+			if f >= j.Jmin && f <= j.Jmax {
+				t.Errorf("iter %d: [Jmin=%d..Jmax=%d] contains forbidden %d (S=%v)",
+					i, j.Jmin, j.Jmax, f, s)
+			}
+		}
+	}
+}
+
+// TestGenerateConfig_NoCollisionsProperty is the property test mandated by the
+// roadmap: 1000 random configs must all satisfy ValidatePacketSizes.
+// Skipped under -short to keep PR CI fast.
+func TestGenerateConfig_NoCollisionsProperty(t *testing.T) {
+	if testing.Short() {
+		t.Skip("property test skipped under -short")
+	}
+	const iterations = 1000
+	for i := range iterations {
+		cfg := GenerateConfig("random", 1280, 32, 5)
+		iSizes := []int{
+			calculateCPSLength(cfg.I1), calculateCPSLength(cfg.I2),
+			calculateCPSLength(cfg.I3), calculateCPSLength(cfg.I4),
+			calculateCPSLength(cfg.I5),
+		}
+		if err := ValidatePacketSizes(cfg.S1, cfg.S2, cfg.S3, cfg.S4,
+			iSizes, cfg.Jmin, cfg.Jmax); err != nil {
+			t.Fatalf("iter %d: %v\n  S=%d,%d,%d,%d J=[%d..%d] I=%v",
+				i, err, cfg.S1, cfg.S2, cfg.S3, cfg.S4, cfg.Jmin, cfg.Jmax, iSizes)
+		}
+	}
+}
+
+// TestGenerateConfig_NoCollisionsProperty_AllProtocols runs the property test
+// across each protocol template at 200 iterations each (1000 total).
+func TestGenerateConfig_NoCollisionsProperty_AllProtocols(t *testing.T) {
+	if testing.Short() {
+		t.Skip("property test skipped under -short")
+	}
+	const perProto = 200
+	for _, protocol := range []string{"random", "quic", "dns", "dtls", "stun"} {
+		t.Run(protocol, func(t *testing.T) {
+			for i := range perProto {
+				cfg := GenerateConfig(protocol, 1280, 32, 5)
+				iSizes := []int{
+					calculateCPSLength(cfg.I1), calculateCPSLength(cfg.I2),
+					calculateCPSLength(cfg.I3), calculateCPSLength(cfg.I4),
+					calculateCPSLength(cfg.I5),
+				}
+				if err := ValidatePacketSizes(cfg.S1, cfg.S2, cfg.S3, cfg.S4,
+					iSizes, cfg.Jmin, cfg.Jmax); err != nil {
+					t.Fatalf("%s iter %d: %v\n  S=%d,%d,%d,%d J=[%d..%d] I=%v",
+						protocol, i, err, cfg.S1, cfg.S2, cfg.S3, cfg.S4,
+						cfg.Jmin, cfg.Jmax, iSizes)
+				}
+			}
+		})
+	}
+}
+
 func TestGenerateConfig(t *testing.T) {
 	cfg := GenerateConfig("random", 1280, 32, 5)
 

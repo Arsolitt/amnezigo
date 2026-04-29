@@ -72,26 +72,29 @@ func BuildCPS(tags []string) string {
 	return strings.Join(tags, "")
 }
 
-// generateCPSConfig generates CPS strings for all five intervals based on protocol template
-// or random mode with MTU constraints.
-func generateCPSConfig(protocol string, mtu, s1 int) CPSConfig {
+// generateCPSConfig generates CPS strings for all five intervals based on
+// protocol template or random mode with MTU constraints. The forbidden set
+// holds packet sizes (typically the four AWG-padded handshake sizes) that
+// each I-packet length must avoid.
+func generateCPSConfig(protocol string, mtu, s1 int, forbidden [4]int) CPSConfig {
 	if protocol == "random" {
-		return generateSimpleCPS(mtu, s1)
+		return generateSimpleCPS(mtu, s1, forbidden)
 	}
-	return generateProtocolCPS(protocol, mtu, s1)
+	return generateProtocolCPS(protocol, mtu, s1, forbidden)
 }
 
-// generateProtocolCPS generates CPS strings from protocol template with MTU validation.
-func generateProtocolCPS(protocol string, mtu, s1 int) CPSConfig {
+// generateProtocolCPS generates CPS strings from a protocol template, honoring
+// both MTU and a forbidden-size set.
+func generateProtocolCPS(protocol string, mtu, s1 int, forbidden [4]int) CPSConfig {
 	tmpl := getTemplate(protocol)
 	maxI := calculateMaxISize(mtu, s1)
 
 	return CPSConfig{
-		I1: buildAndValidateCPS(tmpl.I1, maxI),
-		I2: buildAndValidateCPS(tmpl.I2, maxI),
-		I3: buildAndValidateCPS(tmpl.I3, maxI),
-		I4: buildAndValidateCPS(tmpl.I4, maxI),
-		I5: buildAndValidateCPS(tmpl.I5, maxI),
+		I1: buildAndValidateCPS(tmpl.I1, maxI, forbidden),
+		I2: buildAndValidateCPS(tmpl.I2, maxI, forbidden),
+		I3: buildAndValidateCPS(tmpl.I3, maxI, forbidden),
+		I4: buildAndValidateCPS(tmpl.I4, maxI, forbidden),
+		I5: buildAndValidateCPS(tmpl.I5, maxI, forbidden),
 	}
 }
 
@@ -104,27 +107,56 @@ func buildCPSFromTemplate(tags []TagSpec) string {
 	return BuildCPS(result)
 }
 
-// buildAndValidateCPS builds a CPS from template tags and validates it fits within maxSize.
-// If the CPS exceeds maxSize, it attempts to reduce it by removing tags or falls back to minimal CPS.
-func buildAndValidateCPS(tags []TagSpec, maxSize int) string {
+// buildAndValidateCPS builds a CPS from template tags and validates it fits
+// within maxSize and that its built byte-length is not in forbidden. On a
+// forbidden collision after MTU shrinking, it perturbs the output by appending
+// `<rd N>` for N in [1..8] before falling back to a minimal CPS.
+func buildAndValidateCPS(tags []TagSpec, maxSize int, forbidden [4]int) string {
 	cps := buildCPSFromTemplate(tags)
-
-	// If CPS fits within constraints, return it
-	if calculateCPSLength(cps) < maxSize {
+	if cpsAcceptable(cps, maxSize, forbidden) {
 		return cps
 	}
 
-	// If too large, try progressively smaller versions
+	// Try progressively smaller versions to fit within maxSize first.
 	for len(tags) > 0 {
 		tags = tags[:len(tags)-1] // Remove one tag at a time
 		cps = buildCPSFromTemplate(tags)
-		if calculateCPSLength(cps) < maxSize {
+		if cpsAcceptable(cps, maxSize, forbidden) {
 			return cps
 		}
 	}
 
-	// Fallback to minimal valid CPS
+	// All shrunk versions either exceeded maxSize or collided with a forbidden
+	// size. Perturb away with <rd N>: 8 attempts cover any 4-element forbidden
+	// set (pigeonhole — eight distinct lengths, at most four forbidden).
+	for n := 1; n <= 8; n++ {
+		perturbed := tagTerminate + fmt.Sprintf("<rd %d>", n)
+		if cpsAcceptable(perturbed, maxSize, forbidden) {
+			return perturbed
+		}
+	}
+
 	return tagTerminate // guaranteed minimal fallback (4 bytes)
+}
+
+// cpsAcceptable returns true iff cps fits maxSize AND its calculated length is
+// not in forbidden. The MTU bound is strict (`<`) to match prior behavior.
+// Zero entries in forbidden are treated as unset (the smallest legal CPS is 4
+// bytes, so 0 cannot collide with a real packet).
+func cpsAcceptable(cps string, maxSize int, forbidden [4]int) bool {
+	n := calculateCPSLength(cps)
+	if n >= maxSize {
+		return false
+	}
+	for _, f := range forbidden {
+		if f == 0 {
+			continue
+		}
+		if n == f {
+			return false
+		}
+	}
+	return true
 }
 
 // mapTagType maps protocol tag types to CPS tag types.
@@ -240,24 +272,33 @@ func generateRandomTags() []simpleTag {
 	return tags
 }
 
-func generateSimpleCPS(mtu, s1 int) CPSConfig {
+func generateSimpleCPS(mtu, s1 int, forbidden [4]int) CPSConfig {
 	maxI := calculateMaxISize(mtu, s1)
 
 	return CPSConfig{
-		I1: generateSimpleI(maxI),
-		I2: generateSimpleI(maxI),
-		I3: generateSimpleI(maxI),
-		I4: generateSimpleI(maxI),
-		I5: generateSimpleI(maxI),
+		I1: generateSimpleI(maxI, forbidden),
+		I2: generateSimpleI(maxI, forbidden),
+		I3: generateSimpleI(maxI, forbidden),
+		I4: generateSimpleI(maxI, forbidden),
+		I5: generateSimpleI(maxI, forbidden),
 	}
 }
 
-func generateSimpleI(maxSize int) string {
-	for range 100 {
+// generateSimpleI generates a random-mode I-packet that fits within maxSize
+// and whose length is not in forbidden. On retry-budget exhaustion, it
+// perturbs `<t><rd N>` before falling back to bare `<t>`.
+func generateSimpleI(maxSize int, forbidden [4]int) string {
+	for range iPacketMaxAttempts {
 		tags := generateRandomTags()
 		cps := tagsToCPS(tags)
-		if calculateCPSLength(cps) < maxSize {
+		if cpsAcceptable(cps, maxSize, forbidden) {
 			return cps
+		}
+	}
+	for n := 1; n <= 8; n++ {
+		perturbed := tagTerminate + fmt.Sprintf("<rd %d>", n)
+		if cpsAcceptable(perturbed, maxSize, forbidden) {
+			return perturbed
 		}
 	}
 	return tagTerminate // guaranteed minimal fallback (4 bytes)

@@ -53,7 +53,9 @@ func TestBuildAndValidateCPSValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := buildAndValidateCPS(tt.tags, tt.maxSize)
+			// Empty forbidden set keeps the scope of this test on MTU only;
+			// collision avoidance is exercised by separate property tests.
+			result := buildAndValidateCPS(tt.tags, tt.maxSize, [4]int{})
 
 			// Check if result is empty as expected
 			if tt.wantEmpty && result != "" {
@@ -89,7 +91,7 @@ func TestGenerateProtocolCPSMTUConstraints(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			for _, protocol := range []string{"quic", "dns", "dtls", "stun"} {
 				t.Run(protocol, func(t *testing.T) {
-					cps := generateProtocolCPS(protocol, tt.mtu, tt.s1)
+					cps := generateProtocolCPS(protocol, tt.mtu, tt.s1, [4]int{})
 					maxI := calculateMaxISize(tt.mtu, tt.s1)
 
 					// Validate size constraints (only when maxI > 0 and interval is non-empty)
@@ -116,7 +118,7 @@ func TestGenerateProtocolCPSZeroMaxI(t *testing.T) {
 			mtu := 100
 			s1 := 32
 
-			cps := generateProtocolCPS(protocol, mtu, s1)
+			cps := generateProtocolCPS(protocol, mtu, s1, [4]int{})
 
 			// All intervals should be non-empty and fallback to minimal
 			for i, interval := range []string{cps.I1, cps.I2, cps.I3, cps.I4, cps.I5} {

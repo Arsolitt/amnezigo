@@ -316,7 +316,7 @@ func TestGenerateRandomTags(t *testing.T) {
 }
 
 func TestGenerateSimpleCPS(t *testing.T) {
-	cps := generateSimpleCPS(1280, 32)
+	cps := generateSimpleCPS(1280, 32, [4]int{})
 
 	maxI := calculateMaxISize(1280, 32)
 
@@ -332,9 +332,10 @@ func TestGenerateSimpleCPS(t *testing.T) {
 }
 
 func TestGenerateSimpleCPSFallback(t *testing.T) {
-	// Force fallback by setting impossible constraints
-	// With maxSize=0, all attempts will fail
-	result := generateSimpleI(0)
+	// Force fallback by setting impossible constraints. With maxSize=0, every
+	// generation attempt fails the size check. Empty forbidden set keeps
+	// scope to MTU-only assertion.
+	result := generateSimpleI(0, [4]int{})
 
 	if result == "" {
 		t.Error("generateSimpleI fallback should return non-empty string, got empty string")
@@ -357,7 +358,7 @@ func TestGenerateSimpleCPSTableDriven(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cps := generateSimpleCPS(tt.mtu, tt.s1)
+			cps := generateSimpleCPS(tt.mtu, tt.s1, [4]int{})
 			maxI := calculateMaxISize(tt.mtu, tt.s1)
 
 			for _, i := range []string{cps.I1, cps.I2, cps.I3, cps.I4, cps.I5} {
@@ -373,7 +374,7 @@ func TestGenerateSimpleCPSTableDriven(t *testing.T) {
 }
 
 func TestGenerateCPSConfig_Random(t *testing.T) {
-	cps := generateCPSConfig("random", 1280, 32)
+	cps := generateCPSConfig("random", 1280, 32, [4]int{})
 	maxI := calculateMaxISize(1280, 32)
 
 	for _, i := range []string{cps.I1, cps.I2, cps.I3, cps.I4, cps.I5} {
@@ -386,7 +387,7 @@ func TestGenerateCPSConfig_Random(t *testing.T) {
 func TestGenerateCPSConfig_Protocol(t *testing.T) {
 	for _, protocol := range []string{"quic", "dns", "dtls", "stun"} {
 		t.Run(protocol, func(t *testing.T) {
-			cps := generateCPSConfig(protocol, 1280, 32)
+			cps := generateCPSConfig(protocol, 1280, 32, [4]int{})
 			maxI := calculateMaxISize(1280, 32)
 
 			for _, i := range []string{cps.I1, cps.I2, cps.I3, cps.I4, cps.I5} {
