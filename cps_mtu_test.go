@@ -17,7 +17,7 @@ func TestBuildAndValidateCPSValidation(t *testing.T) {
 			tags: []TagSpec{
 				{Type: "random", Value: "50"},  // 50 bytes
 				{Type: "random", Value: "30"},  // 30 bytes
-				{Type: "timestamp", Value: ""}, // 8 bytes
+				{Type: "timestamp", Value: ""}, // 4 bytes
 			},
 			maxSize:   60, // Should fit after removing timestamp
 			wantEmpty: false,
@@ -26,9 +26,9 @@ func TestBuildAndValidateCPSValidation(t *testing.T) {
 			name: "exact_fit",
 			tags: []TagSpec{
 				{Type: "random", Value: "20"},  // 20 bytes
-				{Type: "timestamp", Value: ""}, // 8 bytes
+				{Type: "timestamp", Value: ""}, // 4 bytes
 			},
-			maxSize:   29, // Just enough for 28 bytes
+			maxSize:   25, // Just enough for 24 bytes
 			wantEmpty: false,
 		},
 		{
@@ -44,7 +44,7 @@ func TestBuildAndValidateCPSValidation(t *testing.T) {
 			tags: []TagSpec{
 				{Type: "bytes", Value: "0xdeadbeefdeadbeefdeadbeefdeadbeef"}, // 16 bytes
 				{Type: "random", Value: "100"},                               // 100 bytes
-				{Type: "timestamp", Value: ""},                               // 8 bytes
+				{Type: "timestamp", Value: ""},                               // 4 bytes
 			},
 			maxSize:   10, // Too small for even minimal tags
 			wantEmpty: true,

@@ -15,14 +15,20 @@ const (
 	handshakeSize = 149 // fixed handshake size (148 + 1 just in case)
 
 	hexBytesPerChar = 2
-	bitsPerByte     = 8
-	maxByteLen      = 16
-	minByteLen      = 4
-	maxSize         = 40
-	minSize         = 5
-	maxTagCount     = 6
-	minTagCount     = 3
-	tagTerminate    = "<t>"
+	// cpsTimestampSize is the byte length of the <t> tag.
+	// Source: amneziawg-go device/obf_timestamp.go writes
+	// binary.BigEndian.PutUint32(buf, uint32(time.Now().Unix())) — 4 bytes.
+	cpsTimestampSize = 4
+	// cpsCounterSize is the byte length of the <c> tag.
+	// Kernel-module-only; full removal scheduled in roadmap P0.1.
+	cpsCounterSize = 8
+	maxByteLen     = 16
+	minByteLen     = 4
+	maxSize        = 40
+	minSize        = 5
+	maxTagCount    = 6
+	minTagCount    = 3
+	tagTerminate   = "<t>"
 )
 
 // calculateMaxISize calculates the maximum I packet size based on MTU constraints.
@@ -118,7 +124,7 @@ func buildAndValidateCPS(tags []TagSpec, maxSize int) string {
 	}
 
 	// Fallback to minimal valid CPS
-	return tagTerminate // guaranteed minimal fallback (8 bytes)
+	return tagTerminate // guaranteed minimal fallback (4 bytes)
 }
 
 // mapTagType maps protocol tag types to CPS tag types.
@@ -145,7 +151,7 @@ func mapTagType(tagType string) string {
 // It supports:
 // - <b 0xNN>: len(NN)/2 bytes (hex string to bytes)
 // - <r N>, <rc N>, <rd N>: N bytes each
-// - <t>, <c>: 8 bytes each.
+// - <t>: 4 bytes, <c>: 8 bytes.
 func calculateCPSLength(cps string) int {
 	total := 0
 
@@ -165,10 +171,13 @@ func calculateCPSLength(cps string) int {
 		total += count
 	}
 
-	// Match <t> and <c> tags (8 bytes each)
-	fixedRegex := regexp.MustCompile(`<[tc]>`)
-	matches = fixedRegex.FindAllStringSubmatch(cps, -1)
-	total += len(matches) * bitsPerByte
+	// Match <t> tags (4 bytes each — uint32 BigEndian timestamp)
+	tsMatches := regexp.MustCompile(`<t>`).FindAllString(cps, -1)
+	total += len(tsMatches) * cpsTimestampSize
+
+	// Match <c> tags (8 bytes each — uint64 counter, kernel-only)
+	ctrMatches := regexp.MustCompile(`<c>`).FindAllString(cps, -1)
+	total += len(ctrMatches) * cpsCounterSize
 
 	return total
 }
@@ -251,7 +260,7 @@ func generateSimpleI(maxSize int) string {
 			return cps
 		}
 	}
-	return tagTerminate // guaranteed minimal fallback (8 bytes)
+	return tagTerminate // guaranteed minimal fallback (4 bytes)
 }
 
 func tagsToCPS(tags []simpleTag) string {

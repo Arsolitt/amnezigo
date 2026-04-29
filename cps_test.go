@@ -151,19 +151,46 @@ func TestCalculateCPSLength(t *testing.T) {
 		cps      string
 		expected int
 	}{
-		{"bytes_counter_timestamp", "<b 0xdeadbeef><c><t>", 20}, // 4 + 8 + 8
+		{"bytes_counter_timestamp", "<b 0xdeadbeef><c><t>", 16}, // 4 + 8 + 4
 		{"random_types", "<r 10><rc 5><rd 3>", 18},              // 10 + 5 + 3
 		{"single_byte_and_counter", "<b 0xff><c>", 9},           // 1 + 8
 		{"empty", "", 0},
 		{"only_counter", "<c>", 8},           // 8
-		{"only_timestamp", "<t>", 8},         // 8
-		{"mixed", "<b 0x11><c><r 5><t>", 22}, // 1 + 8 + 5 + 8
+		{"only_timestamp", "<t>", 4},         // 4
+		{"mixed", "<b 0x11><c><r 5><t>", 18}, // 1 + 8 + 5 + 4
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := calculateCPSLength(tt.cps)
 			if result != tt.expected {
 				t.Errorf("calculateCPSLength(%q) = %d, want %d", tt.cps, result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestCalculateCPSLengthMatchesAccountedSize locks calculateCPSLength against
+// hand-derived byte counts from the AmneziaWG 2.0 spec. Source of truth:
+// amneziawg-go/device/obf_timestamp.go (<t> = uint32 BigEndian = 4 bytes).
+func TestCalculateCPSLengthMatchesAccountedSize(t *testing.T) {
+	tests := []struct {
+		name     string
+		template string
+		want     int
+	}{
+		{"timestamp_only", "<t>", 4},
+		{"single_byte", "<b 0xff>", 1},
+		{"byte_plus_timestamp", "<b 0xff><t>", 5}, // acceptance criterion
+		{"random_plus_timestamp", "<r 10><t>", 14},
+		{"long_bytes_plus_timestamp", "<b 0xdeadbeef><t>", 8},
+		{"random_charset_digit_plus_timestamp", "<rc 5><rd 3><t>", 12},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := calculateCPSLength(tt.template)
+			if got != tt.want {
+				t.Errorf("calculateCPSLength(%q) = %d, want %d", tt.template, got, tt.want)
 			}
 		})
 	}
