@@ -351,6 +351,12 @@ func TestGenerateHeaderRanges(t *testing.T) {
 		if r.Min >= r.Max {
 			t.Errorf("H%d Min >= Max: %d >= %d", i+1, r.Min, r.Max)
 		}
+		// Forbidden values: standard WG type-ids must never appear in any H range.
+		for _, fid := range []uint32{1, 2, 3, 4} {
+			if fid >= r.Min && fid <= r.Max {
+				t.Errorf("H%d range [%d-%d] contains forbidden WG type-id %d", i+1, r.Min, r.Max, fid)
+			}
+		}
 	}
 
 	// Check non-overlapping
@@ -359,6 +365,29 @@ func TestGenerateHeaderRanges(t *testing.T) {
 			if ranges[i].Max >= ranges[j].Min && ranges[i].Min <= ranges[j].Max {
 				t.Errorf("H%d and H%d overlap: [%d-%d] vs [%d-%d]",
 					i+1, j+1, ranges[i].Min, ranges[i].Max, ranges[j].Min, ranges[j].Max)
+			}
+		}
+	}
+}
+
+// TestGenerateHeaderRanges_NeverIncludesWGTypeIDs is the property test mandated
+// by roadmap P0.4: 10 000 random GenerateHeaderRanges invocations must never
+// produce a range that includes any of the standard WireGuard message type-ids
+// (1, 2, 3, 4). Skipped under -short to keep PR CI fast.
+func TestGenerateHeaderRanges_NeverIncludesWGTypeIDs(t *testing.T) {
+	if testing.Short() {
+		t.Skip("property test skipped under -short")
+	}
+	const iterations = 10000
+	forbidden := []uint32{1, 2, 3, 4}
+	for i := range iterations {
+		ranges := GenerateHeaderRanges()
+		for k, r := range ranges {
+			for _, fid := range forbidden {
+				if fid >= r.Min && fid <= r.Max {
+					t.Fatalf("iteration %d: H%d range [%d-%d] contains forbidden WG type-id %d",
+						i, k+1, r.Min, r.Max, fid)
+				}
 			}
 		}
 	}

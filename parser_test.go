@@ -213,3 +213,89 @@ AllowedIPs = 10.8.0.2/32
 		t.Errorf("Expected Peer AllowedIPs '10.8.0.2/32', got '%s'", cfg.Peers[0].AllowedIPs)
 	}
 }
+
+// TestParseServerConfig_RejectsWGTypeIDInH1 verifies that a config whose H1
+// range includes any of the standard WG message type-ids (1..4) is rejected.
+// The error message must mention the offending field (H1).
+func TestParseServerConfig_RejectsWGTypeIDInH1(t *testing.T) {
+	input := `
+[Interface]
+PrivateKey = abc123
+Address = 10.0.0.1/24
+ListenPort = 51820
+H1 = 0-10
+H2 = 1000000-2000000
+H3 = 3000000-4000000
+H4 = 5000000-6000000
+`
+	_, err := ParseServerConfig(strings.NewReader(input))
+	if err == nil {
+		t.Fatal("expected error for H1 containing WG type-id, got nil")
+	}
+	if !strings.Contains(err.Error(), "H1") {
+		t.Errorf("error message should mention H1, got: %v", err)
+	}
+}
+
+// TestParseServerConfig_RejectsWGTypeIDInH2 mirrors the H1 case for H2.
+func TestParseServerConfig_RejectsWGTypeIDInH2(t *testing.T) {
+	input := `
+[Interface]
+PrivateKey = abc123
+Address = 10.0.0.1/24
+ListenPort = 51820
+H1 = 1000000-2000000
+H2 = 0-10
+H3 = 3000000-4000000
+H4 = 5000000-6000000
+`
+	_, err := ParseServerConfig(strings.NewReader(input))
+	if err == nil {
+		t.Fatal("expected error for H2 containing WG type-id, got nil")
+	}
+	if !strings.Contains(err.Error(), "H2") {
+		t.Errorf("error message should mention H2, got: %v", err)
+	}
+}
+
+// TestParseServerConfig_RejectsWGTypeIDInH3 mirrors the H1 case for H3.
+func TestParseServerConfig_RejectsWGTypeIDInH3(t *testing.T) {
+	input := `
+[Interface]
+PrivateKey = abc123
+Address = 10.0.0.1/24
+ListenPort = 51820
+H1 = 1000000-2000000
+H2 = 3000000-4000000
+H3 = 0-10
+H4 = 5000000-6000000
+`
+	_, err := ParseServerConfig(strings.NewReader(input))
+	if err == nil {
+		t.Fatal("expected error for H3 containing WG type-id, got nil")
+	}
+	if !strings.Contains(err.Error(), "H3") {
+		t.Errorf("error message should mention H3, got: %v", err)
+	}
+}
+
+// TestParseServerConfig_RejectsWGTypeIDInH4 mirrors the H1 case for H4.
+func TestParseServerConfig_RejectsWGTypeIDInH4(t *testing.T) {
+	input := `
+[Interface]
+PrivateKey = abc123
+Address = 10.0.0.1/24
+ListenPort = 51820
+H1 = 1000000-2000000
+H2 = 3000000-4000000
+H3 = 5000000-6000000
+H4 = 0-10
+`
+	_, err := ParseServerConfig(strings.NewReader(input))
+	if err == nil {
+		t.Fatal("expected error for H4 containing WG type-id, got nil")
+	}
+	if !strings.Contains(err.Error(), "H4") {
+		t.Errorf("error message should mention H4, got: %v", err)
+	}
+}

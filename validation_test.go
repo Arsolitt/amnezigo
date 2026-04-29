@@ -271,3 +271,42 @@ func TestValidatePacketSizes_EmptyJunkRange(t *testing.T) {
 		t.Errorf("expected ErrEmptyJunkRange, got %v", err)
 	}
 }
+
+// TestValidateHeaderRange asserts that validateHeaderRange rejects ranges
+// containing any standard WireGuard message type-id (1..4) and accepts ranges
+// strictly above 4. Boundary cases at 0, 1, 2, 3, 4, 5 are all covered.
+func TestValidateHeaderRange(t *testing.T) {
+	tests := []struct {
+		name    string
+		r       HeaderRange
+		wantErr bool
+	}{
+		// Bad: contains forbidden WG type-ids.
+		{"contains_all_wg_typeids", HeaderRange{Min: 0, Max: 5}, true},
+		{"starts_at_zero_includes_typeids", HeaderRange{Min: 0, Max: 4}, true},
+		{"starts_at_one_single", HeaderRange{Min: 1, Max: 1}, true},
+		{"starts_at_two_single", HeaderRange{Min: 2, Max: 2}, true},
+		{"starts_at_three_single", HeaderRange{Min: 3, Max: 3}, true},
+		{"starts_at_four_single", HeaderRange{Min: 4, Max: 4}, true},
+		{"crosses_upper_bound_of_typeids", HeaderRange{Min: 4, Max: 10}, true},
+		{"spans_typeids_only", HeaderRange{Min: 1, Max: 4}, true},
+		// Good: starts strictly above 4.
+		{"just_above_typeids", HeaderRange{Min: 5, Max: 100}, false},
+		{"large_range", HeaderRange{Min: 100, Max: 1000000}, false},
+		{"max_uint32_window", HeaderRange{Min: 1000000, Max: 2147483647}, false},
+		// Good: pure-zero range does not contain any forbidden id (Min<=4 holds
+		// but Max>=1 fails). Out-of-scope per P0.4 plan §7.6 — kept passing for
+		// fixture compatibility; full zero-range hardening lives in P1.3.
+		{"zero_range_passes", HeaderRange{Min: 0, Max: 0}, false},
+		// Bad: structurally invalid (Max < Min).
+		{"max_less_than_min", HeaderRange{Min: 100, Max: 50}, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateHeaderRange(tc.r)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("validateHeaderRange(%+v) error = %v, wantErr %v", tc.r, err, tc.wantErr)
+			}
+		})
+	}
+}

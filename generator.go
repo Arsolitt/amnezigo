@@ -249,16 +249,7 @@ func GenerateHeaderRanges() [4]HeaderRange {
 			return sortedRanges[i].Min < sortedRanges[j].Min
 		})
 
-		// Check for overlaps
-		valid := true
-		for i := range 3 {
-			if sortedRanges[i].Max >= sortedRanges[i+1].Min {
-				valid = false
-				break
-			}
-		}
-
-		if valid {
+		if headerRangesValid(sortedRanges) {
 			// Return sorted ranges
 			for i := range 4 {
 				ranges[i] = sortedRanges[i]
@@ -268,6 +259,25 @@ func GenerateHeaderRanges() [4]HeaderRange {
 	}
 
 	panic("failed to generate non-overlapping header ranges after 1000 attempts")
+}
+
+// headerRangesValid reports whether the four sorted header ranges are
+// pairwise non-overlapping AND each individually passes validateHeaderRange
+// (i.e. excludes the WG message type-ids 1..4). The forbidden-id check is
+// defence-in-depth: with headerMinValue = 5, generated Min is structurally
+// above the [1..4] window, so the second loop should rarely fire.
+func headerRangesValid(sortedRanges []HeaderRange) bool {
+	for i := range 3 {
+		if sortedRanges[i].Max >= sortedRanges[i+1].Min {
+			return false
+		}
+	}
+	for i := range 4 {
+		if validateHeaderRange(sortedRanges[i]) != nil {
+			return false
+		}
+	}
+	return true
 }
 
 // GenerateServerConfig generates server obfuscation config (without I1-I5),

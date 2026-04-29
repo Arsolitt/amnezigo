@@ -3,6 +3,7 @@ package amnezigo
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"strconv"
 	"strings"
@@ -176,6 +177,20 @@ func ParseServerConfig(r io.Reader) (ServerConfig, error) {
 
 	if err := scanner.Err(); err != nil {
 		return ServerConfig{}, err
+	}
+
+	// Validate H1-H4 ranges do not overlap WG message type-ids (1..4).
+	// Such overlaps would let vanilla WireGuard packets be accepted by the
+	// AWG-aware peer, defeating the obfuscation guarantee.
+	for k, r := range []HeaderRange{
+		cfg.Obfuscation.H1,
+		cfg.Obfuscation.H2,
+		cfg.Obfuscation.H3,
+		cfg.Obfuscation.H4,
+	} {
+		if err := validateHeaderRange(r); err != nil {
+			return ServerConfig{}, fmt.Errorf("invalid H%d: %w", k+1, err)
+		}
 	}
 
 	return cfg, nil

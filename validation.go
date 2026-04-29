@@ -14,6 +14,21 @@ const (
 	wgTransportSize   = 32
 )
 
+// wgMessageTypeMin and wgMessageTypeMax bound the standard WireGuard
+// message type-ids (1 = Initiation, 2 = Response, 3 = Cookie Reply,
+// 4 = Transport). H1-H4 ranges must never include any value in
+// [wgMessageTypeMin..wgMessageTypeMax] — otherwise vanilla WireGuard
+// traffic would be accepted by the AWG-aware peer, defeating
+// obfuscation. Source: amneziawg-go device/noise-protocol.go.
+//
+// If a future AWG version introduces a new message type-id, expand
+// wgMessageTypeMax — that single edit point updates both the generator
+// retry loop and the loader rejection path.
+const (
+	wgMessageTypeMin = uint32(1)
+	wgMessageTypeMax = uint32(4)
+)
+
 // PacketSizeCollisionError describes a single size-classification collision in
 // a config. It is returned by ValidatePacketSizes when any of the AWG 2.0
 // invariants is violated.
@@ -107,5 +122,26 @@ func ValidatePacketSizes(s1, s2, s3, s4 int, iPacketSizes []int, jmin, jmax int)
 		}
 	}
 
+	return nil
+}
+
+// validateHeaderRange returns a non-nil error if the range includes any of
+// the standard WireGuard message type-ids (1..4) or is structurally invalid
+// (Max < Min). H1-H4 ranges that include WG type-ids would accept vanilla
+// WireGuard packets, breaking the obfuscation guarantee that AWG and
+// vanilla-WG networks are inert to each other.
+//
+// The check is inclusive on both ends because parser/writer use inclusive
+// "Min-Max" notation. The helper is intentionally unexported; promote to
+// ValidateHeaderRange when the future `validate` CLI command needs it from
+// outside the package.
+func validateHeaderRange(r HeaderRange) error {
+	if r.Max < r.Min {
+		return fmt.Errorf("invalid header range: Max (%d) < Min (%d)", r.Max, r.Min)
+	}
+	if r.Min <= wgMessageTypeMax && r.Max >= wgMessageTypeMin {
+		return fmt.Errorf("header range [%d-%d] contains forbidden WG type-id(s) in [%d..%d]",
+			r.Min, r.Max, wgMessageTypeMin, wgMessageTypeMax)
+	}
 	return nil
 }
