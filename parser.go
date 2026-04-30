@@ -16,18 +16,80 @@ const (
 	sectionPeer      = "[Peer]"
 )
 
-//nolint:funlen,gocognit,gocyclo // parser with many config fields
+// ParseOptions controls optional behavior of ParseServerConfigWithOptions.
+type ParseOptions struct {
+	// Strict, when true, causes the parser to collect (rather than silently
+	// ignore) unknown INI keys, raw <c> tag literals, and other non-fatal
+	// anomalies into the returned []ParseWarning. The structural validation
+	// (H-range integrity) remains in error form.
+	Strict bool
+}
+
+// ParseWarning is a non-fatal observation made during strict parsing.
+type ParseWarning struct {
+	Message string
+	Key     string
+	Code    string
+	Line    int
+}
+
+// ParseServerConfig delegates to ParseServerConfigWithOptions with default
+// options. Back-compat shim for callers that don't need warnings.
 func ParseServerConfig(r io.Reader) (ServerConfig, error) {
+	cfg, _, err := ParseServerConfigWithOptions(r, ParseOptions{})
+	return cfg, err
+}
+
+// knownInterfaceKeys is the set of keys the parser recognises in [Interface].
+var knownInterfaceKeys = map[string]bool{
+	"PrivateKey": true, "PublicKey": true, "Address": true,
+	"ListenPort": true, "MTU": true, "DNS": true,
+	"PersistentKeepalive": true, "PostUp": true, "PostDown": true,
+	"Jc": true, "Jmin": true, "Jmax": true,
+	"S1": true, "S2": true, "S3": true, "S4": true,
+	"H1": true, "H2": true, "H3": true, "H4": true,
+}
+
+// knownPeerKeys is the set of keys the parser recognises in [Peer].
+var knownPeerKeys = map[string]bool{
+	"PublicKey": true, "PresharedKey": true, "AllowedIPs": true,
+}
+
+// ParseServerConfigWithOptions is ParseServerConfig with optional behavior.
+// In non-strict mode (default), the returned []ParseWarning is always nil.
+//
+//nolint:funlen,gocognit,gocyclo // parser with many config fields
+func ParseServerConfigWithOptions(r io.Reader, opts ParseOptions) (ServerConfig, []ParseWarning, error) {
 	var cfg ServerConfig
 	var currentSection string
 	var currentPeer PeerConfig
+	var warnings []ParseWarning
 
 	scanner := bufio.NewScanner(r)
+	lineNo := 0
 	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
+		lineNo++
+		rawLine := scanner.Text()
+		line := strings.TrimSpace(rawLine)
 		if line == "" || strings.HasPrefix(line, "#") && !strings.HasPrefix(line, "#_") {
-			// Skip empty lines and regular comments
+			// Check raw <c> even in comment lines in strict mode.
+			if opts.Strict && strings.Contains(rawLine, "<c>") {
+				warnings = append(warnings, ParseWarning{
+					Code:    "CPS001",
+					Line:    lineNo,
+					Message: "raw <c> tag detected; rejected by amneziawg-go and AmneziaVPN clients",
+				})
+			}
 			continue
+		}
+
+		// Check for raw <c> tag in any line (strict mode only).
+		if opts.Strict && strings.Contains(rawLine, "<c>") {
+			warnings = append(warnings, ParseWarning{
+				Code:    "CPS001",
+				Line:    lineNo,
+				Message: "raw <c> tag detected; rejected by amneziawg-go and AmneziaVPN clients",
+			})
 		}
 
 		// Section header
@@ -83,8 +145,10 @@ func ParseServerConfig(r io.Reader) (ServerConfig, error) {
 		}
 
 		// Regular fields
+		matched := false
 		switch currentSection {
 		case sectionInterface:
+			matched = knownInterfaceKeys[key]
 			switch key {
 			case "PrivateKey":
 				cfg.Interface.PrivateKey = value
@@ -147,18 +211,9 @@ func ParseServerConfig(r io.Reader) (ServerConfig, error) {
 			case "H4":
 				cfg.Obfuscation.H4 = parseHeaderRange(value)
 				// I1-I5 are client-only fields, should be in ParseClientConfig
-				// case "I1":
-				// 	cfg.Obfuscation.I1 = value
-				// case "I2":
-				// 	cfg.Obfuscation.I2 = value
-				// case "I3":
-				// 	cfg.Obfuscation.I3 = value
-				// case "I4":
-				// 	cfg.Obfuscation.I4 = value
-				// case "I5":
-				// 	cfg.Obfuscation.I5 = value
 			}
 		case sectionPeer:
+			matched = knownPeerKeys[key]
 			switch key {
 			case "PublicKey":
 				currentPeer.PublicKey = value
@@ -168,6 +223,15 @@ func ParseServerConfig(r io.Reader) (ServerConfig, error) {
 				currentPeer.AllowedIPs = value
 			}
 		}
+
+		if opts.Strict && !matched {
+			warnings = append(warnings, ParseWarning{
+				Code:    "KEY001",
+				Line:    lineNo,
+				Key:     key,
+				Message: fmt.Sprintf("unknown INI key %q in %s section", key, currentSection),
+			})
+		}
 	}
 
 	// Don't forget the last peer
@@ -176,7 +240,7 @@ func ParseServerConfig(r io.Reader) (ServerConfig, error) {
 	}
 
 	if err := scanner.Err(); err != nil {
-		return ServerConfig{}, err
+		return ServerConfig{}, warnings, err
 	}
 
 	// Validate H1-H4 ranges do not overlap WG message type-ids (1..4).
@@ -189,11 +253,11 @@ func ParseServerConfig(r io.Reader) (ServerConfig, error) {
 		cfg.Obfuscation.H4,
 	} {
 		if err := ValidateHeaderRange(r); err != nil {
-			return ServerConfig{}, fmt.Errorf("invalid H%d: %w", k+1, err)
+			return ServerConfig{}, warnings, fmt.Errorf("invalid H%d: %w", k+1, err)
 		}
 	}
 
-	return cfg, nil
+	return cfg, warnings, nil
 }
 
 func parseHeaderRange(value string) HeaderRange {
