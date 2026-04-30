@@ -183,7 +183,7 @@ amnezigo export [name] [flags]
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
-| `--protocol` | string | `random` | Obfuscation protocol: `random`, `quic`, `dns`, `dtls`, `stun` |
+| `--protocol` | string | `random` | Obfuscation protocol: `random`, `quic`, `dns`, `dtls`, `stun`, `sip` |
 | `--endpoint` | string | auto-resolve | Override endpoint (skips auto-detection) |
 | `--config` | string | `awg0.conf` | Server config file |
 
@@ -198,6 +198,7 @@ Protocol controls the obfuscation template used in the exported client config. S
 | `dns` | DNS protocol template |
 | `dtls` | DTLS protocol template |
 | `stun` | STUN protocol template |
+| `sip` | SIP OPTIONS request template (RFC 3261) |
 
 ### Endpoint Resolution
 
