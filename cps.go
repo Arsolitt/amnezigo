@@ -18,14 +18,15 @@ const (
 	// cpsTimestampSize is the byte length of the <t> tag.
 	// Source: amneziawg-go device/obf_timestamp.go writes
 	// binary.BigEndian.PutUint32(buf, uint32(time.Now().Unix())) — 4 bytes.
-	cpsTimestampSize = 4
-	maxByteLen       = 16
-	minByteLen       = 4
-	maxSize          = 40
-	minSize          = 5
-	maxTagCount      = 6
-	minTagCount      = 3
-	tagTerminate     = "<t>"
+	cpsTimestampSize   = 4
+	maxByteLen         = 16
+	minByteLen         = 4
+	maxSize            = 40
+	minSize            = 5
+	maxTagCount        = 6
+	minTagCount        = 3
+	tagTerminate       = "<t>"
+	tagDataPassthrough = "<d>"
 
 	// cpsRcAlphabet is the canonical alphabet used by amneziawg-go to fill
 	// <rc N> tags at packet emission time. 52 ASCII letters, lowercase first
@@ -59,6 +60,10 @@ func calculateMaxISize(mtu, s1 int) int {
 //     (e.g., "rc" + "8" → "<rc 8>"; the receiver fills 8 random letters at emit time)
 //   - "rd" + value → random digits (e.g., "rd" + "4" → "<rd 4>")
 //   - "t" → timestamp (e.g., "t" → "<t>").
+//   - "d" → data passthrough (e.g., "d" → "<d>"; AWG userspace expands at emit time
+//     by reusing a value from an earlier I-packet position, contributing 0 bytes
+//     at generation time. The value parameter is ignored. Requires AWG 2.0
+//     userspace; the legacy Linux kernel module rejects "<d>" with "unknown tag".)
 //
 // The legacy "c" (counter) tag is intentionally NOT supported: it is recognised
 // only by amneziawg-linux-kernel-module. amneziawg-go and all AmneziaVPN
@@ -80,6 +85,8 @@ func BuildCPSTag(tagType, value string) string {
 		return fmt.Sprintf("<rd %s>", value)
 	case "t":
 		return tagTerminate
+	case "d":
+		return tagDataPassthrough
 	default:
 		return ""
 	}
@@ -180,6 +187,7 @@ func cpsAcceptable(cps string, maxSize int, forbidden [4]int) bool {
 // mapTagType maps protocol tag types to CPS tag types. The legacy "counter"
 // type is intentionally not mapped — see BuildCPSTag for rationale; it falls
 // through to the empty-string default along with any other unknown type.
+// "data" maps to "d" (runtime passthrough, AWG 2.0 only).
 func mapTagType(tagType string) string {
 	switch tagType {
 	case "bytes":
@@ -192,6 +200,8 @@ func mapTagType(tagType string) string {
 		return "rd"
 	case "timestamp":
 		return "t"
+	case "data":
+		return "d"
 	default:
 		return ""
 	}
@@ -199,9 +209,11 @@ func mapTagType(tagType string) string {
 
 // calculateCPSLength calculates the byte length of a CPS string by parsing its tags.
 // It supports:
-// - <b 0xNN>: len(NN)/2 bytes (hex string to bytes)
-// - <r N>, <rc N>, <rd N>: N bytes each
-// - <t>: 4 bytes.
+//   - <b 0xNN>: len(NN)/2 bytes (hex string to bytes)
+//   - <r N>, <rc N>, <rd N>: N bytes each
+//   - <t>: 4 bytes
+//   - <d>: 0 bytes (runtime passthrough; AWG 2.0 userspace expands at emit time
+//     by reusing a value from an earlier I-packet position).
 //
 // Unknown tag literals (including the legacy kernel-only "<c>" tag, which
 // AmneziaVPN clients reject) contribute 0 bytes — the receiver would error
@@ -233,6 +245,10 @@ func calculateCPSLength(cps string) int {
 }
 
 // generateRandomTags generates random CPS tags for simple random mode.
+// "d" is intentionally excluded: <d> is a runtime-passthrough marker that only
+// makes sense in templated multi-interval flows where an earlier interval
+// produces the value being reused. Random mode emits standalone intervals with
+// no chaining context, so <d> would expand to nothing at runtime.
 func generateRandomTags() []simpleTag {
 	allTagTypes := []string{"b", "r", "rc", "rd", "t"}
 	usedUniqueTag := false
