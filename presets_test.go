@@ -34,7 +34,7 @@ func TestPresetsHeaderRangesValid(t *testing.T) {
 		t.Run(p.Name, func(t *testing.T) {
 			ranges := [4]HeaderRange{p.H1, p.H2, p.H3, p.H4}
 			for i, r := range ranges {
-				if err := validateHeaderRange(r); err != nil {
+				if err := ValidateHeaderRange(r); err != nil {
 					t.Errorf("preset %q: H%d range [%d-%d] invalid: %v",
 						p.Name, i+1, r.Min, r.Max, err)
 				}
@@ -126,7 +126,7 @@ func TestPresetRoundTrip(t *testing.T) {
 
 			ranges := [4]HeaderRange{cfg.H1, cfg.H2, cfg.H3, cfg.H4}
 			for i, r := range ranges {
-				if err := validateHeaderRange(r); err != nil {
+				if err := ValidateHeaderRange(r); err != nil {
 					t.Errorf("preset %q round-trip: H%d invalid: %v", p.Name, i+1, err)
 				}
 			}
