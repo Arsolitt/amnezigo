@@ -272,6 +272,36 @@ func TestValidatePacketSizes_EmptyJunkRange(t *testing.T) {
 	}
 }
 
+// TestValidatePacketSizes_DTagDoesNotMaskCollisions guards against a future
+// regression where <d>'s zero-byte semantic is mistakenly used to "fix" a
+// collision by zeroing the affected interval. ValidatePacketSizes operates on
+// pre-computed byte sizes (post-calculateCPSLength); a <d>-only interval has
+// size 0, which trivially does not collide with any S-padded handshake size
+// (>= wgTransportSize=32). This test pins that <d>'s zero-ness does not
+// silence real collisions in OTHER intervals of the same config.
+func TestValidatePacketSizes_DTagDoesNotMaskCollisions(t *testing.T) {
+	// Construct a config where I3 collides with S1+148 — but I2 is "<d>"
+	// (size 0). The validator must still flag the I3 collision, not skip it.
+	s1, s2, s3, s4 := 32, 64, 128, 200
+	padded := s1 + wgInitiationSize // 180
+	// I1=10, I2=0 (the <d>-only interval), I3=collision, I4=20, I5=30.
+	iPacketSizes := []int{10, 0, padded, 20, 30}
+	err := ValidatePacketSizes(s1, s2, s3, s4, iPacketSizes, 500, 900) // safe junk range
+	if err == nil {
+		t.Fatal("expected I3 collision, got nil")
+	}
+	var collisionErr *PacketSizeCollisionError
+	if !errors.As(err, &collisionErr) {
+		t.Fatalf("expected *PacketSizeCollisionError, got %T: %v", err, err)
+	}
+	if collisionErr.Kind != "i-packet" {
+		t.Errorf("got Kind=%q, want %q", collisionErr.Kind, "i-packet")
+	}
+	if collisionErr.Size != padded {
+		t.Errorf("got Size=%d, want %d", collisionErr.Size, padded)
+	}
+}
+
 // TestValidateHeaderRange asserts that validateHeaderRange rejects ranges
 // containing any standard WireGuard message type-id (1..4) and accepts ranges
 // strictly above 4. Boundary cases at 0, 1, 2, 3, 4, 5 are all covered.
