@@ -169,6 +169,79 @@ func TestInitCommand_AutoPortGeneration(t *testing.T) {
 	}
 }
 
+func TestInitCommand_WithPreset(t *testing.T) {
+	t.Cleanup(func() { initPreset = "" })
+
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "awg0.conf")
+
+	rootCmd := NewRootCmd()
+	rootCmd.SetArgs([]string{
+		"init",
+		"--ipaddr", "10.8.0.1/24",
+		"--config", configPath,
+		"--preset", "home-balanced",
+		"--iface", "eth0",
+	})
+
+	err := rootCmd.Execute()
+	if err != nil {
+		t.Fatalf("failed to execute init with preset: %v", err)
+	}
+
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("failed to read config file: %v", err)
+	}
+
+	contentStr := string(content)
+
+	// home-balanced preset has S1=30, S2=35, S3=20, S4=12, Jc=5, Jmin=250, Jmax=750.
+	expectedFields := []string{
+		"S1 = 30",
+		"S2 = 35",
+		"S3 = 20",
+		"S4 = 12",
+		"Jc = 5",
+		"Jmin = 250",
+		"Jmax = 750",
+	}
+	for _, field := range expectedFields {
+		if !strings.Contains(contentStr, field) {
+			t.Errorf("config missing preset field %q", field)
+		}
+	}
+}
+
+func TestInitCommand_WithInvalidPreset(t *testing.T) {
+	t.Cleanup(func() { initPreset = "" })
+
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "awg0.conf")
+
+	rootCmd := NewRootCmd()
+	rootCmd.SetArgs([]string{
+		"init",
+		"--ipaddr", "10.8.0.1/24",
+		"--config", configPath,
+		"--preset", "nonexistent",
+		"--iface", "eth0",
+	})
+
+	var out bytes.Buffer
+	rootCmd.SetOut(&out)
+	rootCmd.SetErr(&out)
+
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Fatal("expected error for invalid preset, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "invalid preset") {
+		t.Errorf("error should mention invalid preset, got: %v", err)
+	}
+}
+
 func TestInitCommand_WithOptionalFlags(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "awg0.conf")
