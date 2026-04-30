@@ -31,6 +31,70 @@ func (m *Manager) Save(cfg ServerConfig) error {
 	return SaveServerConfig(m.ConfigPath, cfg)
 }
 
+// InitOptions holds parameters for initializing a new server configuration.
+type InitOptions struct {
+	Address        string
+	TunName        string
+	MainIface      string
+	DNS            string
+	MTU            int
+	ListenPort     int
+	Keepalive      int
+	ClientToClient bool
+}
+
+// InitWithPreset creates a new server configuration using a named preset for
+// obfuscation parameters. Generates a keypair, iptables rules, and writes
+// the config to disk.
+func (m *Manager) InitWithPreset(presetName string, opts InitOptions) error {
+	preset, err := GetPreset(presetName)
+	if err != nil {
+		return err
+	}
+
+	privateKey, publicKey := GenerateKeyPair()
+	subnet := ExtractSubnet(opts.Address)
+
+	tunName := opts.TunName
+	if tunName == "" {
+		tunName = "awg0"
+	}
+
+	postUp := GeneratePostUp(tunName, opts.MainIface, subnet, opts.ClientToClient)
+	postDown := GeneratePostDown(tunName, opts.MainIface, subnet, opts.ClientToClient)
+
+	mtu := opts.MTU
+	if mtu == 0 {
+		mtu = preset.MTU
+	}
+
+	dns := opts.DNS
+	if dns == "" {
+		dns = "1.1.1.1, 8.8.8.8"
+	}
+
+	cfg := ServerConfig{
+		Interface: InterfaceConfig{
+			PrivateKey:          privateKey,
+			PublicKey:           publicKey,
+			Address:             opts.Address,
+			ListenPort:          opts.ListenPort,
+			MTU:                 mtu,
+			PostUp:              postUp,
+			PostDown:            postDown,
+			MainIface:           opts.MainIface,
+			TunName:             tunName,
+			ClientToClient:      opts.ClientToClient,
+			DNS:                 dns,
+			PersistentKeepalive: opts.Keepalive,
+		},
+		Peers:       []PeerConfig{},
+		Obfuscation: preset.ToServerObfuscation(),
+	}
+
+	return m.Save(cfg)
+}
+
 // isNameTaken checks whether a name is already used by any peer (client or edge).
 func isNameTaken(name string, cfg ServerConfig) bool {
 	for _, peer := range cfg.Peers {
