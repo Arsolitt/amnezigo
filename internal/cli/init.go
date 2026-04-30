@@ -18,6 +18,25 @@ import (
 	"github.com/Arsolitt/amnezigo"
 )
 
+// buildObfuscationConfig returns a ServerObfuscationConfig either from a
+// named preset (--preset) or by generating random parameters.
+func buildObfuscationConfig() (amnezigo.ServerObfuscationConfig, error) {
+	if initPreset != "" {
+		preset, err := amnezigo.GetPreset(initPreset)
+		if err != nil {
+			return amnezigo.ServerObfuscationConfig{}, fmt.Errorf("invalid preset: %w", err)
+		}
+		return preset.ToServerObfuscation(), nil
+	}
+
+	s1Int, _ := rand.Int(rand.Reader, big.NewInt(s1Range))
+	s1 := int(s1Int.Int64())
+	jcInt, _ := rand.Int(rand.Reader, big.NewInt(jcRange))
+	jc := int(jcInt.Int64())
+
+	return amnezigo.GenerateServerConfig(initMTU, s1, jc), nil
+}
+
 var (
 	initIfaceName  string
 	initEndpointV4 string
@@ -42,18 +61,25 @@ var initCmd = &cobra.Command{
 Generates:
 - Server keypair (X25519)
 - Preshared key
-- Obfuscation config
+- Obfuscation config (random or from a preset)
 - iptables rules
 - Writes config file
 
- Example:
-  amnezigo init --ipaddr 10.8.0.1/24 [--port 55424] [--mtu 1280] [--dns "1.1.1.1, 8.8.8.8"] [--keepalive 25] [--client-to-client] [--iface-name awg0] [--endpoint-v4 1.2.3.4] [--endpoint-v6 "[::1]"] [--config awg0.conf]
- `,
+Available presets (--preset):
+  lan-conservative   Small S values, narrow junk range for corporate LANs
+  home-balanced      Moderate parameters for home internet (default-like)
+  mobile-aggressive  Maximum entropy for carrier networks with heavy DPI
+  test-minimal       Smallest valid set for integration testing and CI
+
+Example:
+  amnezigo init --ipaddr 10.8.0.1/24 --preset home-balanced
+  amnezigo init --ipaddr 10.8.0.1/24 [--port 55424] [--mtu 1280] [--dns "1.1.1.1, 8.8.8.8"]`,
 	RunE: runInit,
 }
 
 var (
 	initIPAddr         string
+	initPreset         string
 	initPort           int
 	initMTU            int
 	initDNS            string
@@ -64,6 +90,10 @@ var (
 
 func init() {
 	initCmd.Flags().StringVar(&initIPAddr, "ipaddr", "", "Server IP address with subnet (e.g., 10.8.0.1/24) [required]")
+	initCmd.Flags().StringVar(
+		&initPreset, "preset", "",
+		"Use a built-in preset for obfuscation parameters (lan-conservative, home-balanced, mobile-aggressive, test-minimal)",
+	)
 	initCmd.Flags().IntVar(&initPort, "port", 0, "Listen port (default: random 10000-65535)")
 	initCmd.Flags().IntVar(&initMTU, "mtu", defaultMTU, "MTU size (default: 1280)")
 	initCmd.Flags().StringVar(&initDNS, "dns", "1.1.1.1, 8.8.8.8", "DNS servers (comma-separated)")
@@ -115,12 +145,10 @@ func runInit(_ *cobra.Command, _ []string) error {
 
 	privateKey, publicKey := amnezigo.GenerateKeyPair()
 
-	s1Int, _ := rand.Int(rand.Reader, big.NewInt(s1Range))
-	s1 := int(s1Int.Int64())
-	jcInt, _ := rand.Int(rand.Reader, big.NewInt(jcRange))
-	jc := int(jcInt.Int64())
-
-	obfConfig := amnezigo.GenerateServerConfig(initMTU, s1, jc)
+	obfConfig, err := buildObfuscationConfig()
+	if err != nil {
+		return err
+	}
 
 	postUp := amnezigo.GeneratePostUp(initIfaceName, mainIface, subnet, initClientToClient)
 	postDown := amnezigo.GeneratePostDown(initIfaceName, mainIface, subnet, initClientToClient)

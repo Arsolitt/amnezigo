@@ -485,6 +485,67 @@ func TestBuildPeerConfig_DefaultDNSAndKeepalive(t *testing.T) {
 	}
 }
 
+func TestManagerInitWithPreset(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.conf")
+
+	mgr := NewManager(path)
+
+	err := mgr.InitWithPreset("home-balanced", InitOptions{
+		Address:    "10.8.0.1/24",
+		ListenPort: 51820,
+		MainIface:  "eth0",
+		TunName:    "awg0",
+	})
+	if err != nil {
+		t.Fatalf("InitWithPreset failed: %v", err)
+	}
+
+	cfg, err := mgr.Load()
+	if err != nil {
+		t.Fatalf("Load after InitWithPreset failed: %v", err)
+	}
+
+	// Verify preset values were applied.
+	if cfg.Obfuscation.S1 != 30 {
+		t.Errorf("expected S1=30 from home-balanced preset, got %d", cfg.Obfuscation.S1)
+	}
+	if cfg.Obfuscation.Jmin != 250 {
+		t.Errorf("expected Jmin=250 from home-balanced preset, got %d", cfg.Obfuscation.Jmin)
+	}
+
+	// Verify interface config.
+	if cfg.Interface.Address != "10.8.0.1/24" {
+		t.Errorf("expected address 10.8.0.1/24, got %s", cfg.Interface.Address)
+	}
+	if cfg.Interface.ListenPort != 51820 {
+		t.Errorf("expected port 51820, got %d", cfg.Interface.ListenPort)
+	}
+	if cfg.Interface.PrivateKey == "" {
+		t.Error("expected non-empty PrivateKey")
+	}
+}
+
+func TestManagerInitWithPreset_InvalidPreset(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.conf")
+
+	mgr := NewManager(path)
+
+	err := mgr.InitWithPreset("nonexistent", InitOptions{
+		Address:    "10.8.0.1/24",
+		ListenPort: 51820,
+		MainIface:  "eth0",
+		TunName:    "awg0",
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid preset, got nil")
+	}
+	if !strings.Contains(err.Error(), "unknown preset") {
+		t.Errorf("expected error to mention unknown preset, got: %v", err)
+	}
+}
+
 func TestSaveServerConfig(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.conf")

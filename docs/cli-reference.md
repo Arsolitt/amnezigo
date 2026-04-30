@@ -50,8 +50,9 @@ amnezigo init --ipaddr <CIDR> [flags]
 ### Flags
 
 | Flag | Type | Required | Default | Description |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | `--ipaddr` | string | yes | — | Server IP address with subnet (e.g. `10.8.0.1/24`) |
+| `--preset` | string | no | — | Use a built-in obfuscation preset (see below) |
 | `--port` | int | no | random (10000–65535) | Listen port |
 | `--mtu` | int | no | `1280` | MTU size |
 | `--dns` | string | no | `1.1.1.1, 8.8.8.8` | DNS servers (comma-separated) |
@@ -62,6 +63,17 @@ amnezigo init --ipaddr <CIDR> [flags]
 | `--endpoint-v4` | string | no | auto-detect | IPv4 endpoint address |
 | `--endpoint-v6` | string | no | auto-detect | IPv6 endpoint address |
 | `--config` | string | no | `awg0.conf` | Server config file path |
+
+### Presets
+
+When `--preset` is provided, the named preset's obfuscation parameters (S1–S4, Jc, Jmin, Jmax, H1–H4) are used instead of generating random values. All other flags (`--port`, `--mtu`, `--dns`, etc.) still work and override preset defaults where applicable.
+
+| Preset | Description |
+| --- | --- |
+| `lan-conservative` | Small S values, narrow junk range for corporate LANs with minimal DPI |
+| `home-balanced` | Moderate parameters for home internet connections |
+| `mobile-aggressive` | Maximum entropy for carrier networks with heavy DPI inspection |
+| `test-minimal` | Smallest valid set for integration testing and CI |
 
 ### Behavior
 
@@ -82,6 +94,13 @@ $ amnezigo init --ipaddr 10.8.0.1/24 --port 51820 --iface eth0
   Main Interface: eth0
   IPv4 Endpoint: 203.0.113.1
   IPv6 Endpoint: [2001:db8::1]
+
+$ amnezigo init --ipaddr 10.8.0.1/24 --preset home-balanced
+✓ AmneziaWG configuration initialized successfully
+  Config: awg0.conf
+  Server IP: 10.8.0.1/24
+  Listen Port: 42831
+  Main Interface: eth0
 ```
 
 ---
