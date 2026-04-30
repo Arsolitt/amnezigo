@@ -1,7 +1,9 @@
 package amnezigo
 
 import (
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -269,6 +271,79 @@ func TestValidatePacketSizes_EmptyJunkRange(t *testing.T) {
 	err := ValidatePacketSizes(10, 20, 30, 40, nil, 900, 500)
 	if !errors.Is(err, ErrEmptyJunkRange) {
 		t.Errorf("expected ErrEmptyJunkRange, got %v", err)
+	}
+}
+
+// TestSeverityValues pins the string representation of Severity constants.
+func TestSeverityValues(t *testing.T) {
+	cases := map[Severity]string{
+		SeverityError:   "error",
+		SeverityWarning: "warning",
+		SeverityInfo:    "info",
+	}
+	for got, want := range cases {
+		if string(got) != want {
+			t.Errorf("Severity %v = %q, want %q", got, string(got), want)
+		}
+	}
+}
+
+// TestFindingFormatsLine verifies the OneLine() text representation includes
+// code and message.
+func TestFindingFormatsLine(t *testing.T) {
+	f := Finding{
+		Severity: SeverityError,
+		Code:     "PSC001",
+		Location: Location{File: "/tmp/x.conf", Line: 0, Key: ""},
+		Message:  "S1+148 vs S2+92",
+	}
+	line := f.OneLine()
+	if !strings.Contains(line, "PSC001") || !strings.Contains(line, "S1+148") {
+		t.Errorf("OneLine() = %q, missing code or message", line)
+	}
+}
+
+// TestFinding_JSONShape pins the wire format. P1.4 (`analyze` command)
+// shares these types — breaking the JSON keys is a cross-plan contract change.
+func TestFinding_JSONShape(t *testing.T) {
+	// Empty Location and Detail must not appear in the JSON output.
+	f := Finding{
+		Severity: SeverityError,
+		Code:     "PSC001",
+		Message:  "size collision",
+	}
+	b, err := json.Marshal(f)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	got := string(b)
+	if !strings.Contains(got, `"severity":"error"`) {
+		t.Errorf("expected lowercase severity key in %q", got)
+	}
+	if !strings.Contains(got, `"code":"PSC001"`) {
+		t.Errorf("expected lowercase code key in %q", got)
+	}
+	if !strings.Contains(got, `"message":"size collision"`) {
+		t.Errorf("expected lowercase message key in %q", got)
+	}
+	if strings.Contains(got, `"location"`) {
+		t.Errorf("empty Location must be omitted via omitempty, got %q", got)
+	}
+	if strings.Contains(got, `"detail"`) {
+		t.Errorf("empty Detail must be omitted via omitempty, got %q", got)
+	}
+
+	// Populated Location must serialize sub-fields with lowercase keys.
+	f.Location = Location{File: "/tmp/x.conf", Line: 42, Key: "S1"}
+	b, err = json.Marshal(f)
+	if err != nil {
+		t.Fatalf("marshal with location: %v", err)
+	}
+	got = string(b)
+	for _, want := range []string{`"file":"/tmp/x.conf"`, `"line":42`, `"key":"S1"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("expected %s in %q", want, got)
+		}
 	}
 }
 

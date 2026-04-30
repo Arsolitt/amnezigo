@@ -3,6 +3,7 @@ package amnezigo
 import (
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // WireGuard message size constants from amneziawg-go device/noise-protocol.go.
@@ -123,6 +124,61 @@ func ValidatePacketSizes(s1, s2, s3, s4 int, iPacketSizes []int, jmin, jmax int)
 	}
 
 	return nil
+}
+
+// Severity classifies the impact of a validation finding.
+type Severity string
+
+const (
+	// SeverityError indicates a violation that prevents the config from working.
+	SeverityError Severity = "error"
+	// SeverityWarning indicates a non-fatal risk or deprecation signal.
+	SeverityWarning Severity = "warning"
+	// SeverityInfo is reserved for noteworthy but harmless observations.
+	SeverityInfo Severity = "info"
+)
+
+// Location pinpoints where a finding originates within a config file.
+type Location struct {
+	File string `json:"file,omitempty"`
+	Key  string `json:"key,omitempty"`
+	Line int    `json:"line,omitempty"`
+}
+
+// Finding is a single validation observation with severity, stable code,
+// location, and human-readable message. P1.4 (`analyze` command) reuses
+// these types — do not break wire-compatibility without coordinating.
+type Finding struct {
+	Message  string   `json:"message"`
+	Detail   string   `json:"detail,omitempty"`
+	Code     string   `json:"code"`
+	Severity Severity `json:"severity"`
+	Location Location `json:"location,omitzero"`
+}
+
+// OneLine returns the canonical single-line representation of a finding,
+// suitable for CLI text output and log lines. Format:
+//
+//	[<SEVERITY> <CODE>] <file>:<line> (key=<key>): <message>
+//
+// Line and key segments are omitted when empty.
+func (f Finding) OneLine() string {
+	var locParts []string
+	if f.Location.File != "" {
+		locParts = append(locParts, f.Location.File)
+	}
+	if f.Location.Line > 0 && len(locParts) > 0 {
+		locParts[len(locParts)-1] += fmt.Sprintf(":%d", f.Location.Line)
+	}
+	loc := strings.Join(locParts, "")
+	if f.Location.Key != "" {
+		loc += fmt.Sprintf(" (key=%s)", f.Location.Key)
+	}
+	if loc != "" {
+		loc = " " + loc
+	}
+	return fmt.Sprintf("[%s %s]%s: %s",
+		strings.ToUpper(string(f.Severity)), f.Code, loc, f.Message)
 }
 
 // validateHeaderRange returns a non-nil error if the range includes any of
