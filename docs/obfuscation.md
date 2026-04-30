@@ -115,20 +115,30 @@ CPS strings are composed of tags enclosed in angle brackets. Each tag produces a
 | `<rc N>` | `random_chars` | N random ASCII characters | N bytes |
 | `<rd N>` | `random_digits` | N random digit characters | N bytes |
 | `<t>` | `timestamp` | Timestamp value | 8 bytes |
+| `<d>` | `data` | Reuse a value from an earlier I-packet at runtime | 0 bytes (passthrough) |
 
 ### Examples
 
-```
+```text
 <b 0xc0ff>          — Two fixed bytes: 0xC0, 0xFF
 <r 8>               — Eight random bytes
 <rc 7>              — Seven random ASCII characters (e.g., "aB3xK9p")
 <rd 2>              — Two random digits (e.g., "47")
 <t>                 — 8-byte timestamp
+<d>                 — Runtime passthrough: reuse a value from an earlier I-packet
+                       (only meaningful inside templates with multi-interval chaining)
+```
+
+A complete chained template might look like:
+
+```text
+I1: <b 0xc0ff><b 0x08><r 8><t>          — fresh DCID + timestamp
+I2: <b 0xc0ff><b 0x08><d><b 0x01>       — same DCID via <d>, then packet number
 ```
 
 A complete CPS interval might look like:
 
-```
+```text
 <b 0xc0ff><b 0x00000001><b 0x08><r 8><t><r 40>
 ```
 
@@ -137,6 +147,8 @@ This produces: 2 fixed bytes + 4 fixed bytes + 1 fixed byte + 8 random bytes + 8
 > **Warning:** `BuildCPSTag` returns an empty string for unknown tag types without raising an error. If a CPS string ends up shorter than expected, check for typos in tag types.
 
 > **Note:** When generating random CPS tags, value ranges are: `<b 0xNN>` produces 4–16 bytes of hex, `<r N>`, `<rc N>`, and `<rd N>` use 5–40 as the range for `N`.
+
+> **Note:** `<d>` requires AmneziaWG 2.0 userspace (Go reference, AmneziaVPN mobile and desktop clients). The legacy `amneziawg-linux-kernel-module` does not recognise it and will reject configs containing `<d>` with "unknown tag". Kernel-module-only deployments must use `--protocol random` (which never emits `<d>`) or omit `<d>` from custom templates.
 
 ---
 

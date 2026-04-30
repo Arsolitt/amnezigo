@@ -178,7 +178,7 @@ High-level CRUD operations for server configs and peers:
 - Store H1-H4 as HeaderRange{Min, Max} for ranges
 - I1-I5 CPS strings generated per-peer at export time
 - Protocol templates in root package (quic.go, dns.go, dtls.go, stun.go)
-- Use tag-based CPS construction: <b 0x...>, <r N>, <t>
+- Use tag-based CPS construction: <b 0x...>, <r N>, <rc N>, <rd N>, <t>, <d>
 
 ### Config File Parsing
 - Use bufio.Scanner for line-by-line INI parsing
