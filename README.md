@@ -10,11 +10,12 @@ A CLI tool and Go library for generating and managing [AmneziaWG](https://github
 ## Features
 
 - Generate AmneziaWG server configurations with obfuscation parameters
-- Manage peers (add, remove, list, export)
+- Manage peers (add, remove, list, export, analyze)
 - Multiple obfuscation protocols (QUIC, DNS, DTLS, STUN)
 - Automatic IP assignment for peers
 - iptables rules generation for NAT and forwarding
 - Per-peer obfuscation parameters at export time
+- Heuristic analysis of obfuscation configs (`analyze` command)
 - Dynamic client-to-client switching
 - IPv4 and IPv6 endpoint auto-detection
 - Config validation against AWG 2.0 invariants (`amnezigo validate`)
@@ -34,6 +35,9 @@ amnezigo add laptop
 
 # Export peer config
 amnezigo export laptop
+
+# Analyze config for weaknesses
+amnezigo analyze
 ```
 
 ## Documentation

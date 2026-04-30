@@ -44,7 +44,7 @@ Examples:
 		Args: cobra.ExactArgs(1),
 		RunE: runValidate,
 	}
-	cmd.Flags().StringVar(&validateOutputFormat, "output", "text", "Output format: text|json")
+	cmd.Flags().StringVar(&validateOutputFormat, "output", outputFormatText, "Output format: text|json")
 	cmd.Flags().BoolVar(&validateStrict, "strict", false, "Treat warnings as errors for exit code")
 	cmd.Flags().BoolVar(&validateQuiet, "quiet", false, "Suppress summary line; print findings only")
 	return cmd
@@ -101,9 +101,9 @@ type validateSummary struct {
 func emitFindings(w io.Writer, path string, findings []amnezigo.Finding) error {
 	s := summarizeFindings(findings)
 	switch validateOutputFormat {
-	case "text":
+	case outputFormatText:
 		printText(w, path, findings, s)
-	case "json":
+	case outputFormatJSON:
 		if err := printJSON(w, path, findings, s); err != nil {
 			return err
 		}

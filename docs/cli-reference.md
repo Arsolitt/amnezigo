@@ -13,6 +13,7 @@
 - [amnezigo remove](#amnezigo-remove)
 - [amnezigo edit](#amnezigo-edit)
 - [amnezigo validate](#amnezigo-validate)
+- [amnezigo analyze](#amnezigo-analyze)
 
 ---
 
@@ -26,7 +27,7 @@ All commands accept a `--config` flag to specify the server config file (default
 amnezigo [command] [flags]
 ```
 
-Available commands: `init`, `add`, `list`, `export`, `remove`, `edit`, `validate`.
+Available commands: `init`, `add`, `list`, `export`, `remove`, `edit`, `validate`, `analyze`.
 
 ---
 
@@ -396,4 +397,98 @@ $ amnezigo validate awg0.conf --output json | jq .summary
 $ amnezigo validate legacy.conf --strict
 [WARNING CPS001] legacy.conf:12: raw <c> tag detected; rejected by amneziawg-go and AmneziaVPN clients
 ✗ legacy.conf: 0 errors, 1 warning, 0 info
+```
+
+---
+
+## amnezigo analyze
+
+Run heuristic analysis on the server configuration and report potential weaknesses.
+
+```text
+amnezigo analyze [flags]
+```
+
+### Flags
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--protocol` | string | `random` | Obfuscation protocol: `random`, `quic`, `dns`, `dtls`, `stun` |
+| `--peer` | string | all | Analyze only this peer (empty = all peers) |
+| `--output` | string | `text` | Output format: `text`, `json` |
+| `--samples` | int | `0` | Number of samples for distribution analysis (0 = snapshot only) |
+| `--seed` | uint64 | `0` | PRNG seed for reproducible output (0 = crypto/rand) |
+| `--config` | string | `awg0.conf` | Server config file |
+
+### Heuristics
+
+The command runs nine heuristic checks (RISK001-RISK009). All findings are **Warning** or **Info** severity — the command never returns an error for findings.
+
+| Rule | Severity | Description |
+| --- | --- | --- |
+| RISK001 | Warning | Junk range contains raw WG message sizes |
+| RISK002 | Warning | I-packet size cluster is too narrow (easy to fingerprint) |
+| RISK003 | Warning | S4 transport padding is small (keepalive packets distinguishable) |
+| RISK004 | Warning | Two padded handshake sizes are too close |
+| RISK005 | Info | Padded size is near a raw WG size |
+| RISK006 | Warning | Junk range width is too narrow |
+| RISK007 | Warning | Header range width is too narrow (low entropy) |
+| RISK008 | Info | No peers defined |
+| RISK009 | Warning | All obfuscation parameters are zero (vanilla WireGuard shape) |
+
+### Modes
+
+- **Snapshot mode** (default, `--samples 0`): generates a single set of I-packet sizes per peer.
+- **Distribution mode** (`--samples N`): generates N samples per peer and reports min/max/mean/median statistics.
+
+### Behavior
+
+- I-packet sizes are freshly generated from config parameters and may differ on each run (unless `--seed` is set).
+- The command always exits 0 on success.
+- When `--peer` is specified, only that peer is analyzed; others are skipped.
+- JSON output is indented for readability.
+
+### Example
+
+```shell
+$ amnezigo analyze
+=== AmneziaWG Config Analysis ===
+
+MTU: 1280 | Port: 51820 | Peers: 2 | Protocol: random
+
+--- Handshake Sizes ---
+  Init:      S1=10 + 148 = 158 bytes
+  Response:  S2=20 + 92 = 112 bytes
+  Cookie:    S3=30 + 64 = 94 bytes
+  Transport: S4=8 + 32 = 40 bytes
+
+--- Junk Packets ---
+  Count: 3 (Jc) | Range: [500..900] | Width: 401 B
+
+--- Header Ranges ---
+  H1: [100000000..200000000] (width 100000001)
+  H2: [300000000..400000000] (width 100000001)
+  H3: [500000000..600000000] (width 100000001)
+  H4: [700000000..800000000] (width 100000001)
+
+--- I-Packets (per peer) ---
+  Peer "laptop":
+    i1=42  i2=38  i3=55  i4=29  i5=61 bytes
+
+--- Wire Ordering ---
+  1. i1 -> i2 -> i3 -> i4 -> i5
+  2. junk x 3
+  3. Handshake Init
+
+Note: I-packet sizes are freshly generated from config parameters and may differ on each run.
+
+$ amnezigo analyze --output json --peer laptop
+{
+  "peers": [ ... ],
+  "findings": [ ... ],
+  ...
+}
+
+$ amnezigo analyze --samples 100
+... (includes Distribution section with min/max/mean/median per I-packet)
 ```

@@ -10,6 +10,11 @@ import (
 const (
 	tabPadding     = 3
 	separatorWidth = 76
+
+	// outputFormatText is the text output format identifier.
+	outputFormatText = "text"
+	// outputFormatJSON is the JSON output format identifier.
+	outputFormatJSON = "json"
 )
 
 var (
@@ -30,6 +35,7 @@ func NewRootCmd() *cobra.Command {
 	rootCmd.AddCommand(NewExportCommand())
 	rootCmd.AddCommand(NewRemoveCommand())
 	rootCmd.AddCommand(NewValidateCommand())
+	rootCmd.AddCommand(NewAnalyzeCommand())
 
 	return rootCmd
 }
