@@ -6,7 +6,7 @@ import (
 )
 
 // getTemplate returns the I1I5Template for the specified protocol.
-// Valid protocols: "quic", "dns", "dtls", "stun", "random" (default).
+// Valid protocols: "quic", "dns", "dtls", "stun", "sip", "random" (default).
 func getTemplate(protocol string) I1I5Template {
 	switch protocol {
 	case "quic":
@@ -17,12 +17,15 @@ func getTemplate(protocol string) I1I5Template {
 		return DTLSTemplate()
 	case "stun":
 		return STUNTemplate()
+	case "sip":
+		return SIPTemplate()
 	default:
 		protocols := []func() I1I5Template{
 			QUICTemplate,
 			DNSTemplate,
 			DTLSTemplate,
 			STUNTemplate,
+			SIPTemplate,
 		}
 		n, _ := rand.Int(rand.Reader, big.NewInt(int64(len(protocols))))
 		return protocols[n.Int64()]()
