@@ -228,27 +228,34 @@ Functionality gaps that don't break existing configs but limit the tool's useful
 
 ### P1.1 — Add `<d>` (data passthrough) tag
 
-**What:** Support the `<d>` tag in CPS templates and generation. `<d>` does not produce bytes itself but enables data passthrough — values from earlier I-packets propagate into subsequent ones.
+**What:** Support the `<d>` tag in CPS templates and generation. `<d>` does not produce bytes itself; it is a marker the AWG userspace expands at runtime by reusing a value from an earlier I-packet position.
 
 **Why:** `<d>` is the most powerful mimicry primitive in AWG 2.0. A typical use: `i1 = <connection-id>`, then `i2 = <b 0x...><d>` reuses the same connection-id, making `i2` look like a continuation of the same simulated session. Without `<d>` every I-packet looks unrelated, which is itself a fingerprint.
 
 **Where:**
 
-- `cps.go` — add `"d"` case in `BuildCPSTag` (no bytes generated, marker only)
-- `types.go` — extend tag type list
-- New: protocol templates that exercise `<d>` (e.g. QUIC with persistent connection-id across i1→i2)
+- `cps.go:68-86` — `BuildCPSTag` switch over tag types; add `case "d": return "<d>"` (no value, no bytes)
+- `cps.go:183-198` — `mapTagType` (user-name → shorthand); add `"data" → "d"`
+- `cps.go:209+` — `calculateCPSLength` must return 0 bytes for `<d>` so size accounting and `ValidatePacketSizes` stay correct
+- `types.go:111-114` — `TagSpec{Type: "data", Value: ""}`; no struct change needed
+- `cps_test.go` — new `TestBuildCPSTag_Data` covering: zero-byte length, parser round-trip, rejection of stray value (`<d foo>` should fail)
+- `quic.go:13-75` — exercise `<d>` in at least one template (QUIC's connection-id is the natural candidate to chain across i1 → i2)
+- `validation.go:76+` — verify `ValidatePacketSizes` still works when an interval contains only `<d>` (expected: zero-byte interval, no collision contribution)
 
 **Acceptance criteria:**
 
-- `<d>` parses without error
-- Templates use `<d>` to chain related fields
-- Documentation explains semantics: `<d>` defers to runtime, doesn't add to size
+- `<d>` parses and round-trips through `ParseCPS` / `BuildCPSTag`
+- `calculateCPSLength` returns identical totals whether `<d>` is present or absent
+- At least one bundled protocol template uses `<d>` to chain a value across intervals
+- `ValidatePacketSizes` ignores `<d>` and continues to detect collisions correctly
+- Docs (`docs/obfuscation.md` or `docs/cli-reference.md`) state: "`<d>` defers to runtime, contributes 0 bytes, requires AWG 2.0 userspace"
 
 **Brainstorm questions:**
 
-- Does our generator need to track `<d>` "scope" (which earlier value it refers to) or is it implicit by position?
-- Are there templates where `<d>` makes more or less sense? (HTTP-like with session tokens — strong; STUN — weak)
-- How does `<d>` affect MTU accounting? (size is dynamic — track minimum)
+- Does our generator need to track `<d>` "scope" (which earlier value it refers to) or is it implicit by position in `device/obf.go`'s state machine? (Initial reading: implicit by position — confirm in source)
+- Which templates benefit most? (HTTP-like with session tokens — strong; STUN/NTP — weak because messages are typed and short)
+- MTU accounting under `<d>`: track minimum (zero) and let runtime add the actual passthrough bytes, or precompute a worst-case upper bound from the source-interval value?
+- Kernel-module support: does `amneziawg-linux-kernel-module` honor `<d>`? If kernel-only deploys exist, decide between "skip if kernel" (feature gate) vs "always emit, document caveat"
 
 ---
 
@@ -268,22 +275,29 @@ Functionality gaps that don't break existing configs but limit the tool's useful
 
 **Where:**
 
-- New files: `sip.go`, `ntp.go`, `webrtc.go`, `wg_handshake.go`
-- `protocols.go` — extend `getTemplate()` switch
-- `internal/cli/export.go` — extend `--protocol` flag's allowed values
+- `protocols.go:8-30` — `getTemplate()` switch over named protocols (`"quic"`, `"dns"`, `"dtls"`, `"stun"`, default random); add new `case` clauses
+- New file per protocol: `sip.go`, `ntp.go`, `webrtc.go`, `wg_handshake.go`. Each returns `I1I5Template` (`types.go:117-119`) with five `[]TagSpec` (`types.go:111-114`) intervals
+- `internal/cli/export.go:35` — extend `--protocol` flag's allowed values; today: `random`, `quic`, `dns`, `dtls`, `stun`
+- `protocols_test.go:7-51` — extend `TestGetTemplate_NamedProtocols` to cover new templates (mirror existing pattern)
+- New per-protocol tests: `TestTemplate_<Name>` validating tag mix, total byte budget, no `<c>`, charset constraints for `<rc>`/`<rd>`
+- `docs/cli-reference.md:186, 197-200` — update `--protocol` allowed-values list and per-protocol descriptions
+- `docs/obfuscation.md` — extended explanation per protocol (when to pick which)
 
 **Acceptance criteria:**
 
-- Each new template has a `TestTemplate_*` test
-- `--protocol random` selects from all templates including new ones
-- README updates to list available protocols
+- Each new template file has a `TestTemplate_*` test verifying: (a) returns five non-empty intervals, (b) total CPS length stays under MTU budget, (c) no forbidden tags, (d) charset constraints respected
+- `--protocol random` selects uniformly from all templates including new ones
+- `getTemplate("sip")` etc. returns the new template; unknown name still falls back to random (existing behavior preserved)
+- README and `docs/cli-reference.md` list the new protocols
+- One PR per new template (or grouped if cohesive: STUN + WebRTC TURN can ship together since they share the magic-cookie family)
 
 **Brainstorm questions:**
 
-- How realistic should SIP look? Full INVITE with SDP body, or just OPTIONS ping?
-- WebRTC TURN-Allocate uses `0x00` magic byte at offset 0 — similar to STUN; how to distinguish from STUN template?
-- WG-handshake template: do we use vanilla WG headers (1-4) or our own H ranges? (Should be vanilla WG to look like another WG endpoint.)
-- Should templates be data-driven (YAML/JSON) instead of hardcoded Go? Affects extensibility for community PRs.
+- How realistic should SIP look — full INVITE with SDP body, or just OPTIONS ping? OPTIONS is smaller and fits MTU more reliably; INVITE is more convincing but eats budget
+- WebRTC TURN-Allocate shares the `0x00 0x01` STUN-class prefix — how do we keep `random` selection producing visibly distinct shapes? (Differentiate via attribute set, not magic prefix)
+- WG-handshake template — vanilla WG type-ids (1-4) appear inside CPS body, but P0.4 forbids them in H ranges. The two are different surfaces; clarify in a doc note that "header-range forbid" ≠ "CPS-body forbid"
+- Should templates be data-driven (YAML/JSON) instead of hardcoded Go? Adds parsing complexity but lowers contribution barrier — defer until community pressure justifies it
+- NTP is 48 bytes per packet — five intervals × 48 = 240 bytes is tight for full I1-I5; do we relax to "approximate NTP shape" or skip the template when MTU < threshold?
 
 ---
 
@@ -294,37 +308,44 @@ Functionality gaps that don't break existing configs but limit the tool's useful
 **Why:** Useful for:
 
 - Migration from other AWG generators (sanity-check before adopting)
-- Catching `<c>` in legacy configs (P0.1 cleanup)
+- Catching `<c>` in legacy configs (P0.1 cleanup) — currently `parser.go:46` silently `continue`s on unknown keys, masking deprecation
 - Pre-flight check before deployment
 - Community education — users see what makes a "good" config
 
 **Where:**
 
-- New: `internal/cli/validate.go`
-- `parser.go` — extend with explicit validation hooks (currently parser silently ignores unknowns)
-- New: `validation.go` consolidating all rules from `generator.go` and `cps.go`
+- New file: `internal/cli/validate.go`, mirroring existing subcommands (`init.go`, `export.go`, `add.go`, `edit.go`, `list.go`, `remove.go`)
+- `parser.go:20` — `ParseServerConfig` is already public and accepts `io.Reader`; today line 46 silently `continue`s on unknown keys. Add an opt-in strict mode (extra parameter or `ParseServerConfigStrict`) that surfaces unknown keys as warnings without failing parse
+- `parser.go:199+` — reuse `validateHeaderRange` (already exists)
+- `validation.go:76+` — reuse `ValidatePacketSizes` (delivered in P0.3)
+- `generator.go:205-216` — reference for how validation is wired post-generation today
+- New consolidated entry point (likely `validation.go` or `internal/validate/`) that runs every check in sequence and returns structured findings: `[]Finding{Severity, Location, Message}`
+- `cps.go:209+` — `calculateCPSLength` for I-packet size validation
 
-**Validation checks:**
+**Validation checks (consolidated list):**
 
-- All P0.1-P0.5 constraints
+- All P0.1-P0.5 constraints (no `<c>`, `<t>` size 4, no S/I/junk size collisions, no WG type-ids in H1-H4, `<rc>` charset)
 - Range non-overlap for H1-H4
-- S-pair collisions (P0.3)
-- I-packet syntax + size + collisions
+- S-pair collisions via `ValidatePacketSizes`
+- I-packet syntax + size + per-peer collisions
 - Junk range vs WG sizes
 - Required fields present
 - Unknown keys flagged (warning, not error)
 
 **Acceptance criteria:**
 
-- `amnezigo validate server.conf` exits 0 on valid, prints findings
-- Each rule reports a clear message with file location if applicable
-- Both server and client config formats supported
+- `amnezigo validate server.conf` exits 0 on valid, non-zero on errors; warnings do not fail
+- Each finding has: severity (`error`/`warning`/`info`), location (line/key when available), short message
+- Both server and client config formats supported (or document client format as out of scope for v1, with a tracking item)
+- A config containing `<c>` produces a clear error referencing P0.1
+- Integration test: generate a fresh config, run `validate`, expect 0 findings; mutate the file (inject `<c>`), expect specific error
 
 **Brainstorm questions:**
 
-- Output format — human-readable text, JSON, both via `--output` flag?
-- Severity levels — error vs warning vs info?
-- Should it modify in place (auto-fix) or read-only? (Default read-only; `--fix` flag for mechanical fixes like removing `<c>`?)
+- Output format — human-readable text by default, `--output json` for tooling integration?
+- Severity levels — error / warning / info; expose `--max-severity warning` flag so CI can fail-on-warnings?
+- Should `validate` mutate (auto-fix) or stay read-only? (Default read-only; `--fix` for mechanical replacements like `<c>` → `<r 1>` once safe-replacement logic is settled)
+- Where does strict-mode toggle live — CLI flag (`--strict`), always-on for `validate` since strictness is the entire point, or library-level option for downstream tools?
 
 ---
 
@@ -336,8 +357,14 @@ Functionality gaps that don't break existing configs but limit the tool's useful
 
 **Where:**
 
-- New: `internal/cli/analyze.go`
-- New: `analysis.go` reusing CPS size calculator and generator helpers
+- New file: `internal/cli/analyze.go` (parallel to `validate.go`)
+- New file: `analysis.go` (or `internal/analyze/analyze.go`) reusing helpers below
+- `cps.go:50-52` — `calculateMaxISize` (formula: `MTU - reserve(49) - handshakeSize(149) - S1`) for budget reporting
+- `cps.go:209+` — `calculateCPSLength` for actual per-interval byte counts
+- `validation.go:8-14` — WG message-size constants (`wgInitiationSize=148`, `wgResponseSize=92`, `wgCookieReplySize=64`, `wgTransportSize=32`)
+- `validation.go:56-62` — `paddedSizes` helper for S-padded totals
+- `generator.go:162-168` — `GenerateCPS` exposes per-peer I1-I5 strings
+- `cps.go:97+` — `generateCPSConfig` for per-peer generation reference
 
 **Output structure:**
 
@@ -361,15 +388,18 @@ Order on the wire (per handshake):
 
 **Acceptance criteria:**
 
-- Output covers all packet types
-- Per-peer I-packet sizes shown for a specific peer (flag `--peer NAME`) or first peer
-- Optionally `--json` for tooling integration
+- Output covers all packet types: handshake init/resp, cookie reply, transport (S-padded), junk range, I-packets (per peer)
+- `--peer NAME` selects which peer's I-packets to display; default = first peer in config
+- `--output json` emits machine-parsable form for tooling
+- Integration test: a known config produces stable output (snapshot-style)
+- "Collision report" section reuses checks from `validate` but presents them as findings rather than errors (no non-zero exit)
 
 **Brainstorm questions:**
 
-- Show a "fingerprint risk" heuristic? (e.g. warn if all junk packets are within ±10 of a WG size — too close)
-- Compare against a reference profile? (`analyze --compare ru-mts.yaml`)
-- Plot size distribution graphically (ASCII bar chart in terminal)?
+- Show a "fingerprint risk" heuristic? (e.g. warn if junk range overlaps within ±10 of any WG size — too close)
+- Compare against a reference profile? (`analyze --compare ru-mts.yaml`) — depends on P1.5 landing first
+- Plot size distribution graphically (ASCII bar chart in terminal)? Hand-rolled vs new dependency
+- Should `analyze` regenerate I-packets multiple times to show a distribution (since I-packets are random per export), or analyze a single instantiation? Default to one snapshot for reproducibility; add `--samples N` for distribution mode
 
 ---
 
@@ -383,10 +413,13 @@ Order on the wire (per handshake):
 
 **Where:**
 
-- New: `presets/` directory with YAML files
-- `internal/cli/init.go` — new `--preset NAME` flag
-- New: `presets.go` for parsing and applying preset on top of defaults
-- Embed presets via `go:embed` so a single binary ships them
+- New: `presets/` directory at repo root with YAML files (e.g. `presets/ru-mts.yaml`); does not exist yet
+- `internal/cli/init.go:55-76` — current init flags (`--ipaddr`, `--port`, `--mtu`, `--dns`, `--keepalive`, `--client-to-client`, `--iface`, `--iface-name`, `--endpoint-v4`, `--endpoint-v6`, `--config`); add `--preset NAME` flag
+- New file: `presets.go` (or `internal/presets/presets.go`) for parsing preset YAML and applying onto defaults
+- Embed presets via `go:embed presets/*.yaml`. No existing `go:embed` usage in the repo — this PR establishes the pattern
+- `generator.go:10-23` — current default constants (`junkMinValue=64`, `junkRangeSize=961`, `sPrefixRangeMax=65`, `s4RangeMax=33`, `jcRangeMax=11`); refactor entry points to accept a `GeneratorOptions` (or similar) so preset values flow through instead of being hardcoded
+- `types.go:46-51` — `ServerObfuscationConfig` already holds final values; presets influence generation, not storage, so no schema change here
+- New: `presets_test.go` covering load → apply → generate → `validate` flow
 
 **Preset schema (draft):**
 
@@ -418,16 +451,19 @@ notes: |
 
 **Acceptance criteria:**
 
-- `amnezigo init --preset ru-mts` works and generates valid config
-- Preset format documented with a single example
-- Presets are tested in CI (each preset must produce a config that passes `validate`)
+- `amnezigo init --preset ru-mts --ipaddr 1.2.3.4` generates a valid config end-to-end
+- Preset YAML format documented with one canonical example (`presets/example.yaml` and a `docs/presets.md` page)
+- Each preset is tested in CI: `for f in presets/*.yaml; do amnezigo init --preset ${f%.yaml} ...; amnezigo validate ...; done` — depends on P1.3 landing
+- Generator entry points accept overrideable ranges; no hardcoded constants survive into the preset code path
+- Embedded presets ship with the binary (no runtime file lookup unless `--preset-file path.yaml` is added later as an escape hatch)
 
 **Brainstorm questions:**
 
-- Preset versioning when AWG itself updates — embed `tested_on:` ranges?
-- How do we curate (anti-spam, quality)? Issue-template + maintainer review at PR time?
-- Should presets carry test fixtures (`expected_output.conf` for snapshot testing)?
-- Allow presets to override CPS templates per protocol, or only param ranges?
+- Preset versioning when AWG itself updates — embed `tested_on:` ranges? Should `init` warn if installed AWG falls outside the window?
+- How do we curate (anti-spam, quality)? Issue template + maintainer review at PR time; CI must pass `validate` per preset
+- Should presets carry test fixtures (`expected_output.conf` for snapshot testing)? Increases maintenance but locks behavior across refactors
+- Allow presets to override CPS templates per protocol, or only param ranges? Start with param ranges; template overrides are P3.5 territory
+- Naming convention — region-prefix (`ru-mts`, `ir-irancell`)? Codify in CONTRIBUTING when first community PR lands
 
 ---
 
