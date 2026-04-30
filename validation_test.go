@@ -347,6 +347,19 @@ func TestFinding_JSONShape(t *testing.T) {
 	}
 }
 
+// TestValidateHeaderRange_Exported verifies the promoted public API works.
+func TestValidateHeaderRange_Exported(t *testing.T) {
+	// Range that overlaps WG type-id 4 must be rejected.
+	err := ValidateHeaderRange(HeaderRange{Min: 1, Max: 100})
+	if err == nil {
+		t.Fatal("ValidateHeaderRange should reject [1..100]")
+	}
+	// Legal range above wgMessageTypeMax must pass.
+	if err := ValidateHeaderRange(HeaderRange{Min: 5, Max: 1000}); err != nil {
+		t.Fatalf("ValidateHeaderRange([5..1000]) = %v, want nil", err)
+	}
+}
+
 // TestValidateHeaderRange asserts that validateHeaderRange rejects ranges
 // containing any standard WireGuard message type-id (1..4) and accepts ranges
 // strictly above 4. Boundary cases at 0, 1, 2, 3, 4, 5 are all covered.
@@ -378,9 +391,9 @@ func TestValidateHeaderRange(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateHeaderRange(tc.r)
+			err := ValidateHeaderRange(tc.r)
 			if (err != nil) != tc.wantErr {
-				t.Errorf("validateHeaderRange(%+v) error = %v, wantErr %v", tc.r, err, tc.wantErr)
+				t.Errorf("ValidateHeaderRange(%+v) error = %v, wantErr %v", tc.r, err, tc.wantErr)
 			}
 		})
 	}

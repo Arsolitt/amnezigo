@@ -188,7 +188,7 @@ func ParseServerConfig(r io.Reader) (ServerConfig, error) {
 		cfg.Obfuscation.H3,
 		cfg.Obfuscation.H4,
 	} {
-		if err := validateHeaderRange(r); err != nil {
+		if err := ValidateHeaderRange(r); err != nil {
 			return ServerConfig{}, fmt.Errorf("invalid H%d: %w", k+1, err)
 		}
 	}

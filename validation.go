@@ -181,17 +181,15 @@ func (f Finding) OneLine() string {
 		strings.ToUpper(string(f.Severity)), f.Code, loc, f.Message)
 }
 
-// validateHeaderRange returns a non-nil error if the range includes any of
+// ValidateHeaderRange returns a non-nil error if the range includes any of
 // the standard WireGuard message type-ids (1..4) or is structurally invalid
 // (Max < Min). H1-H4 ranges that include WG type-ids would accept vanilla
 // WireGuard packets, breaking the obfuscation guarantee that AWG and
 // vanilla-WG networks are inert to each other.
 //
 // The check is inclusive on both ends because parser/writer use inclusive
-// "Min-Max" notation. The helper is intentionally unexported; promote to
-// ValidateHeaderRange when the future `validate` CLI command needs it from
-// outside the package.
-func validateHeaderRange(r HeaderRange) error {
+// "Min-Max" notation.
+func ValidateHeaderRange(r HeaderRange) error {
 	if r.Max < r.Min {
 		return fmt.Errorf("invalid header range: Max (%d) < Min (%d)", r.Max, r.Min)
 	}
