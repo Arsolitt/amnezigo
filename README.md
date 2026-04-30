@@ -25,8 +25,11 @@ A CLI tool and Go library for generating and managing [AmneziaWG](https://github
 # Install
 go install github.com/Arsolitt/amnezigo/cmd/amnezigo@latest
 
-# Initialize server
+# Initialize server (random obfuscation parameters)
 amnezigo init --ipaddr 10.8.0.1/24
+
+# Initialize server with a preset
+amnezigo init --ipaddr 10.8.0.1/24 --preset home-balanced
 
 # Add a peer
 amnezigo add laptop
@@ -34,6 +37,19 @@ amnezigo add laptop
 # Export peer config
 amnezigo export laptop
 ```
+
+## Presets
+
+Built-in presets provide tuned obfuscation parameters for common network environments:
+
+| Preset | Description |
+| --- | --- |
+| `lan-conservative` | Small S values, narrow junk range for corporate LANs with minimal DPI |
+| `home-balanced` | Moderate parameters for home internet connections |
+| `mobile-aggressive` | Maximum entropy for carrier networks with heavy DPI |
+| `test-minimal` | Smallest valid set for integration testing and CI |
+
+Use `--preset NAME` with `amnezigo init` or call `amnezigo.GetPreset(name)` / `Manager.InitWithPreset(name, opts)` from Go code.
 
 ## Documentation
 
