@@ -17,6 +17,7 @@ A CLI tool and Go library for generating and managing [AmneziaWG](https://github
 - Per-peer obfuscation parameters at export time
 - Dynamic client-to-client switching
 - IPv4 and IPv6 endpoint auto-detection
+- Config validation against AWG 2.0 invariants (`amnezigo validate`)
 - Usable as a Go library
 
 ## Quick Start

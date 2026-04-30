@@ -299,3 +299,105 @@ H4 = 0-10
 		t.Errorf("error message should mention H4, got: %v", err)
 	}
 }
+
+func TestParseServerConfigWithOptions_StrictReportsUnknownKey(t *testing.T) {
+	input := `[Interface]
+PrivateKey = aaa
+Address = 10.0.0.1/24
+ListenPort = 51820
+WeirdKey = nope
+`
+	cfg, warnings, err := ParseServerConfigWithOptions(
+		strings.NewReader(input), ParseOptions{Strict: true})
+	if err != nil {
+		t.Fatalf("strict parse failed: %v", err)
+	}
+	if cfg.Interface.PrivateKey != "aaa" {
+		t.Errorf("PrivateKey lost during strict parse")
+	}
+	var found bool
+	for _, w := range warnings {
+		if w.Key == "WeirdKey" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("WeirdKey not reported as warning, got %+v", warnings)
+	}
+}
+
+func TestParseServerConfigWithOptions_StrictReportsRawCounterTag(t *testing.T) {
+	input := `[Interface]
+PrivateKey = aaa
+PostUp = ip link set up dev awg0 # CPS template <c> stays
+`
+	_, warnings, err := ParseServerConfigWithOptions(
+		strings.NewReader(input), ParseOptions{Strict: true})
+	if err != nil {
+		t.Fatalf("strict parse failed: %v", err)
+	}
+	var found bool
+	for _, w := range warnings {
+		if w.Code == "CPS001" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("raw <c> not reported, got %+v", warnings)
+	}
+}
+
+func TestParseServerConfig_BackCompatLegacy(t *testing.T) {
+	// Existing callers must keep their arity.
+	_, err := ParseServerConfig(strings.NewReader("[Interface]\nPrivateKey = aaa\n"))
+	if err != nil {
+		t.Fatalf("legacy ParseServerConfig broke: %v", err)
+	}
+}
+
+// TestParseServerConfigWithOptions_DefaultsAreSilent pins the contract for
+// non-strict mode: zero warnings on every warnable condition.
+func TestParseServerConfigWithOptions_DefaultsAreSilent(t *testing.T) {
+	input := `[Interface]
+PrivateKey = aaa
+Address = 10.0.0.1/24
+ListenPort = 51820
+WeirdKey = nope
+PostUp = echo '<c>' # legacy migration artifact
+`
+	_, warnings, err := ParseServerConfigWithOptions(
+		strings.NewReader(input), ParseOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("default mode emitted %d warnings; expected zero: %+v", len(warnings), warnings)
+	}
+}
+
+// TestParseServerConfigWithOptions_StrictUnknownKeyInPeer verifies unknown
+// keys in the [Peer] section are also reported.
+func TestParseServerConfigWithOptions_StrictUnknownKeyInPeer(t *testing.T) {
+	input := `[Interface]
+PrivateKey = aaa
+
+[Peer]
+PublicKey = bbb
+AllowedIPs = 10.0.0.2/32
+Bogus = something
+`
+	_, warnings, err := ParseServerConfigWithOptions(
+		strings.NewReader(input), ParseOptions{Strict: true})
+	if err != nil {
+		t.Fatalf("strict parse failed: %v", err)
+	}
+	var found bool
+	for _, w := range warnings {
+		if w.Key == "Bogus" && w.Code == "KEY001" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("Bogus key in [Peer] not reported, got %+v", warnings)
+	}
+}

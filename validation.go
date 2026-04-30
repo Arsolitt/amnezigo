@@ -3,6 +3,7 @@ package amnezigo
 import (
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // WireGuard message size constants from amneziawg-go device/noise-protocol.go.
@@ -125,17 +126,70 @@ func ValidatePacketSizes(s1, s2, s3, s4 int, iPacketSizes []int, jmin, jmax int)
 	return nil
 }
 
-// validateHeaderRange returns a non-nil error if the range includes any of
+// Severity classifies the impact of a validation finding.
+type Severity string
+
+const (
+	// SeverityError indicates a violation that prevents the config from working.
+	SeverityError Severity = "error"
+	// SeverityWarning indicates a non-fatal risk or deprecation signal.
+	SeverityWarning Severity = "warning"
+	// SeverityInfo is reserved for noteworthy but harmless observations.
+	SeverityInfo Severity = "info"
+)
+
+// Location pinpoints where a finding originates within a config file.
+type Location struct {
+	File string `json:"file,omitempty"`
+	Key  string `json:"key,omitempty"`
+	Line int    `json:"line,omitempty"`
+}
+
+// Finding is a single validation observation with severity, stable code,
+// location, and human-readable message. P1.4 (`analyze` command) reuses
+// these types — do not break wire-compatibility without coordinating.
+type Finding struct {
+	Message  string   `json:"message"`
+	Detail   string   `json:"detail,omitempty"`
+	Code     string   `json:"code"`
+	Severity Severity `json:"severity"`
+	Location Location `json:"location,omitzero"`
+}
+
+// OneLine returns the canonical single-line representation of a finding,
+// suitable for CLI text output and log lines. Format:
+//
+//	[<SEVERITY> <CODE>] <file>:<line> (key=<key>): <message>
+//
+// Line and key segments are omitted when empty.
+func (f Finding) OneLine() string {
+	var locParts []string
+	if f.Location.File != "" {
+		locParts = append(locParts, f.Location.File)
+	}
+	if f.Location.Line > 0 && len(locParts) > 0 {
+		locParts[len(locParts)-1] += fmt.Sprintf(":%d", f.Location.Line)
+	}
+	loc := strings.Join(locParts, "")
+	if f.Location.Key != "" {
+		loc += fmt.Sprintf(" (key=%s)", f.Location.Key)
+	}
+	if loc != "" {
+		loc = " " + loc
+	}
+	return fmt.Sprintf("[%s %s]%s: %s",
+		strings.ToUpper(string(f.Severity)), f.Code, loc, f.Message)
+}
+
+// ValidateHeaderRange returns a non-nil error if the range includes any of
 // the standard WireGuard message type-ids (1..4) or is structurally invalid
 // (Max < Min). H1-H4 ranges that include WG type-ids would accept vanilla
 // WireGuard packets, breaking the obfuscation guarantee that AWG and
 // vanilla-WG networks are inert to each other.
 //
 // The check is inclusive on both ends because parser/writer use inclusive
-// "Min-Max" notation. The helper is intentionally unexported; promote to
-// ValidateHeaderRange when the future `validate` CLI command needs it from
-// outside the package.
-func validateHeaderRange(r HeaderRange) error {
+// "Min-Max" notation.
+func ValidateHeaderRange(r HeaderRange) error {
 	if r.Max < r.Min {
 		return fmt.Errorf("invalid header range: Max (%d) < Min (%d)", r.Max, r.Min)
 	}
@@ -144,4 +198,115 @@ func validateHeaderRange(r HeaderRange) error {
 			r.Min, r.Max, wgMessageTypeMin, wgMessageTypeMax)
 	}
 	return nil
+}
+
+// ValidateServerConfig runs every validation rule against the parsed config
+// and returns all findings. The slice is empty when the config is clean.
+// Severity ranking, ordering, and code allocation are documented in
+// docs/plans/p1.3-validate-command.md § 4.8.
+func ValidateServerConfig(cfg *ServerConfig) []Finding {
+	var findings []Finding
+
+	findings = append(findings, validateRequiredFields(cfg)...)
+	findings = append(findings, validateSPrefixes(cfg)...)
+	findings = append(findings, validateJunkRange(cfg)...)
+	findings = append(findings, validateHeaderRanges(cfg)...)
+
+	return findings
+}
+
+func validateRequiredFields(cfg *ServerConfig) []Finding {
+	var out []Finding
+	add := func(key string) {
+		out = append(out, Finding{
+			Severity: SeverityError,
+			Code:     "FLD001",
+			Location: Location{Key: key},
+			Message:  fmt.Sprintf("required field %q is missing", key),
+			Detail:   "server configs require PrivateKey, Address, and ListenPort to function.",
+		})
+	}
+	if cfg.Interface.PrivateKey == "" {
+		add("PrivateKey")
+	}
+	if cfg.Interface.Address == "" {
+		add("Address")
+	}
+	if cfg.Interface.ListenPort == 0 {
+		add("ListenPort")
+	}
+	return out
+}
+
+func validateSPrefixes(cfg *ServerConfig) []Finding {
+	o := cfg.Obfuscation
+	err := ValidatePacketSizes(o.S1, o.S2, o.S3, o.S4, nil, o.Jmin, o.Jmax)
+	return findingsFromValidationError(err)
+}
+
+func validateJunkRange(cfg *ServerConfig) []Finding {
+	o := cfg.Obfuscation
+	if o.Jmin > o.Jmax {
+		return []Finding{{
+			Severity: SeverityError,
+			Code:     "JNK001",
+			Message:  fmt.Sprintf("junk range Jmin (%d) > Jmax (%d)", o.Jmin, o.Jmax),
+		}}
+	}
+	return nil
+}
+
+func validateHeaderRanges(cfg *ServerConfig) []Finding {
+	var out []Finding
+	ranges := [4]HeaderRange{
+		cfg.Obfuscation.H1, cfg.Obfuscation.H2,
+		cfg.Obfuscation.H3, cfg.Obfuscation.H4,
+	}
+	for i, r := range ranges {
+		if err := ValidateHeaderRange(r); err != nil {
+			code := "HDR001"
+			if r.Max < r.Min {
+				code = "HDR002"
+			}
+			out = append(out, Finding{
+				Severity: SeverityError,
+				Code:     code,
+				Location: Location{Key: fmt.Sprintf("H%d", i+1)},
+				Message:  err.Error(),
+				Detail:   "H1-H4 ranges must avoid WG message type-ids 1..4.",
+			})
+		}
+	}
+	return out
+}
+
+func findingsFromValidationError(err error) []Finding {
+	if err == nil {
+		return nil
+	}
+	var psc *PacketSizeCollisionError
+	if errors.As(err, &psc) {
+		code := map[string]string{
+			"s-pair":     "PSC001",
+			"i-packet":   "PSC003",
+			"junk-range": "PSC002",
+		}[psc.Kind]
+		return []Finding{{
+			Severity: SeverityError,
+			Code:     code,
+			Message:  err.Error(),
+		}}
+	}
+	if errors.Is(err, ErrEmptyJunkRange) {
+		return []Finding{{
+			Severity: SeverityError,
+			Code:     "JNK001",
+			Message:  err.Error(),
+		}}
+	}
+	return []Finding{{
+		Severity: SeverityError,
+		Code:     "PSC000",
+		Message:  err.Error(),
+	}}
 }

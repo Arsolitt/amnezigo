@@ -1,7 +1,9 @@
 package amnezigo
 
 import (
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -302,6 +304,218 @@ func TestValidatePacketSizes_DTagDoesNotMaskCollisions(t *testing.T) {
 	}
 }
 
+// TestSeverityValues pins the string representation of Severity constants.
+func TestSeverityValues(t *testing.T) {
+	cases := map[Severity]string{
+		SeverityError:   "error",
+		SeverityWarning: "warning",
+		SeverityInfo:    "info",
+	}
+	for got, want := range cases {
+		if string(got) != want {
+			t.Errorf("Severity %v = %q, want %q", got, string(got), want)
+		}
+	}
+}
+
+// TestFindingFormatsLine verifies the OneLine() text representation includes
+// code and message.
+func TestFindingFormatsLine(t *testing.T) {
+	f := Finding{
+		Severity: SeverityError,
+		Code:     "PSC001",
+		Location: Location{File: "/tmp/x.conf", Line: 0, Key: ""},
+		Message:  "S1+148 vs S2+92",
+	}
+	line := f.OneLine()
+	if !strings.Contains(line, "PSC001") || !strings.Contains(line, "S1+148") {
+		t.Errorf("OneLine() = %q, missing code or message", line)
+	}
+}
+
+// TestFinding_JSONShape pins the wire format. P1.4 (`analyze` command)
+// shares these types — breaking the JSON keys is a cross-plan contract change.
+func TestFinding_JSONShape(t *testing.T) {
+	// Empty Location and Detail must not appear in the JSON output.
+	f := Finding{
+		Severity: SeverityError,
+		Code:     "PSC001",
+		Message:  "size collision",
+	}
+	b, err := json.Marshal(f)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	got := string(b)
+	if !strings.Contains(got, `"severity":"error"`) {
+		t.Errorf("expected lowercase severity key in %q", got)
+	}
+	if !strings.Contains(got, `"code":"PSC001"`) {
+		t.Errorf("expected lowercase code key in %q", got)
+	}
+	if !strings.Contains(got, `"message":"size collision"`) {
+		t.Errorf("expected lowercase message key in %q", got)
+	}
+	if strings.Contains(got, `"location"`) {
+		t.Errorf("empty Location must be omitted via omitempty, got %q", got)
+	}
+	if strings.Contains(got, `"detail"`) {
+		t.Errorf("empty Detail must be omitted via omitempty, got %q", got)
+	}
+
+	// Populated Location must serialize sub-fields with lowercase keys.
+	f.Location = Location{File: "/tmp/x.conf", Line: 42, Key: "S1"}
+	b, err = json.Marshal(f)
+	if err != nil {
+		t.Fatalf("marshal with location: %v", err)
+	}
+	got = string(b)
+	for _, want := range []string{`"file":"/tmp/x.conf"`, `"line":42`, `"key":"S1"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("expected %s in %q", want, got)
+		}
+	}
+}
+
+// freshServerConfig produces a known-good ServerConfig via the generator.
+func freshServerConfig(t *testing.T) ServerConfig {
+	t.Helper()
+	obf := GenerateServerConfig(1280, 32, 5)
+	return ServerConfig{
+		Interface: InterfaceConfig{
+			PrivateKey: "aaa", PublicKey: "bbb",
+			Address: "10.0.0.1/24", ListenPort: 51820, MTU: 1280,
+		},
+		Obfuscation: obf,
+	}
+}
+
+func containsCode(findings []Finding, code string) bool {
+	for _, f := range findings {
+		if f.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
+func TestValidateServerConfig_CleanGeneratedConfig(t *testing.T) {
+	cfg := freshServerConfig(t)
+	findings := ValidateServerConfig(&cfg)
+	var errs int
+	for _, f := range findings {
+		if f.Severity == SeverityError {
+			errs++
+		}
+	}
+	if errs != 0 {
+		t.Errorf("freshly generated config produced %d errors: %+v", errs, findings)
+	}
+}
+
+func TestValidateServerConfig_DetectsSPrefixCollision(t *testing.T) {
+	cfg := freshServerConfig(t)
+	cfg.Obfuscation.S1 = 0
+	cfg.Obfuscation.S2 = 56 // 0+148 == 56+92
+	findings := ValidateServerConfig(&cfg)
+	if !containsCode(findings, "PSC001") {
+		t.Errorf("S-collision not detected: %+v", findings)
+	}
+}
+
+func TestValidateServerConfig_DetectsHeaderTypeIDOverlap(t *testing.T) {
+	cfg := freshServerConfig(t)
+	cfg.Obfuscation.H1 = HeaderRange{Min: 1, Max: 100}
+	findings := ValidateServerConfig(&cfg)
+	if !containsCode(findings, "HDR001") {
+		t.Errorf("H1 overlap not detected: %+v", findings)
+	}
+}
+
+func TestValidateServerConfig_DetectsHeaderStructuralInvalid(t *testing.T) {
+	cfg := freshServerConfig(t)
+	cfg.Obfuscation.H2 = HeaderRange{Min: 100, Max: 50}
+	findings := ValidateServerConfig(&cfg)
+	if !containsCode(findings, "HDR002") {
+		t.Errorf("H2 structural error not detected: %+v", findings)
+	}
+}
+
+func TestValidateServerConfig_DetectsMissingPrivateKey(t *testing.T) {
+	cfg := freshServerConfig(t)
+	cfg.Interface.PrivateKey = ""
+	findings := ValidateServerConfig(&cfg)
+	if !containsCode(findings, "FLD001") {
+		t.Errorf("missing PrivateKey not detected: %+v", findings)
+	}
+}
+
+func TestValidateServerConfig_DetectsMissingAddress(t *testing.T) {
+	cfg := freshServerConfig(t)
+	cfg.Interface.Address = ""
+	findings := ValidateServerConfig(&cfg)
+	if !containsCode(findings, "FLD001") {
+		t.Errorf("missing Address not detected: %+v", findings)
+	}
+}
+
+func TestValidateServerConfig_DetectsMissingListenPort(t *testing.T) {
+	cfg := freshServerConfig(t)
+	cfg.Interface.ListenPort = 0
+	findings := ValidateServerConfig(&cfg)
+	if !containsCode(findings, "FLD001") {
+		t.Errorf("missing ListenPort not detected: %+v", findings)
+	}
+}
+
+func TestValidateServerConfig_DetectsJunkRangeStructural(t *testing.T) {
+	cfg := freshServerConfig(t)
+	cfg.Obfuscation.Jmin = 200
+	cfg.Obfuscation.Jmax = 100 // jmin > jmax
+	findings := ValidateServerConfig(&cfg)
+	if !containsCode(findings, "JNK001") {
+		t.Errorf("junk range structural error not detected: %+v", findings)
+	}
+}
+
+func TestValidateServerConfig_RoundTripGenerated_AllProtocols(t *testing.T) {
+	// Property: every config GenerateServerConfig produces validates clean.
+	for i := range 50 {
+		cfg := freshServerConfig(t)
+		findings := ValidateServerConfig(&cfg)
+		for _, f := range findings {
+			if f.Severity == SeverityError {
+				t.Fatalf("iteration %d: %+v on freshly generated config", i, f)
+			}
+		}
+	}
+}
+
+// TestValidateServerConfig_PSC003UnreachableWithNilIPackets pins the current
+// behavior that PSC003 never fires when iPacketSizes=nil.
+func TestValidateServerConfig_PSC003UnreachableWithNilIPackets(t *testing.T) {
+	cfg := freshServerConfig(t)
+	findings := ValidateServerConfig(&cfg)
+	for _, f := range findings {
+		if f.Code == "PSC003" {
+			t.Fatalf("PSC003 fired despite nil iPackets")
+		}
+	}
+}
+
+// TestValidateHeaderRange_Exported verifies the promoted public API works.
+func TestValidateHeaderRange_Exported(t *testing.T) {
+	// Range that overlaps WG type-id 4 must be rejected.
+	err := ValidateHeaderRange(HeaderRange{Min: 1, Max: 100})
+	if err == nil {
+		t.Fatal("ValidateHeaderRange should reject [1..100]")
+	}
+	// Legal range above wgMessageTypeMax must pass.
+	if err := ValidateHeaderRange(HeaderRange{Min: 5, Max: 1000}); err != nil {
+		t.Fatalf("ValidateHeaderRange([5..1000]) = %v, want nil", err)
+	}
+}
+
 // TestValidateHeaderRange asserts that validateHeaderRange rejects ranges
 // containing any standard WireGuard message type-id (1..4) and accepts ranges
 // strictly above 4. Boundary cases at 0, 1, 2, 3, 4, 5 are all covered.
@@ -333,9 +547,9 @@ func TestValidateHeaderRange(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateHeaderRange(tc.r)
+			err := ValidateHeaderRange(tc.r)
 			if (err != nil) != tc.wantErr {
-				t.Errorf("validateHeaderRange(%+v) error = %v, wantErr %v", tc.r, err, tc.wantErr)
+				t.Errorf("ValidateHeaderRange(%+v) error = %v, wantErr %v", tc.r, err, tc.wantErr)
 			}
 		})
 	}

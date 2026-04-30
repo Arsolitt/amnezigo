@@ -273,7 +273,7 @@ func headerRangesValid(sortedRanges []HeaderRange) bool {
 		}
 	}
 	for i := range 4 {
-		if validateHeaderRange(sortedRanges[i]) != nil {
+		if ValidateHeaderRange(sortedRanges[i]) != nil {
 			return false
 		}
 	}
