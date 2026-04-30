@@ -105,6 +105,34 @@ func TestBuildCPSTagTimestamp(t *testing.T) {
 	}
 }
 
+// TestBuildCPSTag_Data locks the <d> (data passthrough) tag's emission shape.
+// The tag carries no value and contributes 0 bytes at generation time; the
+// AmneziaWG userspace receiver expands it at packet-emission time by reusing
+// a value from an earlier I-packet position. Source of truth:
+// amneziawg-go device/obf.go.
+func TestBuildCPSTag_Data(t *testing.T) {
+	tag := BuildCPSTag("d", "")
+	expected := "<d>"
+	if tag != expected {
+		t.Errorf("BuildCPSTag(\"d\", \"\") = %q, want %q", tag, expected)
+	}
+
+	// Tag emission + length accounting must agree: calculateCPSLength
+	// must report 0 bytes for the emitted "<d>" literal. This is not a
+	// round-trip (no <d>-aware parser exists in this codebase); it pins
+	// that BuildCPSTag's output and the size oracle stay consistent.
+	if got := calculateCPSLength(tag); got != 0 {
+		t.Errorf("calculateCPSLength(%q) = %d, want 0 (runtime passthrough)", tag, got)
+	}
+
+	// Stray value handling: BuildCPSTag's <d> branch ignores the value parameter.
+	// This is intentional — <d> carries no payload. Documented in the docstring.
+	tagWithStray := BuildCPSTag("d", "ignored")
+	if tagWithStray != "<d>" {
+		t.Errorf("BuildCPSTag(\"d\", \"ignored\") = %q, want %q (value must be ignored)", tagWithStray, "<d>")
+	}
+}
+
 func TestBuildCPS(t *testing.T) {
 	tags := []string{
 		BuildCPSTag("b", "0xc00000000108"),
@@ -161,6 +189,7 @@ func TestMapTagType(t *testing.T) {
 		{"random maps to r", "random", "r"},
 		{"random_chars maps to rc", "random_chars", "rc"},
 		{"random_digits maps to rd", "random_digits", "rd"},
+		{"data maps to d", "data", "d"},
 		{"counter is no longer mapped", "counter", ""},
 		{"timestamp maps to t", "timestamp", "t"},
 		{"unknown type returns empty", "unknown", ""},
@@ -205,6 +234,10 @@ func TestCalculateCPSLength(t *testing.T) {
 		{"empty", "", 0},
 		{"only_timestamp", "<t>", 4},      // 4
 		{"mixed", "<b 0x11><r 5><t>", 10}, // 1 + 5 + 4
+		// <d> is the runtime-passthrough tag; calculateCPSLength must report 0 bytes
+		// so size accounting and ValidatePacketSizes stay correct. The receiver
+		// expands <d> at emit time; generation-time accounting is intentionally zero.
+		{"data_zero_bytes", "<d>", 0},
 		// Regression: <c> tag was removed in P0.1 (kernel-only, rejected by
 		// amneziawg-go and all mobile/desktop clients). calculateCPSLength
 		// must treat <c> as an unknown tag literal contributing 0 bytes.
@@ -235,6 +268,8 @@ func TestCalculateCPSLengthMatchesAccountedSize(t *testing.T) {
 		{"random_plus_timestamp", "<r 10><t>", 14},
 		{"long_bytes_plus_timestamp", "<b 0xdeadbeef><t>", 8},
 		{"random_charset_digit_plus_timestamp", "<rc 5><rd 3><t>", 12},
+		{"data_passthrough_with_byte", "<b 0xff><d>", 1}, // <d> adds 0; <b 0xff> = 1
+		{"data_passthrough_alone", "<d>", 0},             // pure passthrough = 0
 	}
 
 	for _, tt := range tests {
