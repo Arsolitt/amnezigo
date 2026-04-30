@@ -35,7 +35,10 @@ Example:
 		Args: cobra.MaximumNArgs(1),
 		RunE: runExport,
 	}
-	cmd.Flags().StringVar(&peerProtocol, "protocol", "random", "Obfuscation protocol")
+	cmd.Flags().StringVar(
+		&peerProtocol, "protocol", "random",
+		"Obfuscation protocol: random, quic, dns, dtls, stun, sip",
+	)
 	cmd.Flags().StringVar(&peerEndpoint, "endpoint", "", "Override endpoint (skip auto-detection)")
 	cmd.Flags().StringVar(&cfgFile, "config", "awg0.conf", "config file path")
 	return cmd

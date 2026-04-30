@@ -58,7 +58,7 @@ AmneziaWG v2.0 obfuscates WireGuard traffic to mimic legitimate protocols. Amnez
 
 ### Protocol Mimicry
 
-Traffic obfuscation mimics real protocols via CPS templates. Four protocols are supported:
+Traffic obfuscation mimics real protocols via CPS templates. Five protocols are supported:
 
 | Protocol | Description |
 |----------|-------------|
@@ -66,12 +66,13 @@ Traffic obfuscation mimics real protocols via CPS templates. Four protocols are 
 | `dns` | Mimics DNS query/response traffic |
 | `dtls` | Mimics DTLS handshake traffic |
 | `stun` | Mimics STUN/TURN discovery traffic |
+| `sip` | Mimics SIP OPTIONS request (RFC 3261) |
 | `random` | Randomly selects one of the above using `crypto/rand` |
 
 When you export with `--protocol random`, each export may pick a different protocol. Selection is non-deterministic — it uses `crypto/rand` for cryptographic randomness.
 
 ::: warning
-I5 is always empty for all protocol modes, including `random`. The `random` mode randomly selects one of the four templates (QUIC, DNS, DTLS, STUN), all of which have an empty I5 value. I5 is never non-empty.
+I5 is always empty for all protocol modes, including `random`. The `random` mode randomly selects one of the five templates (QUIC, DNS, DTLS, STUN, SIP), all of which have an empty I5 value. I5 is never non-empty.
 :::
 
 ## Dual Usage: CLI and Library
@@ -120,7 +121,7 @@ internal/cli/                 Cobra CLI commands (package cli)
   helpers.go                  IP, port, interface utilities
   iptables.go                 iptables rule generation
   protocols.go                Protocol template dispatcher
-  quic.go, dns.go, dtls.go, stun.go  Protocol templates
+  quic.go, dns.go, dtls.go, stun.go, sip.go  Protocol templates
 ```
 
 ### Key Design Decisions
@@ -340,10 +341,11 @@ Choose a protocol that best matches the traffic you want to blend in with:
 | `dns` | DNS-heavy environments |
 | `dtls` | UDP-heavy environments |
 | `stun` | NAT traversal scenarios |
+| `sip` | Enterprise/VoIP environments |
 | `random` | Let the tool pick randomly using `crypto/rand` |
 
 ::: tip
-Use `--protocol random` for non-deterministic protocol selection. Each export will independently pick one of the four protocols at random — useful when you don't want all clients using the same protocol.
+Use `--protocol random` for non-deterministic protocol selection. Each export will independently pick one of the five protocols at random — useful when you don't want all clients using the same protocol.
 :::
 
 ### Endpoint Override

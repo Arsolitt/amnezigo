@@ -18,7 +18,7 @@
 
 ## Overview
 
-AmneziaWG wraps WireGuard traffic in an obfuscation layer to make it resemble legitimate protocol traffic. This defeats deep packet inspection (DPI) by disguising the VPN tunnel as QUIC, DNS, DTLS, or STUN traffic.
+AmneziaWG wraps WireGuard traffic in an obfuscation layer to make it resemble legitimate protocol traffic. This defeats deep packet inspection (DPI) by disguising the VPN tunnel as QUIC, DNS, DTLS, STUN, SIP, or other supported traffic shapes.
 
 Obfuscation has two layers:
 
@@ -164,6 +164,7 @@ Protocol templates define the tag structure for each `I1`–`I4` interval. When 
 | `dns` | DNS A record query | Query type `0x0001`, class IN `0x0001` |
 | `dtls` | DTLS 1.2 ClientHello | Version `0xFEFD`, specific cipher suites |
 | `stun` | STUN Binding Request | Magic cookie `0x2112A442`, message type `0x0001` |
+| `sip` | SIP OPTIONS request | Method literal `OPTIONS `, ASCII line-delimited headers, no timestamp |
 | `random` | None (random tags) | 3–6 random tags per interval, at most one `<t>` per interval |
 
 ### Template Structure
@@ -181,7 +182,7 @@ All named protocol templates share these properties:
 There are two distinct code paths for random behavior:
 
 1. **`--protocol random`** in `GenerateCPS` — generates simple random CPS with 3–6 random tags per interval. This is a distinct "random" mode.
-2. **Unknown protocol string** in `getTemplate()` — silently falls back to a randomly selected named protocol template (QUIC, DNS, DTLS, or STUN). This is **not** the same as simple random CPS.
+2. **Unknown protocol string** in `getTemplate()` — silently falls back to a randomly selected named protocol template (QUIC, DNS, DTLS, STUN, or SIP). This is **not** the same as simple random CPS.
 
 Use the `export --protocol` option to select a protocol. See [cli-reference](cli-reference.md) for details.
 

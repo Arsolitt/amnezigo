@@ -175,10 +175,65 @@ High-level CRUD operations for server configs and peers:
 - Generate keys with proper error handling (panic only on system failures)
 
 ### Obfuscation Patterns
+
 - Store H1-H4 as HeaderRange{Min, Max} for ranges
 - I1-I5 CPS strings generated per-peer at export time
-- Protocol templates in root package (quic.go, dns.go, dtls.go, stun.go)
-- Use tag-based CPS construction: <b 0x...>, <r N>, <rc N>, <rd N>, <t>, <d>
+- Protocol templates in root package (quic.go, dns.go, dtls.go, stun.go, sip.go)
+- Use tag-based CPS construction: `<b 0x...>`, `<r N>`, `<rc N>`, `<rd N>`, `<t>`, `<d>`
+
+### Adding a New Protocol Template (P1.2 framework)
+
+Every new protocol template MUST satisfy this contract. Reviewers reject PRs that miss any item.
+
+**Required interface**
+
+- File `<protocol>.go` at the repository root.
+- Constructor `XxxTemplate() I1I5Template` — pure data construction, no I/O, no globals.
+- Test file `<protocol>_test.go` co-located.
+- Switch case key, `--protocol` flag value, and doc table row all match the file's lowercase short-name.
+
+**Tag mix rules**
+
+- No `<c>` tag (removed in P0.1). For pseudo-monotonic bytes use `<rd N>` or `<r N>`.
+- `<t>` is 4 bytes (post-P0.2).
+- `<rc>` is `[a-zA-Z]` only (post-P0.5). For mixed letter+digit fields, concatenate `<rc 4><rd 2>`.
+- At most one `<t>` per interval.
+- No new tag types — propose those in P1.1, not in a template PR.
+
+**Byte budget**
+
+- Each interval >= 16 B (avoid raw-WG size collisions).
+- Each interval <= `MTU - 49 - 149 - S1` (worst case MTU=1280, S1=64 -> 1018 B).
+- Recommended ceiling <= 700 B per interval; raise only with reviewer agreement.
+- I5 always empty (`[]TagSpec{}` literal) for named templates.
+- I1 >= I2 >= I3 >= I4 in byte budget (STUN's I2 > I1 is a known exception).
+- Leading bytes should not collide with any prefix in the centralized `existingTemplatePrefixes` slice in `protocols_test.go`. New templates that introduce a fixed prefix MUST append it to that slice in the same PR.
+
+**Required tests**
+
+- `TestXxxTemplate_AllIntervalsNonEmpty_I1ToI4`
+- `TestXxxTemplate_I5Empty`
+- `TestXxxTemplate_NoForbiddenTags`
+- `TestXxxTemplate_NoCounterLiteral` — scans the rendered CPS string for `<c>` substring
+- `TestXxxTemplate_FitsMTU`
+- `TestXxxTemplate_ByteBudgetUnderCeiling`
+- `TestXxxTemplate_AtMostOneTimestampPerInterval`
+- `TestXxxTemplate_AvoidsExistingPrefixes` (recommended if leading bytes are fixed; calls the shared `assertTemplateAvoidsExistingPrefixes` helper)
+- One row added to `TestGetTemplate_NamedProtocols` in `protocols_test.go`.
+
+**Wiring checklist (each template PR ticks every box)**
+
+- [ ] `protocols.go:getTemplate` switch — new `case`
+- [ ] `protocols.go:getTemplate` random-fallback slice — append constructor
+- [ ] `protocols.go:getTemplate` doc-comment — append protocol name
+- [ ] `protocols_test.go:TestGetTemplate_NamedProtocols` — append row
+- [ ] `internal/cli/export.go` — extend `--protocol` helptext
+- [ ] `docs/cli-reference.md` — extend allowed-values list and protocol table
+- [ ] `docs/obfuscation.md` — extend Available Protocols table
+
+**Quality bar**
+
+`go test ./... -race` green. `gofmt -l .` empty. `go vet ./...` clean. `golangci-lint run` zero errors. PR description ticks every wiring-checklist box explicitly.
 
 ### Config File Parsing
 - Use bufio.Scanner for line-by-line INI parsing
