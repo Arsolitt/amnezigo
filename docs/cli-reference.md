@@ -12,6 +12,7 @@
 - [amnezigo export](#amnezigo-export)
 - [amnezigo remove](#amnezigo-remove)
 - [amnezigo edit](#amnezigo-edit)
+- [amnezigo validate](#amnezigo-validate)
 
 ---
 
@@ -25,7 +26,7 @@ All commands accept a `--config` flag to specify the server config file (default
 amnezigo [command] [flags]
 ```
 
-Available commands: `init`, `add`, `list`, `export`, `remove`, `edit`.
+Available commands: `init`, `add`, `list`, `export`, `remove`, `edit`, `validate`.
 
 ---
 
@@ -298,4 +299,100 @@ Run this command to disable client-to-client immediately:
 
 ✓ Configuration updated
   Restart AmneziaWG service to apply changes
+```
+
+---
+
+## amnezigo validate
+
+Validate an existing AmneziaWG server config against AWG 2.0 invariants. Runs every check the generator enforces (size collisions, header ranges, required fields, deprecated tags) and reports findings with severity levels.
+
+```text
+amnezigo validate <config> [flags]
+```
+
+### Flags
+
+| Flag | Type | Default | Description |
+| --- | --- | --- | --- |
+| `--output` | string | `text` | Output format: `text` or `json` |
+| `--strict` | bool | `false` | Treat warnings as errors for exit code |
+| `--quiet` | bool | `false` | Suppress summary line; print findings only |
+
+### Exit Codes
+
+| Code | Meaning |
+| --- | --- |
+| `0` | No errors (warnings and info findings may still be printed) |
+| `1` | At least one error, or any warning when `--strict` is set |
+
+### Validation Codes
+
+Each finding carries a stable machine-readable code. Codes are safe to grep in CI pipelines.
+
+| Code | Severity | Description |
+| --- | --- | --- |
+| `PSC001` | error | Pairwise S-prefix size collision |
+| `PSC002` | error | Junk range contains a forbidden padded or raw WG size |
+| `HDR001` | error | H1-H4 range overlaps WG message type-ids (1..4) |
+| `HDR002` | error | H1-H4 range structurally invalid (Max < Min) |
+| `FLD001` | error | Required field missing (PrivateKey, Address, or ListenPort) |
+| `JNK001` | error | Junk range structurally invalid (Jmin > Jmax) |
+| `PSE001` | error | Config parse aborted due to structural error |
+| `CPS001` | warning | Raw `<c>` (counter) tag detected; breaks mobile clients |
+| `KEY001` | warning | Unknown INI key |
+
+### Behavior
+
+- Reads the config in strict mode: unknown keys and deprecated `<c>` tags are reported as warnings instead of being silently ignored.
+- If the config fails to parse (structural error), a single `PSE001` finding is emitted and validation stops.
+- Server configs only in v1. Client config validation is planned for a future release.
+- The command is read-only; no files are modified.
+
+### Sample Output (clean config, text)
+
+```text
+$ amnezigo validate /etc/amnezia/awg0.conf
+✓ /etc/amnezia/awg0.conf: 0 errors, 0 warnings, 0 info
+```
+
+### Sample Output (with findings, text)
+
+```text
+$ amnezigo validate /tmp/server.conf
+[ERROR PSC001] /tmp/server.conf: packet size collision (s-pair): S1+148 vs S2+92 at 148 bytes
+[WARNING KEY001] /tmp/server.conf:42 (key=Foobar): unknown INI key
+✗ /tmp/server.conf: 1 error, 1 warning, 0 info
+```
+
+### Sample Output (clean config, JSON)
+
+```json
+{
+  "file": "/etc/amnezia/awg0.conf",
+  "findings": [],
+  "summary": {
+    "errors": 0,
+    "warnings": 0,
+    "info": 0
+  }
+}
+```
+
+### Example
+
+```shell
+$ amnezigo validate awg0.conf
+✓ awg0.conf: 0 errors, 0 warnings, 0 info
+
+$ amnezigo validate awg0.conf --output json | jq .summary
+{
+  "errors": 0,
+  "warnings": 0,
+  "info": 0
+}
+
+$ amnezigo validate legacy.conf --strict
+[WARNING CPS001] legacy.conf:12: raw <c> tag detected; rejected by amneziawg-go and AmneziaVPN clients
+✗ legacy.conf: 0 errors, 1 warning, 0 info
 ```
