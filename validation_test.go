@@ -347,6 +347,132 @@ func TestFinding_JSONShape(t *testing.T) {
 	}
 }
 
+// freshServerConfig produces a known-good ServerConfig via the generator.
+func freshServerConfig(t *testing.T) ServerConfig {
+	t.Helper()
+	obf := GenerateServerConfig(1280, 32, 5)
+	return ServerConfig{
+		Interface: InterfaceConfig{
+			PrivateKey: "aaa", PublicKey: "bbb",
+			Address: "10.0.0.1/24", ListenPort: 51820, MTU: 1280,
+		},
+		Obfuscation: obf,
+	}
+}
+
+func containsCode(findings []Finding, code string) bool {
+	for _, f := range findings {
+		if f.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
+func TestValidateServerConfig_CleanGeneratedConfig(t *testing.T) {
+	cfg := freshServerConfig(t)
+	findings := ValidateServerConfig(&cfg)
+	var errs int
+	for _, f := range findings {
+		if f.Severity == SeverityError {
+			errs++
+		}
+	}
+	if errs != 0 {
+		t.Errorf("freshly generated config produced %d errors: %+v", errs, findings)
+	}
+}
+
+func TestValidateServerConfig_DetectsSPrefixCollision(t *testing.T) {
+	cfg := freshServerConfig(t)
+	cfg.Obfuscation.S1 = 0
+	cfg.Obfuscation.S2 = 56 // 0+148 == 56+92
+	findings := ValidateServerConfig(&cfg)
+	if !containsCode(findings, "PSC001") {
+		t.Errorf("S-collision not detected: %+v", findings)
+	}
+}
+
+func TestValidateServerConfig_DetectsHeaderTypeIDOverlap(t *testing.T) {
+	cfg := freshServerConfig(t)
+	cfg.Obfuscation.H1 = HeaderRange{Min: 1, Max: 100}
+	findings := ValidateServerConfig(&cfg)
+	if !containsCode(findings, "HDR001") {
+		t.Errorf("H1 overlap not detected: %+v", findings)
+	}
+}
+
+func TestValidateServerConfig_DetectsHeaderStructuralInvalid(t *testing.T) {
+	cfg := freshServerConfig(t)
+	cfg.Obfuscation.H2 = HeaderRange{Min: 100, Max: 50}
+	findings := ValidateServerConfig(&cfg)
+	if !containsCode(findings, "HDR002") {
+		t.Errorf("H2 structural error not detected: %+v", findings)
+	}
+}
+
+func TestValidateServerConfig_DetectsMissingPrivateKey(t *testing.T) {
+	cfg := freshServerConfig(t)
+	cfg.Interface.PrivateKey = ""
+	findings := ValidateServerConfig(&cfg)
+	if !containsCode(findings, "FLD001") {
+		t.Errorf("missing PrivateKey not detected: %+v", findings)
+	}
+}
+
+func TestValidateServerConfig_DetectsMissingAddress(t *testing.T) {
+	cfg := freshServerConfig(t)
+	cfg.Interface.Address = ""
+	findings := ValidateServerConfig(&cfg)
+	if !containsCode(findings, "FLD001") {
+		t.Errorf("missing Address not detected: %+v", findings)
+	}
+}
+
+func TestValidateServerConfig_DetectsMissingListenPort(t *testing.T) {
+	cfg := freshServerConfig(t)
+	cfg.Interface.ListenPort = 0
+	findings := ValidateServerConfig(&cfg)
+	if !containsCode(findings, "FLD001") {
+		t.Errorf("missing ListenPort not detected: %+v", findings)
+	}
+}
+
+func TestValidateServerConfig_DetectsJunkRangeStructural(t *testing.T) {
+	cfg := freshServerConfig(t)
+	cfg.Obfuscation.Jmin = 200
+	cfg.Obfuscation.Jmax = 100 // jmin > jmax
+	findings := ValidateServerConfig(&cfg)
+	if !containsCode(findings, "JNK001") {
+		t.Errorf("junk range structural error not detected: %+v", findings)
+	}
+}
+
+func TestValidateServerConfig_RoundTripGenerated_AllProtocols(t *testing.T) {
+	// Property: every config GenerateServerConfig produces validates clean.
+	for i := range 50 {
+		cfg := freshServerConfig(t)
+		findings := ValidateServerConfig(&cfg)
+		for _, f := range findings {
+			if f.Severity == SeverityError {
+				t.Fatalf("iteration %d: %+v on freshly generated config", i, f)
+			}
+		}
+	}
+}
+
+// TestValidateServerConfig_PSC003UnreachableWithNilIPackets pins the current
+// behavior that PSC003 never fires when iPacketSizes=nil.
+func TestValidateServerConfig_PSC003UnreachableWithNilIPackets(t *testing.T) {
+	cfg := freshServerConfig(t)
+	findings := ValidateServerConfig(&cfg)
+	for _, f := range findings {
+		if f.Code == "PSC003" {
+			t.Fatalf("PSC003 fired despite nil iPackets")
+		}
+	}
+}
+
 // TestValidateHeaderRange_Exported verifies the promoted public API works.
 func TestValidateHeaderRange_Exported(t *testing.T) {
 	// Range that overlaps WG type-id 4 must be rejected.

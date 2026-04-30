@@ -199,3 +199,114 @@ func ValidateHeaderRange(r HeaderRange) error {
 	}
 	return nil
 }
+
+// ValidateServerConfig runs every validation rule against the parsed config
+// and returns all findings. The slice is empty when the config is clean.
+// Severity ranking, ordering, and code allocation are documented in
+// docs/plans/p1.3-validate-command.md § 4.8.
+func ValidateServerConfig(cfg *ServerConfig) []Finding {
+	var findings []Finding
+
+	findings = append(findings, validateRequiredFields(cfg)...)
+	findings = append(findings, validateSPrefixes(cfg)...)
+	findings = append(findings, validateJunkRange(cfg)...)
+	findings = append(findings, validateHeaderRanges(cfg)...)
+
+	return findings
+}
+
+func validateRequiredFields(cfg *ServerConfig) []Finding {
+	var out []Finding
+	add := func(key string) {
+		out = append(out, Finding{
+			Severity: SeverityError,
+			Code:     "FLD001",
+			Location: Location{Key: key},
+			Message:  fmt.Sprintf("required field %q is missing", key),
+			Detail:   "server configs require PrivateKey, Address, and ListenPort to function.",
+		})
+	}
+	if cfg.Interface.PrivateKey == "" {
+		add("PrivateKey")
+	}
+	if cfg.Interface.Address == "" {
+		add("Address")
+	}
+	if cfg.Interface.ListenPort == 0 {
+		add("ListenPort")
+	}
+	return out
+}
+
+func validateSPrefixes(cfg *ServerConfig) []Finding {
+	o := cfg.Obfuscation
+	err := ValidatePacketSizes(o.S1, o.S2, o.S3, o.S4, nil, o.Jmin, o.Jmax)
+	return findingsFromValidationError(err)
+}
+
+func validateJunkRange(cfg *ServerConfig) []Finding {
+	o := cfg.Obfuscation
+	if o.Jmin > o.Jmax {
+		return []Finding{{
+			Severity: SeverityError,
+			Code:     "JNK001",
+			Message:  fmt.Sprintf("junk range Jmin (%d) > Jmax (%d)", o.Jmin, o.Jmax),
+		}}
+	}
+	return nil
+}
+
+func validateHeaderRanges(cfg *ServerConfig) []Finding {
+	var out []Finding
+	ranges := [4]HeaderRange{
+		cfg.Obfuscation.H1, cfg.Obfuscation.H2,
+		cfg.Obfuscation.H3, cfg.Obfuscation.H4,
+	}
+	for i, r := range ranges {
+		if err := ValidateHeaderRange(r); err != nil {
+			code := "HDR001"
+			if r.Max < r.Min {
+				code = "HDR002"
+			}
+			out = append(out, Finding{
+				Severity: SeverityError,
+				Code:     code,
+				Location: Location{Key: fmt.Sprintf("H%d", i+1)},
+				Message:  err.Error(),
+				Detail:   "H1-H4 ranges must avoid WG message type-ids 1..4.",
+			})
+		}
+	}
+	return out
+}
+
+func findingsFromValidationError(err error) []Finding {
+	if err == nil {
+		return nil
+	}
+	var psc *PacketSizeCollisionError
+	if errors.As(err, &psc) {
+		code := map[string]string{
+			"s-pair":     "PSC001",
+			"i-packet":   "PSC003",
+			"junk-range": "PSC002",
+		}[psc.Kind]
+		return []Finding{{
+			Severity: SeverityError,
+			Code:     code,
+			Message:  err.Error(),
+		}}
+	}
+	if errors.Is(err, ErrEmptyJunkRange) {
+		return []Finding{{
+			Severity: SeverityError,
+			Code:     "JNK001",
+			Message:  err.Error(),
+		}}
+	}
+	return []Finding{{
+		Severity: SeverityError,
+		Code:     "PSC000",
+		Message:  err.Error(),
+	}}
+}
