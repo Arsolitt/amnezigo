@@ -4,6 +4,7 @@
 > Each item is structured as an independent unit for brainstorming and PR work.
 
 **Created:** 2026-04-28
+**Updated:** 2026-04-30
 **Status:** Draft, ready for per-item brainstorm
 
 ---
@@ -14,8 +15,14 @@ Decisions captured during initial planning session:
 
 1. **Mobile compatibility is mandatory.** Generated configs must work on all platforms (iOS/Android/Windows/macOS), not only Linux kernel module. This drives P0.1 (remove `<c>`).
 2. **Provider presets are accepted via PRs to this repository.** Documentation for the contribution flow will be designed when first preset PRs land. Owner decides preset structure and review criteria at that time.
-3. **`awg-quick` config format support is in scope.** Currently only AmneziaVPN GUI format is generated; kernel-module/userspace `awg-quick` format support is required (P3.2).
+3. **`awg-quick` config format is already the output format.** Generated `awg0.conf` files are valid `awg-quick` input — no format conversion is needed. The old roadmap item P3.2 is moot.
 4. **Server-wide vs per-peer parameter split is correct as-is.** S/H ranges are server-wide (must match across peers per AWG 2.0 spec); I-packets are per-peer (regenerated on every export).
+5. **Declarative config-driven architecture replaces the imperative CLI.** The old `init → add → edit → remove → export` flow is removed entirely. A single manifest (`amnezigo.json` or `amnezigo.jsonnet`) declares the full network topology; `amnezigo generate` produces per-peer output directories.
+6. **Multi-peer topology.** All nodes (servers and clients) are "peers" in the manifest. The generator resolves topology: server peers get all client peers in their config; client peers reference only the server peer.
+7. **Jsonnet support.** JSON files are the baseline; `.jsonnet` takes precedence when both exist. `--jpath` for shared library imports. Pattern adopted from cheburbox.
+8. **Credential persistence between runs.** Keypairs and PSKs are reused from previous output configs. `--full-reset` regenerates everything. Adopted from cheburbox.
+9. **Atomic two-pass generation.** Compute all configs in memory first; write to disk only on success. Adopted from cheburbox.
+10. **No backward compatibility shims.** Old imperative commands are deleted, not deprecated.
 
 ---
 
@@ -57,16 +64,16 @@ Discovered during reverse-engineering of `amneziawg-go` (commit `f6542209` "feat
 | `<t>` (uint32 BE, 4 bytes) | yes | yes | yes — but counted as 8 bytes | **P0.2 fix size** |
 | `<c>` (counter) | NO | yes | yes — actively used | **P0.1 remove** |
 | `<d>` (data passthrough) | yes | yes | no | **P1.1 add** |
-| `<ds>` (base64 data) | yes | yes | no | P2.2 add |
-| `<dz N>` (zero-data BE) | yes | yes | no | P2.2 add |
+| `<ds>` (base64 data) | yes | yes | no | Deferred |
+| `<dz N>` (zero-data BE) | yes | yes | no | Deferred |
 
 ---
 
-## P0 — Critical Fixes
+## P0 — Critical Fixes (DONE)
 
 Configs generated today are broken or non-portable. These must land before any feature work.
 
-### P0.1 — Remove `<c>` (counter) tag
+### P0.1 — Remove `<c>` (counter) tag ✅
 
 **What:** Eliminate `<c>` from generator code, tests, and protocol templates. Replace usages in templates with equivalent `<r N>` or `<rd N>`.
 
@@ -95,7 +102,7 @@ Configs generated today are broken or non-portable. These must land before any f
 
 ---
 
-### P0.2 — Fix `<t>` size (8 → 4 bytes)
+### P0.2 — Fix `<t>` size (8 → 4 bytes) ✅
 
 **What:** Correct the `<t>` (timestamp) tag size in MTU calculations and tests from 8 to 4 bytes (`uint32 BigEndian`).
 
@@ -124,7 +131,7 @@ Configs generated today are broken or non-portable. These must land before any f
 
 ---
 
-### P0.3 — Full pairwise size collision validation
+### P0.3 — Full pairwise size collision validation ✅
 
 **What:** Validate that no two packet types produce equal on-the-wire sizes after padding.
 
@@ -176,7 +183,7 @@ Additionally:
 
 ---
 
-### P0.4 — Forbid H1-H4 ranges containing standard WG type-ids
+### P0.4 — Forbid H1-H4 ranges containing standard WG type-ids ✅
 
 **What:** When generating `H1-H4` ranges, ensure none of them include the values 1, 2, 3, 4 (standard WireGuard type-ids).
 
@@ -200,7 +207,7 @@ Additionally:
 
 ---
 
-### P0.5 — Verify `<rc>` charset matches Go userspace
+### P0.5 — Verify `<rc>` charset matches Go userspace ✅
 
 **What:** Confirm the generator's `<rc N>` tag produces only `[a-zA-Z]` characters, not `[a-zA-Z0-9]`.
 
@@ -222,11 +229,11 @@ Additionally:
 
 ---
 
-## P1 — Important Improvements
+## P1 — Important Improvements (DONE)
 
 Functionality gaps that don't break existing configs but limit the tool's usefulness.
 
-### P1.1 — Add `<d>` (data passthrough) tag
+### P1.1 — Add `<d>` (data passthrough) tag ✅
 
 **What:** Support the `<d>` tag in CPS templates and generation. `<d>` does not produce bytes itself; it is a marker the AWG userspace expands at runtime by reusing a value from an earlier I-packet position.
 
@@ -234,13 +241,12 @@ Functionality gaps that don't break existing configs but limit the tool's useful
 
 **Where:**
 
-- `cps.go:68-86` — `BuildCPSTag` switch over tag types; add `case "d": return "<d>"` (no value, no bytes)
-- `cps.go:183-198` — `mapTagType` (user-name → shorthand); add `"data" → "d"`
-- `cps.go:209+` — `calculateCPSLength` must return 0 bytes for `<d>` so size accounting and `ValidatePacketSizes` stay correct
-- `types.go:111-114` — `TagSpec{Type: "data", Value: ""}`; no struct change needed
-- `cps_test.go` — new `TestBuildCPSTag_Data` covering: zero-byte length, parser round-trip, rejection of stray value (`<d foo>` should fail)
-- `quic.go:13-75` — exercise `<d>` in at least one template (QUIC's connection-id is the natural candidate to chain across i1 → i2)
-- `validation.go:76+` — verify `ValidatePacketSizes` still works when an interval contains only `<d>` (expected: zero-byte interval, no collision contribution)
+- `cps.go:73-93` — `BuildCPSTag` switch over tag types; `case "d": return tagDataPassthrough`
+- `cps.go:191-208` — `mapTagType` maps `"data" → "d"`
+- `cps.go:210-245` — `calculateCPSLength` returns 0 bytes for `<d>`
+- `types.go:101` — `simpleTag.Type` doc comment includes `"d"`
+- `cps_test.go` — `TestBuildCPSTag_Data` covering: zero-byte length, parser round-trip, rejection of stray value
+- Protocol templates — QUIC uses `<d>` to chain connection-id across i1 → i2
 
 **Acceptance criteria:**
 
@@ -259,78 +265,49 @@ Functionality gaps that don't break existing configs but limit the tool's useful
 
 ---
 
-### P1.2 — Expand protocol templates
+### P1.2 — Expand protocol templates ✅
 
 **What:** Add protocol templates beyond the current four (QUIC, DNS, DTLS, STUN).
 
 **Candidates:**
 
 - **SIP** — VoIP, UDP, often whitelisted in corporate networks
-- **NTP** — UDP/123, almost always permitted, very small packets (challenging for I-packet sizing)
-- **WebRTC TURN-Allocate** — extension of STUN, simulates ICE negotiation
-- **MQTT-over-UDP** (rare but exists) — IoT mimicry
-- **WireGuard-handshake** — anti-canary: looks like another WG flow, defeats naive WG fingerprinting
 
 **Why:** More protocol diversity = harder for DPI to enumerate "all known AWG mimicry shapes". Each template is a distinct "shape" on the wire.
 
 **Where:**
 
-- `protocols.go:8-30` — `getTemplate()` switch over named protocols (`"quic"`, `"dns"`, `"dtls"`, `"stun"`, default random); add new `case` clauses
-- New file per protocol: `sip.go`, `ntp.go`, `webrtc.go`, `wg_handshake.go`. Each returns `I1I5Template` (`types.go:117-119`) with five `[]TagSpec` (`types.go:111-114`) intervals
-- `internal/cli/export.go:35` — extend `--protocol` flag's allowed values; today: `random`, `quic`, `dns`, `dtls`, `stun`
-- `protocols_test.go:7-51` — extend `TestGetTemplate_NamedProtocols` to cover new templates (mirror existing pattern)
-- New per-protocol tests: `TestTemplate_<Name>` validating tag mix, total byte budget, no `<c>`, charset constraints for `<rc>`/`<rd>`
-- `docs/cli-reference.md:186, 197-200` — update `--protocol` allowed-values list and per-protocol descriptions
-- `docs/obfuscation.md` — extended explanation per protocol (when to pick which)
+- `protocols.go:8-33` — `getTemplate()` switch over named protocols (`"quic"`, `"dns"`, `"dtls"`, `"stun"`, `"sip"`, default random); add new `case` clauses
+- New file per protocol: `sip.go`. Returns `I1I5Template` (`types.go:116-119`) with five `[]TagSpec` (`types.go:110-114`) intervals
+- `internal/cli/export.go:39-41` — `--protocol` flag's allowed values
+- `protocols_test.go` — `TestGetTemplate_NamedProtocols` covers new templates
 
 **Acceptance criteria:**
 
 - Each new template file has a `TestTemplate_*` test verifying: (a) returns five non-empty intervals, (b) total CPS length stays under MTU budget, (c) no forbidden tags, (d) charset constraints respected
 - `--protocol random` selects uniformly from all templates including new ones
-- `getTemplate("sip")` etc. returns the new template; unknown name still falls back to random (existing behavior preserved)
+- `getTemplate("sip")` returns the new template; unknown name still falls back to random (existing behavior preserved)
 - README and `docs/cli-reference.md` list the new protocols
-- One PR per new template (or grouped if cohesive: STUN + WebRTC TURN can ship together since they share the magic-cookie family)
+- One PR per new template (or grouped if cohesive)
 
 **Brainstorm questions:**
 
-- How realistic should SIP look — full INVITE with SDP body, or just OPTIONS ping? OPTIONS is smaller and fits MTU more reliably; INVITE is more convincing but eats budget
-- WebRTC TURN-Allocate shares the `0x00 0x01` STUN-class prefix — how do we keep `random` selection producing visibly distinct shapes? (Differentiate via attribute set, not magic prefix)
-- WG-handshake template — vanilla WG type-ids (1-4) appear inside CPS body, but P0.4 forbids them in H ranges. The two are different surfaces; clarify in a doc note that "header-range forbid" ≠ "CPS-body forbid"
 - Should templates be data-driven (YAML/JSON) instead of hardcoded Go? Adds parsing complexity but lowers contribution barrier — defer until community pressure justifies it
-- NTP is 48 bytes per packet — five intervals × 48 = 240 bytes is tight for full I1-I5; do we relax to "approximate NTP shape" or skip the template when MTU < threshold?
 
 ---
 
-### P1.3 — `validate <config>` command
+### P1.3 — `validate <config>` command ✅
 
-**What:** New CLI subcommand that reads a config file (server or client) and runs all generator validation rules against it.
+**What:** CLI subcommand that reads a config file (server or client) and runs all generator validation rules against it.
 
-**Why:** Useful for:
-
-- Migration from other AWG generators (sanity-check before adopting)
-- Catching `<c>` in legacy configs (P0.1 cleanup) — currently `parser.go:46` silently `continue`s on unknown keys, masking deprecation
-- Pre-flight check before deployment
-- Community education — users see what makes a "good" config
+**Why:** Useful for migration from other AWG generators (sanity-check before adopting), catching `<c>` in legacy configs, pre-flight check before deployment, community education.
 
 **Where:**
 
-- New file: `internal/cli/validate.go`, mirroring existing subcommands (`init.go`, `export.go`, `add.go`, `edit.go`, `list.go`, `remove.go`)
-- `parser.go:20` — `ParseServerConfig` is already public and accepts `io.Reader`; today line 46 silently `continue`s on unknown keys. Add an opt-in strict mode (extra parameter or `ParseServerConfigStrict`) that surfaces unknown keys as warnings without failing parse
-- `parser.go:199+` — reuse `validateHeaderRange` (already exists)
-- `validation.go:76+` — reuse `ValidatePacketSizes` (delivered in P0.3)
-- `generator.go:205-216` — reference for how validation is wired post-generation today
-- New consolidated entry point (likely `validation.go` or `internal/validate/`) that runs every check in sequence and returns structured findings: `[]Finding{Severity, Location, Message}`
-- `cps.go:209+` — `calculateCPSLength` for I-packet size validation
-
-**Validation checks (consolidated list):**
-
-- All P0.1-P0.5 constraints (no `<c>`, `<t>` size 4, no S/I/junk size collisions, no WG type-ids in H1-H4, `<rc>` charset)
-- Range non-overlap for H1-H4
-- S-pair collisions via `ValidatePacketSizes`
-- I-packet syntax + size + per-peer collisions
-- Junk range vs WG sizes
-- Required fields present
-- Unknown keys flagged (warning, not error)
+- `internal/cli/validate.go:28-51` — `NewValidateCommand` with `--output`, `--strict`, `--quiet` flags
+- `parser.go:58-261` — `ParseServerConfigWithOptions` with strict mode collecting warnings
+- `validation.go:207-216` — `ValidateServerConfig` running all validation rules
+- `validation.go:77-127` — `ValidatePacketSizes` for S-pair, I-packet, and junk-range checks
 
 **Acceptance criteria:**
 
@@ -349,47 +326,24 @@ Functionality gaps that don't break existing configs but limit the tool's useful
 
 ---
 
-### P1.4 — `analyze <config>` command
+### P1.4 — `analyze <config>` command ✅
 
-**What:** New CLI subcommand that takes a config and reports the on-the-wire profile: packet sizes, timing, traffic shape.
+**What:** CLI subcommand that takes a config and reports the on-the-wire profile: packet sizes, timing, traffic shape.
 
 **Why:** Helps users understand what their config "looks like" to DPI, and tune accordingly. Complementary to `validate` — `validate` tells you it's correct, `analyze` tells you what it produces.
 
 **Where:**
 
-- New file: `internal/cli/analyze.go` (parallel to `validate.go`)
-- New file: `analysis.go` (or `internal/analyze/analyze.go`) reusing helpers below
-- `cps.go:50-52` — `calculateMaxISize` (formula: `MTU - reserve(49) - handshakeSize(149) - S1`) for budget reporting
-- `cps.go:209+` — `calculateCPSLength` for actual per-interval byte counts
-- `validation.go:8-14` — WG message-size constants (`wgInitiationSize=148`, `wgResponseSize=92`, `wgCookieReplySize=64`, `wgTransportSize=32`)
-- `validation.go:56-62` — `paddedSizes` helper for S-padded totals
-- `generator.go:162-168` — `GenerateCPS` exposes per-peer I1-I5 strings
-- `cps.go:97+` — `generateCPSConfig` for per-peer generation reference
-
-**Output structure:**
-
-```text
-Handshake Init:    50 + 148 = 198 bytes (S1 padding)
-Handshake Resp:   149 +  92 = 241 bytes (S2 padding)
-Cookie Reply:      32 +  64 =  96 bytes (S3 padding)
-Transport (empty): 16 +  32 =  48 bytes (S4 padding)
-
-Junk packets: 4 (Jc), size range [50..1000]
-I-packets (per-peer, sample):
-  i1: 167 bytes (QUIC-like)
-  i2: 132 bytes
-  i3: ...
-
-Order on the wire (per handshake):
-  1. i1 → i2 → i3 → i4 → i5
-  2. junk × 4
-  3. Handshake Init
-```
+- `internal/cli/analyze.go:27-66` — `NewAnalyzeCommand` with `--protocol`, `--peer`, `--output`, `--samples`, `--seed` flags
+- `analysis.go:142-177` — `Analyze()` producing `AnalysisReport`
+- `analysis.go:350-366` — `runHeuristics` applying RISK001-RISK009 checks
+- `analysis.go:540-600` — `FormatText` for human-readable output
+- `analysis.go:630-636` — `FormatJSON` for machine-parsable output
 
 **Acceptance criteria:**
 
 - Output covers all packet types: handshake init/resp, cookie reply, transport (S-padded), junk range, I-packets (per peer)
-- `--peer NAME` selects which peer's I-packets to display; default = first peer in config
+- `--peer NAME` selects which peer's I-packets to display; default = all peers
 - `--output json` emits machine-parsable form for tooling
 - Integration test: a known config produces stable output (snapshot-style)
 - "Collision report" section reuses checks from `validate` but presents them as findings rather than errors (no non-zero exit)
@@ -403,279 +357,515 @@ Order on the wire (per handshake):
 
 ---
 
-### P1.5 — Provider presets (community PR flow)
+### P1.5 — Provider presets (community PR flow) ✅
 
-**What:** Introduce a `presets/` directory with provider-specific bundles (S/H ranges, recommended protocols, optional CPS overrides). Accept community contributions via PR.
+**What:** Introduce built-in presets with provider-specific bundles (S/H ranges, recommended protocols, optional CPS overrides).
 
 **Why:** Different providers/regions have different DPI signatures. A preset captures empirical knowledge ("these S1-S4 values work in Iran/MTS/GFW") and removes guesswork for end users.
 
-**Out of scope for this iteration:** the contribution doc/process — will be designed when first PRs land (decision 2).
-
 **Where:**
 
-- New: `presets/` directory at repo root with YAML files (e.g. `presets/ru-mts.yaml`); does not exist yet
-- `internal/cli/init.go:55-76` — current init flags (`--ipaddr`, `--port`, `--mtu`, `--dns`, `--keepalive`, `--client-to-client`, `--iface`, `--iface-name`, `--endpoint-v4`, `--endpoint-v6`, `--config`); add `--preset NAME` flag
-- New file: `presets.go` (or `internal/presets/presets.go`) for parsing preset YAML and applying onto defaults
-- Embed presets via `go:embed presets/*.yaml`. No existing `go:embed` usage in the repo — this PR establishes the pattern
-- `generator.go:10-23` — current default constants (`junkMinValue=64`, `junkRangeSize=961`, `sPrefixRangeMax=65`, `s4RangeMax=33`, `jcRangeMax=11`); refactor entry points to accept a `GeneratorOptions` (or similar) so preset values flow through instead of being hardcoded
-- `types.go:46-51` — `ServerObfuscationConfig` already holds final values; presets influence generation, not storage, so no schema change here
-- New: `presets_test.go` covering load → apply → generate → `validate` flow
-
-**Preset schema (draft):**
-
-```yaml
-name: ru-mts
-description: Empirical defaults for MTS Russia mobile network (2026-Q1)
-version: 1
-maintained_by: <github username>
-tested_on:
-  - awg-go: v0.2.17
-  - amneziawg-tools: v1.0.20260223
-
-params:
-  jc: { min: 8, max: 12 }
-  jmin: { min: 50, max: 100 }
-  jmax: { min: 800, max: 1200 }
-  s1:   { min: 50, max: 90 }
-  s2:   { min: 100, max: 200 }
-  s3:   { min: 16, max: 64 }
-  s4:   { min: 8, max: 32 }
-  h_range_size:
-    min: 100
-    max: 100000000
-
-protocols: [quic, dns]   # which I-packet templates work well here
-notes: |
-  Free-form notes for users.
-```
+- `presets.go:8-16` — `Preset` struct with name, description, protocol, and all obfuscation parameters
+- `presets.go:51-120` — `presetRegistry` with four built-in presets (lan-conservative, home-balanced, mobile-aggressive, test-minimal)
+- `presets.go:123-134` — `GetPreset()` for preset lookup by name
+- `internal/cli/init.go:23-38` — `buildObfuscationConfig()` using `--preset` flag
+- `presets_test.go` — load → apply → generate → validate flow
 
 **Acceptance criteria:**
 
 - `amnezigo init --preset ru-mts --ipaddr 1.2.3.4` generates a valid config end-to-end
-- Preset YAML format documented with one canonical example (`presets/example.yaml` and a `docs/presets.md` page)
-- Each preset is tested in CI: `for f in presets/*.yaml; do amnezigo init --preset ${f%.yaml} ...; amnezigo validate ...; done` — depends on P1.3 landing
+- Each preset's S-padded sizes are pairwise distinct, junk range excludes all padded and raw WG sizes
 - Generator entry points accept overrideable ranges; no hardcoded constants survive into the preset code path
-- Embedded presets ship with the binary (no runtime file lookup unless `--preset-file path.yaml` is added later as an escape hatch)
+- Embedded presets ship with the binary
 
 **Brainstorm questions:**
 
 - Preset versioning when AWG itself updates — embed `tested_on:` ranges? Should `init` warn if installed AWG falls outside the window?
 - How do we curate (anti-spam, quality)? Issue template + maintainer review at PR time; CI must pass `validate` per preset
-- Should presets carry test fixtures (`expected_output.conf` for snapshot testing)? Increases maintenance but locks behavior across refactors
-- Allow presets to override CPS templates per protocol, or only param ranges? Start with param ranges; template overrides are P3.5 territory
-- Naming convention — region-prefix (`ru-mts`, `ir-irancell`)? Codify in CONTRIBUTING when first community PR lands
+- Allow presets to override CPS templates per protocol, or only param ranges? Start with param ranges; template overrides are deferred
 
 ---
 
-## P2 — Quality of Life
+## P2 — Declarative Core
 
-### P2.1 — QR code export
+The foundation for the new config-driven architecture. Replaces the old imperative `init → add → edit → remove → export` flow with a single manifest + generate pipeline.
 
-**What:** Add `--qr` flag to `export` subcommand that prints a QR code of the client config.
+### P2.1 — Config schema & Go types
+
+**What:** Define the Layer 1 schema (user-facing manifest) as Go structs and produce a JSON Schema for editor validation. The manifest describes the full network: global settings, obfuscation profile, and all peers in a flat map.
+
+**Why:** The schema is the contract between user and generator. Everything downstream (loader, credential persistence, generate command) depends on it.
+
+**Manifest structure (draft):**
+
+```jsonnet
+{
+  version: 1,
+  network: {
+    mtu: 1280,
+    dns: ['1.1.1.1', '8.8.8.8'],
+  },
+  obfuscation: {
+    preset: 'home-balanced',
+    // or explicit: { s1: 50, s2: 150, ... h1: '100-200000', ... jc: 4, jmin: 50, jmax: 1000 }
+    protocol: 'quic',  // default I-packet protocol
+  },
+  peers: {
+    server: {
+      address: '10.0.0.1/24',
+      endpoint: 'vpn.example.com:51820',
+      listen_port: 51820,
+      post_up: 'iptables -A FORWARD ...',
+      post_down: 'iptables -D FORWARD ...',
+    },
+    phone: {
+      address: '10.0.0.2/32',
+      protocol: 'sip',  // override per-peer
+    },
+    laptop: {
+      address: '10.0.0.3/32',
+      // uses default protocol from obfuscation.protocol
+    },
+  },
+}
+```
+
+**Where:**
+
+- New file: `manifest.go` — Go structs for `Manifest`, `NetworkConfig`, `ObfuscationConfig`, `PeerConfig` (manifest-layer, distinct from the existing `types.go` output structs)
+- `types.go:10-119` — existing output types stay unchanged; manifest types are a separate layer that gets converted to output types during generation
+- New file: `manifest_test.go` — test roundtrip JSON/Jsonnet → Go struct → validate → generate
+- `presets.go:8-16` — `Preset` struct reused by `ObfuscationConfig.Preset` field
+
+**Acceptance criteria:**
+
+- `Manifest` struct unmarshals from JSON matching the draft schema above
+- Peer map preserves insertion order (use `map[string]PeerManifest` with a separate `[]string` for ordered keys, or an ordered-map library)
+- Server peer (the one with `endpoint` + `listen_port`) is identifiable programmatically — at most one peer may have `endpoint` set
+- `version` field is validated (must be `1`)
+- JSON Schema file generated (optional, can be a follow-up)
+
+**Brainstorm questions:**
+
+- Obfuscation: should `preset` and explicit params be mutually exclusive (error if both set), or should explicit params override preset defaults?
+- Peer address: require explicit CIDR for all peers, or auto-assign from a pool (like current `AddPeer`)? Explicit is simpler and more declarative
+- How to handle peers that need different MTU? Probably not — AWG/WG MTU is per-interface, not per-peer. Document this
+- PostUp/PostDown: server-only fields. Validate that client peers don't set them?
+
+---
+
+### P2.2 — JSON + Jsonnet config loader
+
+**What:** Implement file discovery and loading logic: find `amnezigo.json` or `amnezigo.jsonnet` in the working directory (or `--manifest` path), evaluate jsonnet if applicable, unmarshal into `Manifest` struct.
+
+**Why:** The loader is the entry point for all commands. Jsonnet support enables DRY configuration across complex setups and community-shared library imports.
+
+**Key patterns from cheburbox to adopt:**
+
+- `.jsonnet` takes precedence over `.json` when both exist
+- `--jpath` flag defaults to `lib/` relative to manifest directory for jsonnet library resolution
+- Jsonnet VM setup: `go-jsonnet` library, `--jpath` as import path, native functions not needed initially
+
+**Where:**
+
+- New file: `loader.go` — `LoadManifest(path string, jpathDirs []string) (Manifest, error)` with discovery logic
+- New file: `loader_test.go` — test JSON loading, jsonnet loading, precedence, `--jpath` resolution
+- `go.mod` — add `github.com/google/go-jsonnet` dependency
+- Reference: cheburbox `config/load.go` for the precedence and discovery pattern
+
+**Acceptance criteria:**
+
+- `LoadManifest("")` discovers `amnezigo.jsonnet` or `amnezigo.json` in the current directory
+- `LoadManifest("/path/to/custom.jsonnet")` loads from explicit path
+- Jsonnet evaluation with `--jpath lib/` resolves imports correctly
+- When both `.json` and `.jsonnet` exist, jsonnet takes precedence
+- Parse errors produce clear messages with file path and line number
+- Returned `Manifest` is fully validated (version check, peer address uniqueness, etc.)
+
+**Brainstorm questions:**
+
+- Should we support multiple manifest files (like cheburbox's per-server directories)? No — amnezigo is single-network, not multi-server
+- Jsonnet native functions — needed? cheburbox doesn't use them. Defer
+- Should the loader also discover and load existing output configs for credential persistence, or is that a separate concern (P2.3)?
+
+---
+
+### P2.3 — Credential persistence
+
+**What:** Between `generate` runs, reuse existing keypairs and PSKs from previously generated output configs rather than regenerating them. Add `--full-reset` flag to force regeneration.
+
+**Why:** Regenerating keys on every run breaks existing peer connections. Users would need to redeploy all configs after every manifest change. Credential persistence is essential for practical use.
+
+**Key patterns from cheburbox to adopt:**
+
+- Read existing `config.json` for each server to extract credentials
+- Preserve credentials for peers that still exist in the manifest
+- Generate fresh credentials only for new peers or when `--full-reset` is used
+- Atomic read/write of persisted keys
+
+**Where:**
+
+- New file: `credentials.go` — `LoadCredentials(outputDir string) (map[string]PeerCredentials, error)` reads existing output configs and extracts keypairs + PSKs
+- `parser.go:58-261` — reuse `ParseServerConfigWithOptions` to read existing output configs for credential extraction
+- `writer.go:10-67` — reuse `WriteServerConfig` and `WriteClientConfig` for output
+- `keys.go:14-30` — `GenerateKeyPair()` used when no persisted credentials exist
+- `keys.go:58-64` — `GeneratePSK()` used for new peer preshared keys
+- New file: `credentials_test.go` — test persist → reload → verify same keys, test `--full-reset` regenerates
+
+**Acceptance criteria:**
+
+- Run `generate` twice without manifest changes; output configs have identical keypairs and PSKs
+- Add a new peer to manifest; run `generate`; existing peers keep their keys, new peer gets fresh keys
+- Remove a peer from manifest; run `generate`; removed peer's output dir is NOT deleted (orphan handling deferred), remaining peers keep their keys
+- `--full-reset` flag regenerates all keys; output configs differ from previous run
+- Server keypair is also persisted (not just peer keypairs)
+
+**Brainstorm questions:**
+
+- Where are credentials stored? Option A: in the output configs themselves (parse `<peer>/awg0.conf`). Option B: in a separate `.credentials.json` file. Option A is simpler and avoids an extra file; option B is cleaner separation of concerns
+- Should we warn when a peer is removed from manifest but its output dir still exists? (Yes, but don't delete it — user might want the keys for migration)
+- PSK persistence: PSK is per-connection (peer-to-server), not per-peer. When the server key changes (due to `--full-reset`), should PSKs also regenerate? (Yes — PSK protects a specific keypair relationship)
+
+---
+
+### P2.4 — `generate` command
+
+**What:** The main pipeline command. Reads the manifest, validates it, generates or reuses credentials, builds per-peer configs, and atomically writes output directories.
+
+**Pipeline steps:**
+
+1. Load manifest (P2.2)
+2. Validate manifest schema + AWG 2.0 invariants (reuse P1.3 validation engine)
+3. Load persisted credentials from existing output (P2.3)
+4. For each peer: generate or reuse keypair + PSK; generate I-packets (per-peer, per-run unless seeded)
+5. Build server config (server peer gets all client peers in `[Peer]` sections)
+6. Build client configs (each client peer gets only the server in `[Peer]` section)
+7. Atomic write: compute everything in memory, write all files only on success
+
+**Output directory structure:**
+
+```text
+output/
+  server/
+    awg0.conf     # server config with all peers
+  phone/
+    awg0.conf     # client config for phone
+  laptop/
+    awg0.conf     # client config for laptop
+```
+
+**Where:**
+
+- New file: `pipeline.go` — `Generate(manifest Manifest, opts GenerateOptions) error` orchestrating the full pipeline
+- New file: `pipeline_test.go` — test the full flow: manifest → generate → validate output
+- `generator.go:174-216` — reuse `GenerateConfig` for per-peer obfuscation parameter generation
+- `generator.go:162-168` — reuse `GenerateCPS` for I-packet generation
+- `validation.go:207-216` — reuse `ValidateServerConfig` for post-generation validation
+- `writer.go:10-67` — reuse `WriteServerConfig` for server output
+- `writer.go:89-134` — reuse `WriteClientConfig` for client output
+- `manager.go:255-313` — reference `BuildPeerConfig` logic for constructing client configs (to be adapted, not reused directly since it depends on old Manager pattern)
+- New file: `internal/cli/generate.go` — CLI command wiring with `--manifest`, `--output`, `--full-reset`, `--jpath`, `--dry-run` flags
+
+**Acceptance criteria:**
+
+- `amnezigo generate` reads `amnezigo.json` (or `.jsonnet`) from current directory, produces output dirs
+- `amnezigo generate --manifest /path/to/config.jsonnet --output /path/to/output` uses explicit paths
+- Server config contains all client peers as `[Peer]` sections
+- Client configs contain only the server peer in `[Peer]` section
+- All generated configs pass `amnezigo validate` (use P1.3 engine)
+- `--dry-run` prints what would be written without writing files
+- Atomic write: if any config fails validation, no files are written
+- Credential persistence works across runs (P2.3)
+
+**Brainstorm questions:**
+
+- Output directory naming: use peer names from manifest as directory names? What about name collisions with reserved names (`output`, `.git`, etc.)?
+- Should the server config also be written as a client config (so the server operator can import it into AmneziaVPN client on the same machine for testing)?
+- Multiple servers in one manifest? Defer to backlog — start with single-server (star topology with one server peer)
+- I-packet regeneration: regenerate on every `generate` run (current behavior), or persist and only regenerate with `--full-reset`? Current behavior (regenerate) is correct — I-packets should change over time for fingerprint resistance
+
+---
+
+### P2.5 — Remove legacy imperative CLI
+
+**What:** Delete the old `init`, `add`, `edit`, `remove`, `export`, `list` commands and their backing code. The declarative `generate` command fully replaces them.
+
+**Why:** Maintaining two code paths (imperative and declarative) doubles the surface area for bugs and confuses users. Decision 10: no backward compatibility shims.
+
+**Where (files to delete or gut):**
+
+- `internal/cli/init.go:1-244` — entire file (init command)
+- `internal/cli/add.go:1-47` — entire file (add command)
+- `internal/cli/edit.go:1-99` — entire file (edit command)
+- `internal/cli/remove.go:1-37` — entire file (remove command)
+- `internal/cli/export.go:1-145` — entire file (export command)
+- `internal/cli/list.go:1-55` — entire file (list command)
+- `internal/cli/cli.go:30-38` — remove `AddCommand` calls for deleted commands; add `NewGenerateCommand()`
+- `manager.go:1-344` — entire file (`Manager` struct and all its methods: `Init`, `AddPeer`, `RemovePeer`, `FindPeer`, `ListPeers`, `ExportPeer`, `BuildPeerConfig`, `Load`, `Save`)
+- `manager_test.go` — entire file
+
+**Where (files to KEEP, adapted by earlier P2 items):**
+
+- `types.go` — output types remain; manifest types added in P2.1
+- `generator.go` — generation logic reused by `pipeline.go`
+- `validation.go` — validation engine reused by `generate` and `validate` commands
+- `analysis.go` — analysis engine reused by `analyze` command
+- `parser.go` — INI parser reused for credential persistence (reading existing output configs)
+- `writer.go` — config writer reused for output
+- `keys.go` — key generation reused
+- `presets.go` — preset system reused by manifest's `obfuscation.preset` field
+- `cps.go` — CPS generation reused
+- `protocols.go` — protocol templates reused
+
+**Acceptance criteria:**
+
+- `amnezigo --help` shows only: `generate`, `validate`, `analyze`
+- `amnezigo init` / `amnezigo add` / etc. produce "unknown command" errors
+- No dead code: `go vet ./...` and `golangci-lint run` pass with zero issues
+- `manager.go` and all `internal/cli/{init,add,edit,remove,export,list}.go` files are deleted
+- Test suite passes — all tests referencing deleted code are removed or migrated
+- Documentation updated: `docs/cli-reference.md` reflects the new command set
+
+**Brainstorm questions:**
+
+- Should P2.5 be one big PR or split into "add generate command" + "remove old commands"? One PR is cleaner since both sides need to exist at the same time
+- Deprecation period? Decision 10 says no — clean break. Version bump (v2.0.0) makes this clear
+- What about users who have scripts using the old CLI? Document migration in release notes: "replace `init + add + export` with a single `amnezigo.json` manifest and `amnezigo generate`"
+
+---
+
+## P3 — Validation & Analysis Adaptation
+
+Adapt the existing validation and analysis engines to work with the declarative manifest format.
+
+### P3.1 — Adapt `validate` for declarative manifests
+
+**What:** Extend the `validate` command to accept manifest files (`amnezigo.json` / `amnezigo.jsonnet`) in addition to the existing `awg0.conf` server configs. Validate both the manifest schema and AWG 2.0 invariants in one pass.
+
+**Why:** Users need to validate their manifests before running `generate`. The existing `validate` command only understands INI server configs — it needs to also understand the new JSON/Jsonnet manifest format.
+
+**Where:**
+
+- `internal/cli/validate.go:53-93` — `runValidate` currently opens a file and calls `ParseServerConfigWithOptions`; add format detection (INI vs JSON/Jsonnet) and branch accordingly
+- `validation.go:207-216` — `ValidateServerConfig` stays for INI configs; add `ValidateManifest(m *Manifest) []Finding` for manifest validation
+- New file: `manifest_validation.go` — manifest-specific checks: version field, peer address uniqueness, server peer existence, obfuscation parameter ranges, preset validity
+- `loader.go` (from P2.2) — reuse `LoadManifest` for manifest parsing
+
+**Validation checks (manifest-specific):**
+
+- `version` must be `1`
+- Exactly one peer with `endpoint` + `listen_port` (server peer)
+- All peer addresses are unique and within the server's subnet
+- Obfuscation params (if explicit) pass `ValidatePacketSizes`
+- If `preset` is specified, it exists in `presetRegistry`
+- No reserved peer names (`output`, `.git`, etc.)
+
+**Acceptance criteria:**
+
+- `amnezigo validate amnezigo.json` validates the manifest and exits 0 on valid
+- `amnezigo validate awg0.conf` still works as before (backward compat for INI configs)
+- Format auto-detection: `.json`/`.jsonnet` → manifest validation; `.conf` → INI validation
+- Manifest findings include peer name and field path in `Location`
+- Test: valid manifest → 0 findings; invalid manifest (duplicate addresses, missing server peer) → specific errors
+
+**Brainstorm questions:**
+
+- Should `validate` also run `generate` in dry-run mode to catch generation-time errors (like MTU budget overflow)? Probably yes — "full validate" mode
+- Error codes: new `MNF001`-`MNF00N` series for manifest-specific findings, or reuse existing codes where applicable?
+
+---
+
+### P3.2 — Adapt `analyze` for declarative manifests
+
+**What:** Extend the `analyze` command to accept manifest files directly, analyzing the obfuscation profile without needing pre-generated output.
+
+**Why:** Users should be able to analyze their obfuscation profile from the manifest before running `generate`. Currently `analyze` requires an existing INI server config.
+
+**Where:**
+
+- `internal/cli/analyze.go:68-104` — `runAnalyze` currently uses `Manager.Load()` to get a `ServerConfig`; add manifest loading path
+- `analysis.go:142-177` — `Analyze()` takes `ServerConfig`; add overload or converter `ManifestToServerConfig(m Manifest) ServerConfig` that resolves presets and builds the analysis-compatible struct
+- `loader.go` (from P2.2) — reuse `LoadManifest` for manifest parsing
+
+**Acceptance criteria:**
+
+- `amnezigo analyze --manifest amnezigo.json` analyzes the manifest's obfuscation profile
+- `amnezigo analyze --config awg0.conf` still works as before
+- Format auto-detection based on file extension
+- `--peer NAME` works with manifest peer names
+- Output is identical whether analyzing a manifest or its generated output
+
+**Brainstorm questions:**
+
+- Should `analyze` accept `--preset home-balanced` directly (without a manifest file) for quick preset evaluation?
+- When analyzing a manifest, should all peers be analyzed or only client peers (since server peer doesn't use I-packets)?
+
+---
+
+### P3.3 — Preset integration with manifests
+
+**What:** Enable presets to be used as jsonnet libraries importable in config files, and integrate the existing preset system with the manifest's `obfuscation.preset` field.
+
+**Why:** Presets are currently used only via `--preset` CLI flag during `init`. In the declarative model, presets should be declarable in the manifest itself and optionally importable as jsonnet fragments for more flexible composition.
+
+**Where:**
+
+- `presets.go:51-120` — `presetRegistry` with built-in presets
+- `presets.go:19-33` — `ToServerObfuscation()` converts preset to obfuscation config
+- New: `lib/presets.libsonnet` — jsonnet library exposing presets as importable objects
+- `pipeline.go` (from P2.4) — resolve `obfuscation.preset` during generation by calling `GetPreset`
+
+**Usage in manifest:**
+
+```jsonnet
+local presets = import 'lib/presets.libsonnet';
+{
+  version: 1,
+  obfuscation: presets.homeBalanced,
+  // or: obfuscation: presets.homeBalanced + { s1: 40 },  // override S1
+  // ...
+}
+```
+
+**Acceptance criteria:**
+
+- `manifest.obfuscation.preset = "home-balanced"` resolves to correct parameters during generation
+- Jsonnet library `lib/presets.libsonnet` is auto-generated from `presetRegistry` (or manually maintained with a test that verifies sync)
+- Preset + explicit params: explicit params override preset defaults (not an error)
+- Test: manifest with preset → generate → validate → all passing
+
+**Brainstorm questions:**
+
+- Auto-generate `lib/presets.libsonnet` from Go code, or maintain manually? Auto-gen avoids drift but adds a build step
+- Should presets be embeddable in the binary (like current `go:embed` pattern) so they work without a `lib/` directory on disk?
+- Community presets: should they live in `presets/` as YAML (current plan from P1.5) or as `.libsonnet` files? Both — YAML for the Go registry, auto-gen jsonnet for users who want to import them
+
+---
+
+## Deferred — Backlog
+
+Items from the original roadmap that are not part of the declarative pivot and are deferred to future planning.
+
+### QR code export (was P2.1)
+
+**What:** Add `--qr` flag to export that prints a QR code of the client config.
 
 **Why:** AmneziaVPN mobile apps support QR-code config import. Eliminates manual file transfer.
 
-**Where:**
-
-- `internal/cli/export.go`
-- New dependency: `github.com/skip2/go-qrcode` or similar (terminal output)
-
-**Acceptance criteria:**
-
-- `amnezigo export peer1 --qr` prints QR to stdout
-- Optional `--qr-png path.png` writes to file
-- Handles config size limit (QR codes have max bytes; warn or use chunked-QR if exceeded)
-
-**Brainstorm questions:**
-
-- Terminal QR uses block characters — issues with light/dark themes?
-- Encrypted QR (with passphrase) for secure transfer over insecure channels?
+**Status:** Deferred. Still relevant for the new `generate` command — could be a post-generation step (`amnezigo generate --qr`) or a separate `amnezigo qr <peer>` command.
 
 ---
 
-### P2.2 — `<ds>` and `<dz>` tags
+### `<ds>` and `<dz>` tags (was P2.2)
 
 **What:** Support the remaining data tags: `<ds>` (base64-encoded data passthrough), `<dz N>` (zero-data with size N, BigEndian).
 
-**Why:** Completes the CPS tag set. Useful for protocols that expect base64 fields (some auth flows) or fixed-zero padding.
+**Why:** Completes the CPS tag set. Useful for protocols that expect base64 fields or fixed-zero padding.
 
-**Where:**
-
-- `cps.go` — add cases
-- Templates can opt in
-
-**Acceptance criteria:**
-
-- Both tags parse and produce expected output
-- Tests cover edge cases (empty data, large N)
-
-**Brainstorm questions:**
-
-- `<dz N>` with `N=0` — valid or warning?
-- Where do these fit in templates — separate template files, or as variants?
+**Status:** Deferred. Independent of architecture pivot; can land anytime after P2.
 
 ---
 
-### P2.3 — Per-peer DNS
+### Per-peer DNS (was P2.3)
 
-**What:** Allow `export` to set DNS servers per peer rather than using a global default.
+**What:** Allow different DNS servers per peer rather than using a global default.
 
-**Where:**
-
-- `internal/cli/export.go` — `--dns 1.1.1.1,8.8.8.8` flag
-- `manager.go` — extend `BuildPeerConfig` signature
-
-**Brainstorm questions:**
-
-- Should DNS be stored in server config (per-peer record) or specified at export time?
-- Default behavior when not specified — fall back to existing server-wide DNS?
+**Status:** Deferred. In the declarative model, this becomes a `dns` field on the peer manifest entry. Straightforward to add after P2.1.
 
 ---
 
-### P2.4 — Multi-endpoint fallback
+### Multi-endpoint fallback (was P2.4)
 
 **What:** Support multiple Endpoints in a client config (or DNS-based round-robin).
 
-**Why:** If primary server gets blocked, client falls back automatically. Useful for users with multiple geographically diverse servers.
-
-**Where:**
-
-- `manager.go`, server config schema
-- AWG/WG protocol may not support multi-endpoint natively — investigate
-
-**Brainstorm questions:**
-
-- Is multi-endpoint a wireguard-userspace concept or just multiple `[Peer]` blocks?
-- Does Amnezia client honor multiple Endpoints?
-- Or is this better solved by DNS A-record round-robin, no config change needed?
+**Status:** Deferred. Requires investigation into AWG/WG multi-endpoint support.
 
 ---
 
-### P2.5 — Rotation reminder
+### Rotation reminder (was P2.5)
 
-**What:** When loading a server config, if its `created_at` (new field) is older than threshold (default 30 days), print a warning suggesting to re-export peers (regenerates I-packets).
+**What:** When configs are older than a threshold, suggest regeneration.
 
-**Why:** I-packets are per-peer and per-export. Static I-packets across months become a fingerprint themselves. Reminders nudge good hygiene.
-
-**Where:**
-
-- `types.go` — add `CreatedAt` to server config
-- `parser.go`, `writer.go` — handle the field
-- All commands — print reminder when threshold exceeded
-
-**Brainstorm questions:**
-
-- Threshold configurable per-server? Per-CLI flag?
-- Should `init` write `created_at`, but `edit` not bump it (only `init` resets)?
-- Emit a structured event so external tooling can pick it up?
+**Status:** Deferred. In the declarative model, `generate` regenerates I-packets every run by default. The reminder becomes less critical — but could still warn about stale server keys.
 
 ---
 
-## P3 — Strategic
-
-### P3.1 — Mesh topology
+### Mesh topology (was P3.1)
 
 **What:** Allow peers to communicate directly (mesh), not only via central server (star).
 
-**Why:** Resilience, latency reduction, p2p use cases. Currently only star topology is supported.
-
-**Where:** Major architectural change — touches `types.go`, `manager.go`, all CLI commands.
-
-**Brainstorm questions:**
-
-- AWG/WG primitives support mesh natively (each peer just has multiple `[Peer]` entries) — main work is in tooling
-- Key distribution model — does the server still issue keys, or each peer generates its own?
-- Conflict with star — flag-gated or separate command tree?
+**Status:** Deferred. The declarative manifest could support this by allowing multiple server peers, but the topology logic is significantly more complex. Start with single-server star topology.
 
 ---
 
-### P3.2 — `awg-quick` config format support
-
-**What:** Generate configs in `awg-quick` (kernel module / userspace systemd) format, not only AmneziaVPN GUI format.
-
-**Why:** Self-hosted Linux deployments use `awg-quick` (similar to `wg-quick`). Without this, server admins manually convert.
-
-**Where:**
-
-- New: `awg_quick.go` writer
-- `internal/cli/export.go` — `--format awg-quick` flag
-
-**Reference:** `amneziawg-tools/src/config.c` for format spec.
-
-**Acceptance criteria:**
-
-- `amnezigo export peer1 --format awg-quick` produces a config that `awg-quick up <file>` accepts
-- Both server-side `[Interface]` and client-side `[Peer]` blocks supported
-
-**Brainstorm questions:**
-
-- Format diff vs AmneziaVPN GUI format — likely just key casing and a few extra fields? Need detailed comparison.
-- Default format flag — keep AmneziaVPN GUI as default (current behavior)?
-
----
-
-### P3.3 — Integration tests with real `amneziawg-go`
+### Integration tests with real `amneziawg-go` (was P3.3)
 
 **What:** GitHub Action that boots a real `amneziawg-go` container, applies a generated config, and verifies a peer can connect.
 
-**Why:** Today we test the generator in isolation. End-to-end test would catch real bugs (like the `<c>` issue we found by reading source) before users hit them.
-
-**Where:**
-
-- `.github/workflows/integration.yml`
-- `test/integration/` directory with Go test driver
-
-**Brainstorm questions:**
-
-- Pin `amneziawg-go` to a specific tag (e.g. v0.2.17), or test against multiple recent versions in matrix?
-- How fast can the test be? Bringing up two awg-go instances + handshake = seconds, OK for PR CI.
-- Test matrix — Linux only, or also test mobile-format configs through some kernel-module emulation?
+**Status:** Deferred. Independent of architecture pivot; valuable at any point.
 
 ---
 
-### P3.4 — Benchmark mode
+### Benchmark mode (was P3.4)
 
 **What:** `amnezigo bench` runs the generator at load and reports throughput.
 
-**Why:** Useful for regression testing as the generator grows. Less essential — only matters if generation becomes a bottleneck (it likely won't).
-
-**Brainstorm questions:**
-
-- Realistic — actual blocker is the H-range generation retry loop (1000 max attempts). Benchmark would help tune retry strategy.
+**Status:** Deferred. Nice-to-have for regression testing.
 
 ---
 
-### P3.5 — Versioned presets
+### Versioned presets (was P3.5)
 
 **What:** Presets carry version metadata; `amnezigo update-presets` pulls newer versions from a remote repo.
 
-**Why:** Provider DPI signatures change over time. Without updates, presets stale.
+**Status:** Deferred. Depends on P1.5 (done) and community traction.
 
-**Where:** Depends on P1.5 landing first.
+---
 
-**Brainstorm questions:**
+### Additional protocol templates
 
-- Update mechanism — git pull, separate registry, embedded with releases?
-- Trust model — who signs presets?
-- Offline use — must continue working without network.
+**What:** Add more protocol templates beyond the current five (QUIC, DNS, DTLS, STUN, SIP).
+
+**Candidates:**
+
+- **NTP** — UDP/123, almost always permitted, very small packets
+- **WebRTC TURN-Allocate** — extension of STUN, simulates ICE negotiation
+- **WireGuard-handshake** — anti-canary: looks like another WG flow
+
+**Status:** Deferred. Independent of architecture pivot; can land anytime. Each template is its own small PR.
 
 ---
 
 ## Atomic PR Strategy
 
-Recommended PR order, optimized for small reviewable diffs (per `git.md` rules):
+Recommended PR order, optimized for small reviewable diffs:
 
-1. **PR 1 (P0.2):** Fix `<t>` size from 8 → 4 bytes. Smaller diff, prerequisite for accurate size validation.
-2. **PR 2 (P0.1):** Remove `<c>` tag. Templates updated, tests fixed.
-3. **PR 3 (P0.5):** Verify and lock `<rc>` charset to `[a-zA-Z]`.
-4. **PR 4 (P0.3):** Full pairwise size collision validation.
-5. **PR 5 (P0.4):** Forbid H1-H4 ranges containing 1-4.
-6. **PR 6 (P1.1):** Add `<d>` tag.
-7. **PR 7 (P1.3):** `validate` command (uses everything from P0).
-8. **PR 8 (P1.4):** `analyze` command (sibling to validate).
-9. **PR 9 (P1.5):** Preset infrastructure + 1 example preset.
-10. **PR 10 (P1.2):** New protocol templates (one per PR ideally).
-11. **PR 11+ (P2/P3):** As prioritized.
+**Already merged (P0 + P1):**
+
+1. PR (P0.2): Fix `<t>` size from 8 → 4 bytes
+2. PR (P0.1): Remove `<c>` tag
+3. PR (P0.5): Verify and lock `<rc>` charset to `[a-zA-Z]`
+4. PR (P0.3): Full pairwise size collision validation
+5. PR (P0.4): Forbid H1-H4 ranges containing 1-4
+6. PR (P1.1): Add `<d>` tag
+7. PR (P1.3): `validate` command
+8. PR (P1.4): `analyze` command
+9. PR (P1.5): Preset infrastructure + built-in presets
+10. PR (P1.2): SIP protocol template
+
+**New (P2 — Declarative Core):**
+
+11. **PR (P2.1):** Config schema & Go types — manifest structs, JSON schema draft
+12. **PR (P2.2):** JSON + Jsonnet config loader — file discovery, go-jsonnet dependency, `--jpath`
+13. **PR (P2.3):** Credential persistence — read existing output configs, reuse keys, `--full-reset`
+14. **PR (P2.4):** `generate` command — full pipeline: load → validate → generate → write
+15. **PR (P2.5):** Remove legacy imperative CLI — delete old commands and Manager
+
+**New (P3 — Validation & Analysis Adaptation):**
+
+16. **PR (P3.1):** Adapt `validate` for declarative manifests
+17. **PR (P3.2):** Adapt `analyze` for declarative manifests
+18. **PR (P3.3):** Preset integration with manifests — `lib/presets.libsonnet`
 
 Each PR should include tests, doc updates, and changelog entry. Per project rules: signed commits, conventional commit messages, draft PR by default.
 
@@ -688,6 +878,7 @@ Each PR should include tests, doc updates, and changelog entry. Per project rule
 - [`amneziawg-go`](https://github.com/amnezia-vpn/amneziawg-go) — Go userspace, source of truth for AWG 2.0
 - [`amneziawg-tools`](https://github.com/amnezia-vpn/amneziawg-tools) — `awg-quick` and `awg` CLI
 - [`amneziawg-linux-kernel-module`](https://github.com/amnezia-vpn/amneziawg-linux-kernel-module) — kernel module (the only place `<c>` works)
+- [`cheburbox`](https://github.com/Arsolitt/cheburbox) — sing-box config generator, reference for declarative patterns (jsonnet, credential persistence, atomic generation)
 
 ### Key files in `amneziawg-go`
 
