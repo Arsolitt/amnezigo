@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "network": {"mtu": 1420},
+  "obfuscation": {},
+  "peers": {
+    "server": {
+      "address": "10.0.0.1/24",
+      "endpoint": "vpn.example.com:51820",
+      "listen_port": 51820
+    }
+  }
+}

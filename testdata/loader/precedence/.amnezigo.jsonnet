@@ -1,0 +1,16 @@
+{
+  version: 1,
+  network: { mtu: 1280 },
+  obfuscation: {
+    protocol: 'random',
+    s1: 5, s2: 7, s3: 7, s4: 7,
+    h1: { min: 5, max: 10000 },
+    h2: { min: 20000, max: 50000 },
+    h3: { min: 100000, max: 500000 },
+    h4: { min: 1000000, max: 5000000 },
+    jc: 1, jmin: 200, jmax: 250,
+  },
+  peers: {
+    server: { address: '10.0.0.1/24', endpoint: 'from-jsonnet:51820', listen_port: 51820 },
+  },
+}
