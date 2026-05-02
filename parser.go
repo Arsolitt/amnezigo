@@ -14,6 +14,8 @@ const (
 	maxSplitParts    = 2
 	sectionInterface = "[Interface]"
 	sectionPeer      = "[Peer]"
+	keyPrivateKey    = "PrivateKey"
+	keyPresharedKey  = "PresharedKey"
 )
 
 // ParseOptions controls optional behavior of ParseServerConfigWithOptions.
