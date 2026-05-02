@@ -220,3 +220,242 @@ func TestPeerManifest_OmitsEmptyFields(t *testing.T) {
 		t.Errorf("address should always be present, got %q", got)
 	}
 }
+
+func TestManifest_JSONRoundTrip_Full(t *testing.T) {
+	// JSON matching the roadmap draft schema (docs/roadmap.md:401-431).
+	input := `{
+		"version": 1,
+		"network": {
+			"mtu": 1280,
+			"dns": ["1.1.1.1", "8.8.8.8"]
+		},
+		"obfuscation": {
+			"s1": 30, "s2": 35, "s3": 20, "s4": 12,
+			"h1": {"min": 100, "max": 5000000},
+			"jc": 5, "jmin": 250, "jmax": 750,
+			"protocol": "quic"
+		},
+		"peers": {
+			"server": {
+				"address": "10.0.0.1/24",
+				"tun_name": "awg0",
+				"main_iface": "eth0",
+				"endpoint": "vpn.example.com:51820",
+				"listen_port": 51820
+			},
+			"phone": {
+				"address": "10.0.0.2/32",
+				"protocol": "sip"
+			},
+			"laptop": {
+				"address": "10.0.0.3/32"
+			}
+		}
+	}`
+
+	var m Manifest
+	if err := json.Unmarshal([]byte(input), &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	// Version
+	if m.Version != 1 {
+		t.Errorf("Version = %d, want 1", m.Version)
+	}
+
+	// Network
+	if m.Network.MTU != 1280 {
+		t.Errorf("Network.MTU = %d, want 1280", m.Network.MTU)
+	}
+	if len(m.Network.DNS) != 2 || m.Network.DNS[0] != "1.1.1.1" {
+		t.Errorf("Network.DNS = %v", m.Network.DNS)
+	}
+
+	// Obfuscation
+	if m.Obfuscation.S1 == nil || *m.Obfuscation.S1 != 30 {
+		t.Errorf("Obfuscation.S1 = %v, want 30", m.Obfuscation.S1)
+	}
+	if m.Obfuscation.Protocol != "quic" {
+		t.Errorf("Obfuscation.Protocol = %q", m.Obfuscation.Protocol)
+	}
+
+	// Peers
+	if len(m.Peers) != 3 {
+		t.Fatalf("Peers count = %d, want 3", len(m.Peers))
+	}
+
+	server, ok := m.Peers["server"]
+	if !ok {
+		t.Fatal("missing 'server' peer")
+	}
+	if !server.IsServer() {
+		t.Error("'server' peer should be identified as server")
+	}
+	if server.Address != "10.0.0.1/24" {
+		t.Errorf("server.Address = %q", server.Address)
+	}
+
+	phone, ok := m.Peers["phone"]
+	if !ok {
+		t.Fatal("missing 'phone' peer")
+	}
+	if phone.IsServer() {
+		t.Error("'phone' should be a client peer")
+	}
+	if phone.Protocol != "sip" {
+		t.Errorf("phone.Protocol = %q", phone.Protocol)
+	}
+
+	laptop, ok := m.Peers["laptop"]
+	if !ok {
+		t.Fatal("missing 'laptop' peer")
+	}
+	if laptop.IsServer() {
+		t.Error("'laptop' should be a client peer")
+	}
+
+	// Round-trip: marshal and unmarshal again.
+	b, err := json.Marshal(m)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var m2 Manifest
+	if err := json.Unmarshal(b, &m2); err != nil {
+		t.Fatalf("round-trip unmarshal: %v", err)
+	}
+	if m2.Version != m.Version {
+		t.Errorf("round-trip Version mismatch: %d vs %d", m2.Version, m.Version)
+	}
+	if len(m2.Peers) != len(m.Peers) {
+		t.Errorf("round-trip Peers count mismatch: %d vs %d", len(m2.Peers), len(m.Peers))
+	}
+}
+
+func TestManifest_JSONRoundTrip_ExplicitObfuscation(t *testing.T) {
+	input := `{
+		"version": 1,
+		"network": {"mtu": 1280},
+		"obfuscation": {
+			"s1": 30, "s2": 35, "s3": 20, "s4": 12,
+			"h1": {"min": 100, "max": 5000000},
+			"h2": {"min": 10000000, "max": 200000000},
+			"h3": {"min": 400000000, "max": 800000000},
+			"h4": {"min": 1000000000, "max": 2100000000},
+			"jc": 5, "jmin": 250, "jmax": 750,
+			"protocol": "quic"
+		},
+		"peers": {
+			"server": {
+				"address": "10.0.0.1/24",
+				"endpoint": "vpn.example.com:51820",
+				"listen_port": 51820
+			},
+			"client": {
+				"address": "10.0.0.2/32"
+			}
+		}
+	}`
+
+	var m Manifest
+	if err := json.Unmarshal([]byte(input), &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if m.Obfuscation.S1 == nil || *m.Obfuscation.S1 != 30 {
+		t.Errorf("S1 = %v, want 30", m.Obfuscation.S1)
+	}
+	if m.Obfuscation.H1 == nil || m.Obfuscation.H1.Min != 100 {
+		t.Errorf("H1.Min = %v, want 100", m.Obfuscation.H1)
+	}
+}
+
+func TestManifest_EmptyPeers(t *testing.T) {
+	input := `{
+		"version": 1,
+		"network": {},
+		"obfuscation": {"protocol": "quic"},
+		"peers": {}
+	}`
+	var m Manifest
+	if err := json.Unmarshal([]byte(input), &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(m.Peers) != 0 {
+		t.Errorf("Peers should be empty, got %d", len(m.Peers))
+	}
+}
+
+func TestManifest_ServerPeerCount(t *testing.T) {
+	m := Manifest{
+		Version: 1,
+		Peers: map[string]PeerManifest{
+			"server": {
+				Address: "10.0.0.1/24", Endpoint: "vpn.example.com:51820",
+				ListenPort: 51820,
+			},
+			"phone":  {Address: "10.0.0.2/32"},
+			"laptop": {Address: "10.0.0.3/32"},
+		},
+	}
+	name, count := m.ServerPeer()
+	if count != 1 {
+		t.Errorf("expected 1 server peer, got %d", count)
+	}
+	if name != "server" {
+		t.Errorf("server peer name = %q, want %q", name, "server")
+	}
+}
+
+func TestManifest_ServerPeerCount_None(t *testing.T) {
+	m := Manifest{
+		Version: 1,
+		Peers: map[string]PeerManifest{
+			"phone":  {Address: "10.0.0.2/32"},
+			"laptop": {Address: "10.0.0.3/32"},
+		},
+	}
+	_, count := m.ServerPeer()
+	if count != 0 {
+		t.Errorf("expected 0 server peers, got %d", count)
+	}
+}
+
+func TestManifest_ServerPeerCount_Multiple(t *testing.T) {
+	m := Manifest{
+		Version: 1,
+		Peers: map[string]PeerManifest{
+			"server1": {
+				Address: "10.0.0.1/24", Endpoint: "s1.example.com:51820",
+				ListenPort: 51820,
+			},
+			"server2": {
+				Address: "10.0.1.1/24", Endpoint: "s2.example.com:51820",
+				ListenPort: 51820,
+			},
+		},
+	}
+	_, count := m.ServerPeer()
+	if count != 2 {
+		t.Errorf("expected 2 server peers, got %d", count)
+	}
+}
+
+func TestManifest_PeerNames(t *testing.T) {
+	m := Manifest{
+		Version: 1,
+		Peers: map[string]PeerManifest{
+			"charlie": {Address: "10.0.0.3/32"},
+			"alice":   {Address: "10.0.0.1/24", Endpoint: "vpn.example.com:51820", ListenPort: 51820},
+			"bob":     {Address: "10.0.0.2/32"},
+		},
+	}
+	names := m.PeerNames()
+	expected := []string{"alice", "bob", "charlie"}
+	if len(names) != len(expected) {
+		t.Fatalf("PeerNames len = %d, want %d", len(names), len(expected))
+	}
+	for i, name := range names {
+		if name != expected[i] {
+			t.Errorf("PeerNames[%d] = %q, want %q", i, name, expected[i])
+		}
+	}
+}
