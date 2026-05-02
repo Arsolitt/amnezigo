@@ -3,9 +3,13 @@ package amnezigo
 import (
 	"bytes"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 )
+
+const ipv4Octets = 4
 
 // GenerateOptions configures the generate pipeline.
 type GenerateOptions struct {
@@ -415,11 +419,127 @@ func extractSubnet(cidr string) string {
 	// Simple string manipulation: replace last octet with 0
 	// This works for IPv4 addresses like "10.0.0.1/24"
 	parts := strings.Split(cidr, ".")
-	if len(parts) == 4 {
+	if len(parts) == ipv4Octets {
 		// Replace last octet with "0"
 		parts[2] = "0"
 		return strings.Join(parts, ".")
 	}
 	// Fallback: return original if format is unexpected
 	return cidr
+}
+
+// Generate orchestrates the full config generation pipeline.
+// It loads existing credentials, resolves obfuscation, builds all configs,
+// and optionally writes them to disk.
+//
+// The function uses a two-pass approach: all configs are computed in memory
+// first, then written to disk. This ensures atomicity — if any config build
+// fails, no files are written.
+//
+//nolint:gocognit // high cognitive complexity is expected for orchestrator function
+func Generate(manifest Manifest, opts GenerateOptions) (GenerateResult, error) {
+	var result GenerateResult
+
+	// Step 1: Identify server peer
+	serverName, serverCount := manifest.ServerPeer()
+	if serverCount != 1 {
+		return result, fmt.Errorf("exactly one server peer required, found %d", serverCount)
+	}
+	result.ServerPeer = serverName
+
+	// Step 2: Resolve obfuscation
+	obf, err := resolveObfuscation(manifest.Obfuscation)
+	if err != nil {
+		return result, fmt.Errorf("resolve obfuscation: %w", err)
+	}
+
+	// Step 3: Load or create credentials
+	var persisted *PersistedCredentials
+	if opts.OutputDir != "" {
+		persisted, err = LoadCredentials(opts.OutputDir, serverName)
+		if err != nil && !os.IsNotExist(err) {
+			return result, fmt.Errorf("load credentials: %w", err)
+		}
+		// If LoadCredentials failed with IsNotExist, treat as first run
+		if err != nil && os.IsNotExist(err) {
+			persisted = EmptyCredentials()
+		}
+	} else {
+		persisted = EmptyCredentials()
+	}
+
+	// Step 4: Resolve peer credentials
+	creds := resolvePeerCredentials(manifest.Peers, persisted, serverName, opts.FullReset)
+
+	// Step 5: Build server config
+	serverBytes, err := buildServerConfig(manifest, serverName, obf, creds)
+	if err != nil {
+		return result, fmt.Errorf("build server config: %w", err)
+	}
+
+	// Step 6: Build client configs (sorted by name, filtered by PeerFilter)
+	var clientPeerNames []string
+	for name := range manifest.Peers {
+		if name != serverName {
+			clientPeerNames = append(clientPeerNames, name)
+		}
+	}
+	sort.Strings(clientPeerNames)
+
+	// Apply PeerFilter if non-empty
+	var filteredClients []string
+	if len(opts.PeerFilter) > 0 {
+		filterSet := make(map[string]struct{}, len(opts.PeerFilter))
+		for _, p := range opts.PeerFilter {
+			filterSet[p] = struct{}{}
+		}
+		for _, name := range clientPeerNames {
+			if _, ok := filterSet[name]; ok {
+				filteredClients = append(filteredClients, name)
+			}
+		}
+	} else {
+		filteredClients = clientPeerNames
+	}
+
+	// Step 7: Collect all FileOutput
+	result.Files = append(result.Files, FileOutput{
+		RelPath: serverName + "/" + outputConfigName,
+		Content: serverBytes,
+	})
+
+	for _, peerName := range filteredClients {
+		clientBytes, err := buildClientConfig(manifest, peerName, serverName, obf, creds)
+		if err != nil {
+			return result, fmt.Errorf("build client config for %s: %w", peerName, err)
+		}
+
+		result.Files = append(result.Files, FileOutput{
+			RelPath: peerName + "/" + outputConfigName,
+			Content: clientBytes,
+		})
+	}
+
+	// Populate ClientPeers
+	result.ClientPeers = filteredClients
+
+	// Step 8: Write files to disk if not dry run and output dir is set
+	if !opts.DryRun && opts.OutputDir != "" {
+		for _, file := range result.Files {
+			fullPath := filepath.Join(opts.OutputDir, file.RelPath)
+			dir := filepath.Dir(fullPath)
+
+			// Create directory if it doesn't exist
+			if err := os.MkdirAll(dir, 0750); err != nil {
+				return result, fmt.Errorf("create directory %s: %w", dir, err)
+			}
+
+			// Write file
+			if err := os.WriteFile(fullPath, file.Content, 0600); err != nil {
+				return result, fmt.Errorf("write file %s: %w", fullPath, err)
+			}
+		}
+	}
+
+	return result, nil
 }

@@ -1,6 +1,10 @@
 package amnezigo
 
-import "testing"
+import (
+	"os"
+	"strings"
+	"testing"
+)
 
 func TestGenerateOptions_ZeroValue(t *testing.T) {
 	var opts GenerateOptions
@@ -563,4 +567,226 @@ func indexOf(data []byte, substr string) int {
 		}
 	}
 	return -1
+}
+
+func TestGenerate_MinimalManifest(t *testing.T) {
+	manifest := Manifest{
+		Version: 1,
+		Network: NetworkConfig{
+			MTU: 1280,
+			DNS: []string{"1.1.1.1"},
+		},
+		Obfuscation: ObfuscationManifest{},
+		Peers: map[string]PeerManifest{
+			"server": {
+				Address:    "10.0.0.1/24",
+				Endpoint:   "vpn.example.com:51820",
+				ListenPort: 51820,
+			},
+			"phone": {
+				Address: "10.0.0.2/32",
+			},
+		},
+	}
+
+	outputDir := t.TempDir()
+	result, err := Generate(manifest, GenerateOptions{OutputDir: outputDir})
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+
+	// Verify: result has 2 files
+	if len(result.Files) != 2 {
+		t.Errorf("expected 2 files, got %d", len(result.Files))
+	}
+
+	// Verify: result.ServerPeer == "server"
+	if result.ServerPeer != "server" {
+		t.Errorf("expected ServerPeer = 'server', got '%s'", result.ServerPeer)
+	}
+
+	// Verify: result.ClientPeers contains "phone"
+	if len(result.ClientPeers) != 1 {
+		t.Errorf("expected 1 client peer, got %d", len(result.ClientPeers))
+	}
+	if len(result.ClientPeers) > 0 && result.ClientPeers[0] != "phone" {
+		t.Errorf("expected ClientPeers[0] = 'phone', got '%s'", result.ClientPeers[0])
+	}
+
+	// Verify: each FileOutput has non-empty Content
+	for _, f := range result.Files {
+		if len(f.Content) == 0 {
+			t.Errorf("file %s has empty content", f.RelPath)
+		}
+	}
+
+	// Verify: files were written to disk
+	for _, f := range result.Files {
+		fullPath := outputDir + "/" + f.RelPath
+		if _, err := os.Stat(fullPath); err != nil {
+			t.Errorf("file %s was not written to disk: %v", f.RelPath, err)
+		}
+	}
+}
+
+func TestGenerate_DryRun(t *testing.T) {
+	manifest := Manifest{
+		Version: 1,
+		Network: NetworkConfig{
+			MTU: 1280,
+			DNS: []string{"1.1.1.1"},
+		},
+		Obfuscation: ObfuscationManifest{},
+		Peers: map[string]PeerManifest{
+			"server": {
+				Address:    "10.0.0.1/24",
+				Endpoint:   "vpn.example.com:51820",
+				ListenPort: 51820,
+			},
+			"phone": {
+				Address: "10.0.0.2/32",
+			},
+		},
+	}
+
+	outputDir := t.TempDir()
+	result, err := Generate(manifest, GenerateOptions{
+		OutputDir: outputDir,
+		DryRun:    true,
+	})
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+
+	// Verify: result has files (computed in memory)
+	if len(result.Files) != 2 {
+		t.Errorf("expected 2 files in dry run, got %d", len(result.Files))
+	}
+
+	// Verify: NO files written to disk
+	entries, err := os.ReadDir(outputDir)
+	if err != nil {
+		t.Fatalf("failed to read output dir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("expected empty output dir in dry run, found %d entries", len(entries))
+	}
+}
+
+func TestGenerate_PeerFilter(t *testing.T) {
+	manifest := Manifest{
+		Version: 1,
+		Network: NetworkConfig{
+			MTU: 1280,
+			DNS: []string{"1.1.1.1"},
+		},
+		Obfuscation: ObfuscationManifest{},
+		Peers: map[string]PeerManifest{
+			"server": {
+				Address:    "10.0.0.1/24",
+				Endpoint:   "vpn.example.com:51820",
+				ListenPort: 51820,
+			},
+			"phone": {
+				Address: "10.0.0.2/32",
+			},
+			"laptop": {
+				Address: "10.0.0.3/32",
+			},
+		},
+	}
+
+	outputDir := t.TempDir()
+	result, err := Generate(manifest, GenerateOptions{
+		OutputDir:  outputDir,
+		PeerFilter: []string{"phone"},
+	})
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+
+	// Verify: result has 2 files (server + phone, not laptop)
+	if len(result.Files) != 2 {
+		t.Errorf("expected 2 files with peer filter, got %d", len(result.Files))
+	}
+
+	// Verify: ClientPeers contains only "phone"
+	if len(result.ClientPeers) != 1 {
+		t.Errorf("expected 1 client peer with filter, got %d", len(result.ClientPeers))
+	}
+	if len(result.ClientPeers) > 0 && result.ClientPeers[0] != "phone" {
+		t.Errorf("expected ClientPeers[0] = 'phone', got '%s'", result.ClientPeers[0])
+	}
+
+	// Verify: server is always included regardless of filter
+	serverFound := false
+	for _, f := range result.Files {
+		if f.RelPath == "server/awg0.conf" {
+			serverFound = true
+			break
+		}
+	}
+	if !serverFound {
+		t.Error("server config should always be included regardless of PeerFilter")
+	}
+}
+
+func TestGenerate_MultipleServersError(t *testing.T) {
+	manifest := Manifest{
+		Version: 1,
+		Network: NetworkConfig{
+			MTU: 1280,
+			DNS: []string{"1.1.1.1"},
+		},
+		Obfuscation: ObfuscationManifest{},
+		Peers: map[string]PeerManifest{
+			"server1": {
+				Address:    "10.0.0.1/24",
+				Endpoint:   "vpn1.example.com:51820",
+				ListenPort: 51820,
+			},
+			"server2": {
+				Address:    "10.0.0.2/24",
+				Endpoint:   "vpn2.example.com:51820",
+				ListenPort: 51821,
+			},
+		},
+	}
+
+	outputDir := t.TempDir()
+	_, err := Generate(manifest, GenerateOptions{OutputDir: outputDir})
+	if err == nil {
+		t.Error("expected error for multiple server peers, got nil")
+	}
+	if err != nil && !strings.Contains(err.Error(), "exactly one server peer required") {
+		t.Errorf("expected 'exactly one server peer required' error, got: %v", err)
+	}
+}
+
+func TestGenerate_NoServerError(t *testing.T) {
+	manifest := Manifest{
+		Version: 1,
+		Network: NetworkConfig{
+			MTU: 1280,
+			DNS: []string{"1.1.1.1"},
+		},
+		Obfuscation: ObfuscationManifest{},
+		Peers: map[string]PeerManifest{
+			"phone": {
+				Address: "10.0.0.2/32",
+			},
+			"laptop": {
+				Address: "10.0.0.3/32",
+			},
+		},
+	}
+
+	outputDir := t.TempDir()
+	_, err := Generate(manifest, GenerateOptions{OutputDir: outputDir})
+	if err == nil {
+		t.Error("expected error for no server peer, got nil")
+	}
+	if err != nil && !strings.Contains(err.Error(), "exactly one server peer required") {
+		t.Errorf("expected 'exactly one server peer required' error, got: %v", err)
+	}
 }
