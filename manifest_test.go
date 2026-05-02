@@ -151,7 +151,7 @@ func TestPeerManifest_JSONRoundTrip_Client(t *testing.T) {
 	if pm.Address != "10.0.0.2/32" {
 		t.Errorf("Address = %q", pm.Address)
 	}
-	if pm.Protocol != "sip" {
+	if pm.Protocol != protocolSIP {
 		t.Errorf("Protocol = %q", pm.Protocol)
 	}
 	if pm.Keepalive == nil || *pm.Keepalive != 25 {
@@ -302,7 +302,7 @@ func TestManifest_JSONRoundTrip_Full(t *testing.T) {
 	if phone.IsServer() {
 		t.Error("'phone' should be a client peer")
 	}
-	if phone.Protocol != "sip" {
+	if phone.Protocol != protocolSIP {
 		t.Errorf("phone.Protocol = %q", phone.Protocol)
 	}
 

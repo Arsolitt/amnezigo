@@ -5,6 +5,8 @@ import (
 	"math/big"
 )
 
+const protocolSIP = "sip"
+
 // getTemplate returns the I1I5Template for the specified protocol.
 // Valid protocols: "quic", "dns", "dtls", "stun", "sip", "random" (default).
 func getTemplate(protocol string) I1I5Template {
@@ -17,7 +19,7 @@ func getTemplate(protocol string) I1I5Template {
 		return DTLSTemplate()
 	case "stun":
 		return STUNTemplate()
-	case "sip":
+	case protocolSIP:
 		return SIPTemplate()
 	default:
 		protocols := []func() I1I5Template{

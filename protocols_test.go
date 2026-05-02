@@ -15,7 +15,7 @@ func TestGetTemplate_NamedProtocols(t *testing.T) {
 		{"dns", false},
 		{"dtls", false},
 		{"stun", false},
-		{"sip", false},
+		{protocolSIP, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.protocol, func(t *testing.T) {
