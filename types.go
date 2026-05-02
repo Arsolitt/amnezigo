@@ -4,7 +4,8 @@ import "time"
 
 // HeaderRange represents a min-max range for obfuscation headers.
 type HeaderRange struct {
-	Min, Max uint32
+	Min uint32 `json:"min"`
+	Max uint32 `json:"max"`
 }
 
 // ServerConfig represents the full WireGuard server configuration.

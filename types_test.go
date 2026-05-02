@@ -1,6 +1,8 @@
 package amnezigo
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -20,5 +22,28 @@ func TestPeerConfigPresharedKey(t *testing.T) {
 
 	if peer.PresharedKey != "preshared-key-123" {
 		t.Errorf("Expected PresharedKey to be 'preshared-key-123', got '%s'", peer.PresharedKey)
+	}
+}
+
+func TestHeaderRange_JSONRoundTrip(t *testing.T) {
+	hr := HeaderRange{Min: 100, Max: 5000000}
+	b, err := json.Marshal(hr)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	got := string(b)
+	if !strings.Contains(got, `"min":100`) {
+		t.Errorf("expected lowercase min key in %q", got)
+	}
+	if !strings.Contains(got, `"max":5000000`) {
+		t.Errorf("expected lowercase max key in %q", got)
+	}
+
+	var decoded HeaderRange
+	if err := json.Unmarshal(b, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded != hr {
+		t.Errorf("round-trip mismatch: got %+v, want %+v", decoded, hr)
 	}
 }
