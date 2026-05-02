@@ -459,3 +459,117 @@ func TestManifest_PeerNames(t *testing.T) {
 		}
 	}
 }
+
+// TestManifest_JSONShape pins the wire format. P2.2 (loader) and P3.1
+// (validation) depend on these field names. Changing them is a breaking
+// change for the user-facing config format.
+func TestManifest_JSONShape(t *testing.T) {
+	s1 := 30
+	m := Manifest{
+		Version: 1,
+		Network: NetworkConfig{MTU: 1280, DNS: []string{"1.1.1.1"}},
+		Obfuscation: ObfuscationManifest{
+			Protocol: "quic",
+			S1:       &s1,
+		},
+		Peers: map[string]PeerManifest{
+			"server": {
+				Address: "10.0.0.1/24", Endpoint: "vpn.example.com:51820",
+				ListenPort: 51820,
+			},
+		},
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	got := string(b)
+
+	// Top-level keys
+	for _, key := range []string{`"version"`, `"network"`, `"obfuscation"`, `"peers"`} {
+		if !strings.Contains(got, key) {
+			t.Errorf("missing top-level key %s in %q", key, got)
+		}
+	}
+
+	// Network keys
+	for _, key := range []string{`"mtu"`, `"dns"`} {
+		if !strings.Contains(got, key) {
+			t.Errorf("missing network key %s in %q", key, got)
+		}
+	}
+
+	// Obfuscation keys
+	for _, key := range []string{`"protocol"`, `"s1"`} {
+		if !strings.Contains(got, key) {
+			t.Errorf("missing obfuscation key %s in %q", key, got)
+		}
+	}
+
+	// Peer keys
+	for _, key := range []string{`"address"`, `"endpoint"`, `"listen_port"`} {
+		if !strings.Contains(got, key) {
+			t.Errorf("missing peer key %s in %q", key, got)
+		}
+	}
+}
+
+// TestManifest_JSONOmitempty verifies that optional fields are omitted
+// when empty/zero, keeping the serialized JSON clean.
+func TestManifest_JSONOmitempty(t *testing.T) {
+	m := Manifest{
+		Version:     1,
+		Network:     NetworkConfig{},
+		Obfuscation: ObfuscationManifest{Protocol: "quic"},
+		Peers: map[string]PeerManifest{
+			"client": {Address: "10.0.0.2/32"},
+		},
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	got := string(b)
+
+	// These fields should be omitted because they are empty/zero.
+	for _, field := range []string{
+		`"mtu"`, `"dns"`, // NetworkConfig
+		`"s1"`, `"h1"`, `"jc"`, // ObfuscationManifest (nil pointers)
+		`"tun_name"`, `"main_iface"`, `"endpoint"`, `"listen_port"`,
+		`"keepalive"`, // PeerManifest
+	} {
+		if strings.Contains(got, field) {
+			t.Errorf("field %s should be omitted when empty, got %q", field, got)
+		}
+	}
+
+	// These fields should always be present.
+	for _, field := range []string{
+		`"version"`, `"network"`, `"obfuscation"`, `"peers"`,
+		`"protocol"`, `"address"`,
+	} {
+		if !strings.Contains(got, field) {
+			t.Errorf("field %s should be present, got %q", field, got)
+		}
+	}
+}
+
+// TestManifest_UnmarshalExtraFields verifies that unknown JSON fields
+// are silently ignored (forward compatibility).
+func TestManifest_UnmarshalExtraFields(t *testing.T) {
+	input := `{
+		"version": 1,
+		"network": {"mtu": 1280},
+		"obfuscation": {"protocol": "quic"},
+		"peers": {"server": {"address": "10.0.0.1/24", "endpoint": "x:51820", "listen_port": 51820}},
+		"unknown_field": "should be ignored",
+		"future_feature": {"nested": true}
+	}`
+	var m Manifest
+	if err := json.Unmarshal([]byte(input), &m); err != nil {
+		t.Fatalf("extra fields should not cause error: %v", err)
+	}
+	if m.Version != 1 {
+		t.Errorf("Version = %d", m.Version)
+	}
+}
