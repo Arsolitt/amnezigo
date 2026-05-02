@@ -111,3 +111,94 @@ func TestGeneratePostDownClientToClient(t *testing.T) {
 		t.Errorf("Expected 7 rules with clientToClient, got %d", len(rulesArray))
 	}
 }
+
+func TestGeneratePostUp6(t *testing.T) {
+	rules := GeneratePostUp6("awg0", "eth0", "fd00::/64", false)
+
+	if !strings.Contains(rules, "ip6tables -A INPUT -i awg0 -j ACCEPT") {
+		t.Errorf("Missing INPUT rule")
+	}
+	if !strings.Contains(rules, "ip6tables -A OUTPUT -o awg0 -j ACCEPT") {
+		t.Errorf("Missing OUTPUT rule")
+	}
+	if strings.Contains(rules, "ip6tables -A FORWARD -i awg0 -j ACCEPT") {
+		t.Errorf("Permissive FORWARD rule should not be present - it allows client-to-client")
+	}
+	if !strings.Contains(rules, "ip6tables -A FORWARD -i awg0 -o eth0 -s fd00::/64 -j ACCEPT") {
+		t.Errorf("Missing FORWARD tunnel to main interface rule")
+	}
+	if !strings.Contains(rules, "ip6tables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT") {
+		t.Errorf("Missing ESTABLISHED,RELATED rule")
+	}
+	if !strings.Contains(rules, "ip6tables -t nat -A POSTROUTING -s fd00::/64 -o eth0 -j MASQUERADE") {
+		t.Errorf("Missing MASQUERADE rule")
+	}
+	if strings.Contains(rules, "-i awg0 -o awg0") {
+		t.Errorf("Client-to-client rule should not be present when clientToClient is false")
+	}
+
+	rulesArray := strings.Split(rules, "; ")
+	if len(rulesArray) != 6 {
+		t.Errorf("Expected 6 rules, got %d", len(rulesArray))
+	}
+}
+
+func TestGeneratePostUp6ClientToClient(t *testing.T) {
+	rules := GeneratePostUp6("awg0", "eth0", "fd00::/64", true)
+
+	if !strings.Contains(rules, "ip6tables -A INPUT -i awg0 -j ACCEPT") {
+		t.Errorf("Missing INPUT rule")
+	}
+	if !strings.Contains(rules, "ip6tables -A FORWARD -i awg0 -o awg0 -j ACCEPT") {
+		t.Errorf("Missing client-to-client rule when clientToClient is true")
+	}
+
+	rulesArray := strings.Split(rules, "; ")
+	if len(rulesArray) != 7 {
+		t.Errorf("Expected 7 rules with clientToClient, got %d", len(rulesArray))
+	}
+}
+
+func TestGeneratePostDown6(t *testing.T) {
+	rules := GeneratePostDown6("awg0", "eth0", "fd00::/64", false)
+
+	if strings.Contains(rules, " -A ") {
+		t.Errorf("PostDown6 should use -D instead of -A, found: %s", rules)
+	}
+	if !strings.Contains(rules, "ip6tables -D INPUT -i awg0 -j ACCEPT") {
+		t.Errorf("Missing INPUT delete rule")
+	}
+	if !strings.Contains(rules, "ip6tables -D OUTPUT -o awg0 -j ACCEPT") {
+		t.Errorf("Missing OUTPUT delete rule")
+	}
+	if strings.Contains(rules, "ip6tables -D FORWARD -i awg0 -j ACCEPT") {
+		t.Errorf("Permissive FORWARD delete rule should not be present")
+	}
+	if !strings.Contains(rules, "ip6tables -D FORWARD -i awg0 -o eth0 -s fd00::/64 -j ACCEPT") {
+		t.Errorf("Missing FORWARD tunnel to main interface delete rule")
+	}
+	if !strings.Contains(rules, "ip6tables -D FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT") {
+		t.Errorf("Missing ESTABLISHED,RELATED delete rule")
+	}
+	if !strings.Contains(rules, "ip6tables -t nat -D POSTROUTING -s fd00::/64 -o eth0 -j MASQUERADE") {
+		t.Errorf("Missing MASQUERADE delete rule")
+	}
+
+	rulesArray := strings.Split(rules, "; ")
+	if len(rulesArray) != 6 {
+		t.Errorf("Expected 6 rules, got %d", len(rulesArray))
+	}
+}
+
+func TestGeneratePostDown6ClientToClient(t *testing.T) {
+	rules := GeneratePostDown6("awg0", "eth0", "fd00::/64", true)
+
+	if !strings.Contains(rules, "ip6tables -D FORWARD -i awg0 -o awg0 -j ACCEPT") {
+		t.Errorf("Missing client-to-client delete rule when clientToClient is true")
+	}
+
+	rulesArray := strings.Split(rules, "; ")
+	if len(rulesArray) != 7 {
+		t.Errorf("Expected 7 rules with clientToClient, got %d", len(rulesArray))
+	}
+}
