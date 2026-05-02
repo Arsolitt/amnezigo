@@ -1,15 +1,26 @@
 package cli
 
 import (
+	"slices"
 	"testing"
-
-	"github.com/spf13/cobra"
 )
 
-// TestCLIExists verifies the CLI package is properly structured.
-func TestCLIExists(t *testing.T) {
-	cmd := &cobra.Command{Use: "test"}
-	if cmd.Use != "test" {
-		t.Error("cobra command not properly initialized")
+func TestRootCmd_RegisteredCommands(t *testing.T) {
+	rootCmd := NewRootCmd()
+	var names []string
+	for _, cmd := range rootCmd.Commands() {
+		names = append(names, cmd.Name())
+	}
+
+	for _, exp := range []string{"analyze", "generate", "validate"} {
+		if !slices.Contains(names, exp) {
+			t.Errorf("missing command: %s", exp)
+		}
+	}
+
+	for _, leg := range []string{"init", "add", "edit", "remove", "export", "list"} {
+		if slices.Contains(names, leg) {
+			t.Errorf("legacy command still registered: %s", leg)
+		}
 	}
 }

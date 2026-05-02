@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -273,4 +274,15 @@ func parseHeaderRange(value string) HeaderRange {
 		return HeaderRange{}
 	}
 	return HeaderRange{Min: uint32(minVal), Max: uint32(maxVal)}
+}
+
+// LoadServerConfig reads and parses a server configuration from the given file path.
+func LoadServerConfig(path string) (ServerConfig, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return ServerConfig{}, err
+	}
+	defer file.Close()
+
+	return ParseServerConfig(file)
 }

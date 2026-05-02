@@ -8,9 +8,6 @@ import (
 )
 
 const (
-	tabPadding     = 3
-	separatorWidth = 76
-
 	// outputFormatText is the text output format identifier.
 	outputFormatText = "text"
 	// outputFormatJSON is the JSON output format identifier.
@@ -24,19 +21,13 @@ var (
 func NewRootCmd() *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:   "amnezigo",
-		Short: "AmneziaWG v2.0 Configuration Generator for star topology",
-		Long:  `Generate AmneziaWG v2.0 configurations for star topology networks.`,
+		Short: "AmneziaWG v2.0 Configuration Generator",
+		Long:  `Declarative AmneziaWG v2.0 configuration generator.`,
 	}
 
-	rootCmd.AddCommand(initCmd)
-	rootCmd.AddCommand(editCmd)
-	rootCmd.AddCommand(NewAddCommand())
-	rootCmd.AddCommand(NewListCommand())
-	rootCmd.AddCommand(NewExportCommand())
-	rootCmd.AddCommand(NewRemoveCommand())
+	rootCmd.AddCommand(NewGenerateCommand())
 	rootCmd.AddCommand(NewValidateCommand())
 	rootCmd.AddCommand(NewAnalyzeCommand())
-	rootCmd.AddCommand(NewGenerateCommand())
 
 	return rootCmd
 }

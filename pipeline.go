@@ -293,7 +293,7 @@ func buildServerConfig(
 		// Determine protocol (default to "quic")
 		protocol := peer.Protocol
 		if protocol == "" {
-			protocol = "quic"
+			protocol = protocolQUIC
 		}
 
 		// Generate I-packets for this client
@@ -357,7 +357,7 @@ func buildClientConfig(
 	// Determine protocol (default to "quic")
 	protocol := clientPeer.Protocol
 	if protocol == "" {
-		protocol = "quic"
+		protocol = protocolQUIC
 	}
 
 	// Generate I-packets for this client

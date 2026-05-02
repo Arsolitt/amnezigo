@@ -70,8 +70,7 @@ func runAnalyze(cmd *cobra.Command, protocol, peerName, output string, samples i
 		return fmt.Errorf("invalid output format %q: must be text or json", output)
 	}
 
-	mgr := amnezigo.NewManager(cfgFile)
-	serverCfg, err := mgr.Load()
+	serverCfg, err := amnezigo.LoadServerConfig(cfgFile)
 	if err != nil {
 		return fmt.Errorf("failed to load server config: %w", err)
 	}

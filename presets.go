@@ -81,7 +81,7 @@ var presetRegistry = []Preset{
 		H2:              HeaderRange{Min: 10000000, Max: 200000000},
 		H3:              HeaderRange{Min: 400000000, Max: 800000000},
 		H4:              HeaderRange{Min: 1000000000, Max: 2100000000},
-		DefaultProtocol: "quic",
+		DefaultProtocol: protocolQUIC,
 	},
 	{
 		Name:            "mobile-aggressive",

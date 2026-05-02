@@ -3,6 +3,7 @@ package amnezigo
 import (
 	"fmt"
 	"io"
+	"os"
 	"time"
 )
 
@@ -131,4 +132,23 @@ func WriteClientConfig(w io.Writer, cfg ClientConfig) error {
 	fmt.Fprintf(w, "PersistentKeepalive = %d\n", cfg.Peer.PersistentKeepalive)
 
 	return nil
+}
+
+// SaveServerConfig writes a server configuration to the given file path
+// using atomic writes (write to .tmp, then rename).
+func SaveServerConfig(path string, cfg ServerConfig) error {
+	tmpPath := path + ".tmp"
+	file, err := os.Create(tmpPath)
+	if err != nil {
+		return err
+	}
+
+	if err := WriteServerConfig(file, cfg); err != nil {
+		file.Close()       //nolint:gosec // error path cleanup
+		os.Remove(tmpPath) //nolint:gosec // error path cleanup
+		return err
+	}
+	file.Close() //nolint:gosec // close before rename
+
+	return os.Rename(tmpPath, path)
 }
