@@ -573,3 +573,71 @@ func TestManifest_UnmarshalExtraFields(t *testing.T) {
 		t.Errorf("Version = %d", m.Version)
 	}
 }
+
+func TestObfuscationManifest_HasAnyValue_AllNil(t *testing.T) {
+	om := ObfuscationManifest{}
+	if om.HasAnyValue() {
+		t.Error("empty ObfuscationManifest should report HasAnyValue=false")
+	}
+}
+
+func TestObfuscationManifest_HasAnyValue_S1Only(t *testing.T) {
+	v := 30
+	om := ObfuscationManifest{S1: &v}
+	if !om.HasAnyValue() {
+		t.Error("ObfuscationManifest with S1 set should report HasAnyValue=true")
+	}
+}
+
+func TestObfuscationManifest_HasAnyValue_HRangeOnly(t *testing.T) {
+	om := ObfuscationManifest{H2: &HeaderRange{Min: 100, Max: 5000000}}
+	if !om.HasAnyValue() {
+		t.Error("ObfuscationManifest with H2 set should report HasAnyValue=true")
+	}
+}
+
+func TestObfuscationManifest_ToSharedObfuscation_Partial(t *testing.T) {
+	s1, jc := 30, 5
+	om := ObfuscationManifest{
+		S1: &s1,
+		Jc: &jc,
+		H3: &HeaderRange{Min: 400000000, Max: 800000000},
+	}
+	cfg := om.ToSharedObfuscation()
+	if cfg.S1 != 30 {
+		t.Errorf("S1 = %d, want 30", cfg.S1)
+	}
+	if cfg.Jc != 5 {
+		t.Errorf("Jc = %d, want 5", cfg.Jc)
+	}
+	if cfg.H3.Min != 400000000 || cfg.H3.Max != 800000000 {
+		t.Errorf("H3 = %+v, want {400000000, 800000000}", cfg.H3)
+	}
+	// Nil fields must be zero-value.
+	if cfg.S2 != 0 {
+		t.Errorf("S2 = %d, want 0 (nil)", cfg.S2)
+	}
+	if cfg.H1 != (HeaderRange{}) {
+		t.Errorf("H1 = %+v, want zero-value", cfg.H1)
+	}
+}
+
+func TestObfuscationManifest_ToSharedObfuscation_AllSet(t *testing.T) {
+	s1, s2, s3, s4 := 30, 35, 20, 12
+	jc, jmin, jmax := 5, 250, 750
+	om := ObfuscationManifest{
+		S1: &s1, S2: &s2, S3: &s3, S4: &s4,
+		H1: &HeaderRange{Min: 100, Max: 5000000},
+		H2: &HeaderRange{Min: 10000000, Max: 200000000},
+		H3: &HeaderRange{Min: 400000000, Max: 800000000},
+		H4: &HeaderRange{Min: 1000000000, Max: 2100000000},
+		Jc: &jc, Jmin: &jmin, Jmax: &jmax,
+	}
+	cfg := om.ToSharedObfuscation()
+	if cfg.S1 != 30 || cfg.S4 != 12 {
+		t.Errorf("S-prefixes not preserved: S1=%d S4=%d", cfg.S1, cfg.S4)
+	}
+	if cfg.Jmin != 250 || cfg.Jmax != 750 {
+		t.Errorf("Junk params not preserved: Jmin=%d Jmax=%d", cfg.Jmin, cfg.Jmax)
+	}
+}

@@ -51,6 +51,56 @@ type PeerManifest struct {
 	ListenPort int    `json:"listen_port,omitempty"`
 }
 
+// HasAnyValue reports whether any S/H/J field is non-nil.
+// Returns false only when all pointer fields are nil (fully random generation).
+// Used by resolveObfuscation as a fast-path check before per-field fallback logic.
+func (o *ObfuscationManifest) HasAnyValue() bool {
+	return o.S1 != nil || o.S2 != nil || o.S3 != nil || o.S4 != nil ||
+		o.H1 != nil || o.H2 != nil || o.H3 != nil || o.H4 != nil ||
+		o.Jc != nil || o.Jmin != nil || o.Jmax != nil
+}
+
+// ToSharedObfuscation converts explicit manifest values to ServerObfuscationConfig.
+// Non-nil pointer fields are dereferenced and copied; nil fields remain zero-value,
+// signalling to resolveObfuscation that random generation is needed for those fields.
+func (o *ObfuscationManifest) ToSharedObfuscation() ServerObfuscationConfig {
+	var cfg ServerObfuscationConfig
+	if o.S1 != nil {
+		cfg.S1 = *o.S1
+	}
+	if o.S2 != nil {
+		cfg.S2 = *o.S2
+	}
+	if o.S3 != nil {
+		cfg.S3 = *o.S3
+	}
+	if o.S4 != nil {
+		cfg.S4 = *o.S4
+	}
+	if o.H1 != nil {
+		cfg.H1 = *o.H1
+	}
+	if o.H2 != nil {
+		cfg.H2 = *o.H2
+	}
+	if o.H3 != nil {
+		cfg.H3 = *o.H3
+	}
+	if o.H4 != nil {
+		cfg.H4 = *o.H4
+	}
+	if o.Jc != nil {
+		cfg.Jc = *o.Jc
+	}
+	if o.Jmin != nil {
+		cfg.Jmin = *o.Jmin
+	}
+	if o.Jmax != nil {
+		cfg.Jmax = *o.Jmax
+	}
+	return cfg
+}
+
 // IsServer reports whether this peer has the structural markers of a
 // server peer: a non-empty Endpoint AND a non-zero ListenPort.
 func (p *PeerManifest) IsServer() bool {
