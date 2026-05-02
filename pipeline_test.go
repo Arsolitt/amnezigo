@@ -342,3 +342,225 @@ func TestResolvePeerCredentials_FullReset(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildServerConfig(t *testing.T) {
+	// Create minimal manifest with server and client peers
+	manifest := Manifest{
+		Peers: map[string]PeerManifest{
+			"server": {
+				Address:    "10.0.0.1/24",
+				Endpoint:   "vpn.example.com:51820",
+				ListenPort: 51820,
+				TunName:    "awg0",
+				MainIface:  "eth0",
+			},
+			"phone": {
+				Address: "10.0.0.2/32",
+			},
+		},
+		Network: NetworkConfig{
+			MTU: 1420,
+			DNS: []string{"1.1.1.1", "8.8.8.8"},
+		},
+	}
+
+	// Create ServerObfuscationConfig with realistic values
+	obf := ServerObfuscationConfig{
+		S1: 50, S2: 100, S3: 150, S4: 200,
+		H1: HeaderRange{Min: 1, Max: 10},
+		H2: HeaderRange{Min: 11, Max: 20},
+		H3: HeaderRange{Min: 21, Max: 30},
+		H4: HeaderRange{Min: 31, Max: 40},
+		Jc: 4, Jmin: 50, Jmax: 1000,
+	}
+
+	// Create credentials map with known keys
+	serverPriv, serverPub := GenerateKeyPair()
+	phonePriv, phonePub := GenerateKeyPair()
+	phonePSK := GeneratePSK()
+
+	creds := map[string]PeerCredentials{
+		"server": {
+			PrivateKey: serverPriv,
+			PublicKey:  serverPub,
+		},
+		"phone": {
+			PrivateKey:   phonePriv,
+			PublicKey:    phonePub,
+			PresharedKey: phonePSK,
+		},
+	}
+
+	// Call buildServerConfig
+	output, err := buildServerConfig(manifest, "server", obf, creds)
+	if err != nil {
+		t.Fatalf("buildServerConfig failed: %v", err)
+	}
+
+	// Verify output contains server address
+	if !contains(output, "Address = 10.0.0.1/24") {
+		t.Error("expected server address in output")
+	}
+
+	// Verify output contains listen port
+	if !contains(output, "ListenPort = 51820") {
+		t.Error("expected listen port in output")
+	}
+
+	// Verify output contains private key
+	if !contains(output, "PrivateKey = "+serverPriv) {
+		t.Error("expected server private key in output")
+	}
+
+	// Verify output contains PostUp iptables rules (IPv4)
+	if !contains(output, "PostUp = ") {
+		t.Error("expected PostUp in output")
+	}
+	if !contains(output, "iptables -A INPUT -i awg0 -j ACCEPT") {
+		t.Error("expected IPv4 INPUT rule in PostUp")
+	}
+
+	// Verify output contains PostDown iptables rules
+	if !contains(output, "PostDown = ") {
+		t.Error("expected PostDown in output")
+	}
+
+	// Verify phone peer is present
+	if !contains(output, "PublicKey = "+phonePub) {
+		t.Error("expected phone public key in output")
+	}
+	if !contains(output, "PresharedKey = "+phonePSK) {
+		t.Error("expected phone preshared key in output")
+	}
+	if !contains(output, "AllowedIPs = 10.0.0.2/32") {
+		t.Error("expected phone allowed IPs in output")
+	}
+
+	// Verify obfuscation parameters
+	if !contains(output, "Jc = 4") {
+		t.Error("expected Jc in output")
+	}
+	if !contains(output, "S1 = 50") {
+		t.Error("expected S1 in output")
+	}
+}
+
+func TestBuildClientConfig(t *testing.T) {
+	// Create minimal manifest with server and client peers
+	manifest := Manifest{
+		Peers: map[string]PeerManifest{
+			"server": {
+				Address:    "10.0.0.1/24",
+				Endpoint:   "vpn.example.com:51820",
+				ListenPort: 51820,
+				TunName:    "awg0",
+				MainIface:  "eth0",
+			},
+			"phone": {
+				Address:  "10.0.0.2/32",
+				Protocol: "quic",
+			},
+		},
+		Network: NetworkConfig{
+			MTU: 1420,
+			DNS: []string{"1.1.1.1", "8.8.8.8"},
+		},
+	}
+
+	// Create ServerObfuscationConfig
+	obf := ServerObfuscationConfig{
+		S1: 50, S2: 100, S3: 150, S4: 200,
+		H1: HeaderRange{Min: 1, Max: 10},
+		H2: HeaderRange{Min: 11, Max: 20},
+		H3: HeaderRange{Min: 21, Max: 30},
+		H4: HeaderRange{Min: 31, Max: 40},
+		Jc: 4, Jmin: 50, Jmax: 1000,
+	}
+
+	// Create credentials map
+	serverPriv, serverPub := GenerateKeyPair()
+	phonePriv, phonePub := GenerateKeyPair()
+	phonePSK := GeneratePSK()
+
+	creds := map[string]PeerCredentials{
+		"server": {
+			PrivateKey: serverPriv,
+			PublicKey:  serverPub,
+		},
+		"phone": {
+			PrivateKey:   phonePriv,
+			PublicKey:    phonePub,
+			PresharedKey: phonePSK,
+		},
+	}
+
+	// Call buildClientConfig
+	output, err := buildClientConfig(manifest, "phone", "server", obf, creds)
+	if err != nil {
+		t.Fatalf("buildClientConfig failed: %v", err)
+	}
+
+	// Verify output contains phone's address
+	if !contains(output, "Address = 10.0.0.2/32") {
+		t.Error("expected phone address in output")
+	}
+
+	// Verify output contains phone's private key
+	if !contains(output, "PrivateKey = "+phonePriv) {
+		t.Error("expected phone private key in output")
+	}
+
+	// Verify output contains DNS
+	if !contains(output, "DNS = 1.1.1.1, 8.8.8.8") {
+		t.Error("expected DNS in output")
+	}
+
+	// Verify output contains server's public key
+	if !contains(output, "PublicKey = "+serverPub) {
+		t.Error("expected server public key in output")
+	}
+
+	// Verify output contains server's endpoint
+	if !contains(output, "Endpoint = vpn.example.com:51820") {
+		t.Error("expected server endpoint in output")
+	}
+
+	// Verify output contains preshared key
+	if !contains(output, "PresharedKey = "+phonePSK) {
+		t.Error("expected preshared key in output")
+	}
+
+	// Verify output contains allowed IPs (0.0.0.0/0, ::/0)
+	if !contains(output, "AllowedIPs = 0.0.0.0/0, ::/0") {
+		t.Error("expected allowed IPs in output")
+	}
+
+	// Verify obfuscation parameters
+	if !contains(output, "Jc = 4") {
+		t.Error("expected Jc in output")
+	}
+	if !contains(output, "S1 = 50") {
+		t.Error("expected S1 in output")
+	}
+
+	// Verify I1-I5 are present (custom packet strings)
+	if !contains(output, "I1 = ") {
+		t.Error("expected I1 in output")
+	}
+}
+
+// Helper function to check if byte slice contains a string.
+func contains(data []byte, substr string) bool {
+	return string(data) != "" && indexOf(data, substr) >= 0
+}
+
+// Helper function to find substring index in byte slice.
+func indexOf(data []byte, substr string) int {
+	str := string(data)
+	for i := 0; i <= len(str)-len(substr); i++ {
+		if str[i:i+len(substr)] == substr {
+			return i
+		}
+	}
+	return -1
+}

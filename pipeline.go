@@ -1,5 +1,12 @@
 package amnezigo
 
+import (
+	"bytes"
+	"fmt"
+	"sort"
+	"strings"
+)
+
 // GenerateOptions configures the generate pipeline.
 type GenerateOptions struct {
 	ProjectDir string
@@ -201,4 +208,218 @@ func resolvePeerCredentials(
 	}
 
 	return result
+}
+
+// buildServerConfig constructs a server configuration from manifest and credentials.
+// Generates PostUp/PostDown iptables rules when MainIface is set.
+// Sorts client peers by name for deterministic output.
+func buildServerConfig(
+	manifest Manifest,
+	serverName string,
+	obf ServerObfuscationConfig,
+	creds map[string]PeerCredentials,
+) ([]byte, error) {
+	serverPeer, ok := manifest.Peers[serverName]
+	if !ok {
+		return nil, fmt.Errorf("server peer %s not found in manifest", serverName)
+	}
+
+	serverCreds, ok := creds[serverName]
+	if !ok {
+		return nil, fmt.Errorf("credentials for server peer %s not found", serverName)
+	}
+
+	// Extract subnet from server address (e.g., "10.0.0.1/24" → "10.0.0.0/24")
+	subnet := extractSubnet(serverPeer.Address)
+
+	// Build InterfaceConfig
+	iface := InterfaceConfig{
+		Address:        serverPeer.Address,
+		ListenPort:     serverPeer.ListenPort,
+		PrivateKey:     serverCreds.PrivateKey,
+		PublicKey:      serverCreds.PublicKey,
+		MTU:            manifest.Network.MTU,
+		TunName:        serverPeer.TunName,
+		MainIface:      serverPeer.MainIface,
+		ClientToClient: false, // TODO: support client-to-client routing
+	}
+
+	// Set defaults
+	if iface.MTU == 0 {
+		iface.MTU = 1280
+	}
+	if iface.TunName == "" {
+		iface.TunName = "awg0"
+	}
+
+	// Generate iptables rules if MainIface is set
+	if serverPeer.MainIface != "" {
+		postUp4 := GeneratePostUp(iface.TunName, serverPeer.MainIface, subnet, iface.ClientToClient)
+		postDown4 := GeneratePostDown(iface.TunName, serverPeer.MainIface, subnet, iface.ClientToClient)
+		postUp6 := GeneratePostUp6(iface.TunName, serverPeer.MainIface, subnet, iface.ClientToClient)
+		postDown6 := GeneratePostDown6(iface.TunName, serverPeer.MainIface, subnet, iface.ClientToClient)
+
+		// Concatenate IPv4 and IPv6 rules with newline
+		iface.PostUp = postUp4 + "\n" + postUp6
+		iface.PostDown = postDown4 + "\n" + postDown6
+	}
+
+	// Build ServerConfig
+	cfg := ServerConfig{
+		Interface:   iface,
+		Obfuscation: obf,
+	}
+
+	// Add client peers (sorted by name for deterministic output)
+	var peerNames []string
+	for name := range manifest.Peers {
+		if name != serverName {
+			peerNames = append(peerNames, name)
+		}
+	}
+	sort.Strings(peerNames)
+
+	for _, peerName := range peerNames {
+		peer := manifest.Peers[peerName]
+		peerCreds, ok := creds[peerName]
+		if !ok {
+			return nil, fmt.Errorf("credentials for peer %s not found", peerName)
+		}
+
+		// Determine protocol (default to "quic")
+		protocol := peer.Protocol
+		if protocol == "" {
+			protocol = "quic"
+		}
+
+		// Generate I-packets for this client
+		i1, i2, i3, i4, i5 := GenerateCPS(protocol, iface.MTU, obf.S1, obf.Jc)
+
+		peerCfg := PeerConfig{
+			Name:         peerName,
+			PublicKey:    peerCreds.PublicKey,
+			PresharedKey: peerCreds.PresharedKey,
+			AllowedIPs:   peer.Address,
+			ClientObfuscation: &ClientObfuscationConfig{
+				I1:                      i1,
+				I2:                      i2,
+				I3:                      i3,
+				I4:                      i4,
+				I5:                      i5,
+				ServerObfuscationConfig: obf,
+			},
+		}
+
+		cfg.Peers = append(cfg.Peers, peerCfg)
+	}
+
+	// Write to buffer
+	var buf bytes.Buffer
+	if err := WriteServerConfig(&buf, cfg); err != nil {
+		return nil, fmt.Errorf("write server config: %w", err)
+	}
+
+	return buf.Bytes(), nil
+}
+
+// buildClientConfig constructs a client configuration from manifest and credentials.
+func buildClientConfig(
+	manifest Manifest,
+	peerName string,
+	serverName string,
+	obf ServerObfuscationConfig,
+	creds map[string]PeerCredentials,
+) ([]byte, error) {
+	clientPeer, ok := manifest.Peers[peerName]
+	if !ok {
+		return nil, fmt.Errorf("client peer %s not found in manifest", peerName)
+	}
+
+	serverPeer, ok := manifest.Peers[serverName]
+	if !ok {
+		return nil, fmt.Errorf("server peer %s not found in manifest", serverName)
+	}
+
+	clientCreds, ok := creds[peerName]
+	if !ok {
+		return nil, fmt.Errorf("credentials for client peer %s not found", peerName)
+	}
+
+	serverCreds, ok := creds[serverName]
+	if !ok {
+		return nil, fmt.Errorf("credentials for server peer %s not found", serverName)
+	}
+
+	// Determine protocol (default to "quic")
+	protocol := clientPeer.Protocol
+	if protocol == "" {
+		protocol = "quic"
+	}
+
+	// Generate I-packets for this client
+	i1, i2, i3, i4, i5 := GenerateCPS(protocol, manifest.Network.MTU, obf.S1, obf.Jc)
+
+	// Build ClientInterfaceConfig
+	mtu := manifest.Network.MTU
+	if mtu == 0 {
+		mtu = 1280
+	}
+
+	clientObf := ClientObfuscationConfig{
+		I1:                      i1,
+		I2:                      i2,
+		I3:                      i3,
+		I4:                      i4,
+		I5:                      i5,
+		ServerObfuscationConfig: obf,
+	}
+
+	iface := ClientInterfaceConfig{
+		PrivateKey:  clientCreds.PrivateKey,
+		Address:     clientPeer.Address,
+		DNS:         strings.Join(manifest.Network.DNS, ", "),
+		MTU:         mtu,
+		Obfuscation: clientObf,
+	}
+
+	// Build ClientPeerConfig (server side)
+	peerCfg := ClientPeerConfig{
+		PublicKey:           serverCreds.PublicKey,
+		PresharedKey:        clientCreds.PresharedKey,
+		Endpoint:            serverPeer.Endpoint,
+		AllowedIPs:          "0.0.0.0/0, ::/0",
+		PersistentKeepalive: 0,
+	}
+
+	if clientPeer.Keepalive != nil {
+		peerCfg.PersistentKeepalive = *clientPeer.Keepalive
+	}
+
+	cfg := ClientConfig{
+		Interface: iface,
+		Peer:      peerCfg,
+	}
+
+	// Write to buffer
+	var buf bytes.Buffer
+	if err := WriteClientConfig(&buf, cfg); err != nil {
+		return nil, fmt.Errorf("write client config: %w", err)
+	}
+
+	return buf.Bytes(), nil
+}
+
+// extractSubnet extracts the subnet address from a CIDR string.
+// For example: "10.0.0.1/24" → "10.0.0.0/24".
+func extractSubnet(cidr string) string {
+	// Simple string manipulation: replace last octet with 0
+	// This works for IPv4 addresses like "10.0.0.1/24"
+	parts := strings.Split(cidr, ".")
+	if len(parts) == 4 {
+		// Replace last octet with "0"
+		parts[2] = "0"
+		return strings.Join(parts, ".")
+	}
+	// Fallback: return original if format is unexpected
+	return cidr
 }
