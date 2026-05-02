@@ -108,3 +108,115 @@ func TestObfuscationManifest_OmitsNilFieldsOnMarshal(t *testing.T) {
 		t.Errorf("protocol should be present, got %q", got)
 	}
 }
+
+func TestPeerManifest_JSONRoundTrip_Server(t *testing.T) {
+	input := `{
+		"address": "10.0.0.1/24",
+		"tun_name": "awg0",
+		"main_iface": "eth0",
+		"endpoint": "vpn.example.com:51820",
+		"listen_port": 51820
+	}`
+	var pm PeerManifest
+	if err := json.Unmarshal([]byte(input), &pm); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if pm.Address != "10.0.0.1/24" {
+		t.Errorf("Address = %q, want %q", pm.Address, "10.0.0.1/24")
+	}
+	if pm.Endpoint != "vpn.example.com:51820" {
+		t.Errorf("Endpoint = %q", pm.Endpoint)
+	}
+	if pm.ListenPort != 51820 {
+		t.Errorf("ListenPort = %d", pm.ListenPort)
+	}
+	if pm.TunName != "awg0" {
+		t.Errorf("TunName = %q, want %q", pm.TunName, "awg0")
+	}
+	if pm.MainIface != "eth0" {
+		t.Errorf("MainIface = %q, want %q", pm.MainIface, "eth0")
+	}
+}
+
+func TestPeerManifest_JSONRoundTrip_Client(t *testing.T) {
+	input := `{
+		"address": "10.0.0.2/32",
+		"protocol": "sip",
+		"keepalive": 25
+	}`
+	var pm PeerManifest
+	if err := json.Unmarshal([]byte(input), &pm); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if pm.Address != "10.0.0.2/32" {
+		t.Errorf("Address = %q", pm.Address)
+	}
+	if pm.Protocol != "sip" {
+		t.Errorf("Protocol = %q", pm.Protocol)
+	}
+	if pm.Keepalive == nil || *pm.Keepalive != 25 {
+		t.Errorf("Keepalive = %v, want 25", pm.Keepalive)
+	}
+	if pm.Endpoint != "" {
+		t.Errorf("Endpoint should be empty for client, got %q", pm.Endpoint)
+	}
+	if pm.ListenPort != 0 {
+		t.Errorf("ListenPort should be 0 for client, got %d", pm.ListenPort)
+	}
+	if pm.MainIface != "" {
+		t.Errorf("MainIface should be empty for client, got %q", pm.MainIface)
+	}
+}
+
+func TestPeerManifest_IsServer(t *testing.T) {
+	server := PeerManifest{
+		Address:    "10.0.0.1/24",
+		Endpoint:   "vpn.example.com:51820",
+		ListenPort: 51820,
+	}
+	if !server.IsServer() {
+		t.Error("peer with endpoint + listen_port should be a server")
+	}
+
+	client := PeerManifest{
+		Address: "10.0.0.2/32",
+	}
+	if client.IsServer() {
+		t.Error("peer without endpoint should not be a server")
+	}
+
+	// Edge case: endpoint without listen_port — not a valid server.
+	partial := PeerManifest{
+		Address:  "10.0.0.3/32",
+		Endpoint: "vpn.example.com:51820",
+	}
+	if partial.IsServer() {
+		t.Error("peer with endpoint but no listen_port should not be a server")
+	}
+
+	// Edge case: listen_port without endpoint — not a valid server.
+	partial2 := PeerManifest{
+		Address:    "10.0.0.4/32",
+		ListenPort: 51820,
+	}
+	if partial2.IsServer() {
+		t.Error("peer with listen_port but no endpoint should not be a server")
+	}
+}
+
+func TestPeerManifest_OmitsEmptyFields(t *testing.T) {
+	pm := PeerManifest{Address: "10.0.0.2/32"}
+	b, err := json.Marshal(pm)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	got := string(b)
+	for _, field := range []string{"tun_name", "main_iface", "endpoint", "listen_port", "protocol", "keepalive"} {
+		if strings.Contains(got, `"`+field+`"`) {
+			t.Errorf("empty %s should be omitted, got %q", field, got)
+		}
+	}
+	if !strings.Contains(got, `"address"`) {
+		t.Errorf("address should always be present, got %q", got)
+	}
+}

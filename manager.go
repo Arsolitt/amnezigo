@@ -8,7 +8,10 @@ import (
 	"time"
 )
 
-const defaultPersistentKeepalive = 25
+const (
+	defaultPersistentKeepalive = 25
+	defaultDNS                 = "1.1.1.1, 8.8.8.8"
+)
 
 // Manager provides high-level operations for managing a WireGuard server
 // configuration file, including client CRUD and export operations.
@@ -70,7 +73,7 @@ func (m *Manager) InitWithPreset(presetName string, opts InitOptions) error {
 
 	dns := opts.DNS
 	if dns == "" {
-		dns = "1.1.1.1, 8.8.8.8"
+		dns = defaultDNS
 	}
 
 	cfg := ServerConfig{
@@ -284,7 +287,7 @@ func (m *Manager) BuildPeerConfig(peer PeerConfig, protocol, endpoint string) (C
 
 	dns := serverCfg.Interface.DNS
 	if dns == "" {
-		dns = "1.1.1.1, 8.8.8.8"
+		dns = defaultDNS
 	}
 
 	keepalive := serverCfg.Interface.PersistentKeepalive
