@@ -142,3 +142,63 @@ func pickNonZero(current, generated int) int {
 	}
 	return current
 }
+
+// resolvePeerCredentials generates or reuses peer credentials based on persisted state.
+// For each peer in the manifest, it either generates fresh keys or reuses existing
+// credentials from PersistedCredentials (when available and fullReset is false).
+//
+// Server peers get only a keypair (no PresharedKey). Client peers get a keypair
+// plus a unique PresharedKey for each client-to-server connection.
+//
+// The returned map contains credentials for all peers in the manifest, with
+// PublicKey always derived from PrivateKey to ensure consistency.
+func resolvePeerCredentials(
+	peers map[string]PeerManifest,
+	persisted *PersistedCredentials,
+	serverName string,
+	fullReset bool,
+) map[string]PeerCredentials {
+	result := make(map[string]PeerCredentials, len(peers))
+
+	// Process server peer
+	serverCreds := PeerCredentials{}
+	if !fullReset && persisted.Server.PrivateKey != "" {
+		// Reuse persisted server credentials
+		serverCreds.PrivateKey = persisted.Server.PrivateKey
+		serverCreds.PublicKey = persisted.Server.PublicKey
+	} else {
+		// Generate fresh server keypair
+		priv, pub := GenerateKeyPair()
+		serverCreds.PrivateKey = priv
+		serverCreds.PublicKey = pub
+	}
+	// Server never gets PresharedKey
+	result[serverName] = serverCreds
+
+	// Process client peers
+	for name := range peers {
+		if name == serverName {
+			continue // server already handled
+		}
+
+		clientCreds := PeerCredentials{}
+		persistedClient, hasPersisted := persisted.Peers[name]
+
+		if !fullReset && hasPersisted && persistedClient.PrivateKey != "" {
+			// Reuse persisted client PrivateKey and PresharedKey
+			clientCreds.PrivateKey = persistedClient.PrivateKey
+			clientCreds.PresharedKey = persistedClient.PresharedKey
+		} else {
+			// Generate fresh client credentials
+			priv, _ := GenerateKeyPair()
+			clientCreds.PrivateKey = priv
+			clientCreds.PresharedKey = GeneratePSK()
+		}
+		// ALWAYS derive PublicKey from PrivateKey to ensure consistency
+		clientCreds.PublicKey = DerivePublicKey(clientCreds.PrivateKey)
+
+		result[name] = clientCreds
+	}
+
+	return result
+}
