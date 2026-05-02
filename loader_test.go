@@ -1,6 +1,7 @@
 package amnezigo
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -197,5 +198,115 @@ func TestLoadManifest_DefaultJpathIncludesLib(t *testing.T) {
 	}
 	if m.Network.MTU != 1420 {
 		t.Errorf("expected lib import to work with default jpath, got MTU = %d", m.Network.MTU)
+	}
+}
+
+func TestLoadManifest_PermissionDenied(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, manifestJSON)
+	if err := os.WriteFile(path, []byte(`{"version":1}`), 0o000); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	_, err := LoadManifest(tmp, nil)
+	if err == nil {
+		t.Fatal("expected error for unreadable file, got nil")
+	}
+}
+
+func TestLoadManifestFromFile_JsonnetExtensionDetection(t *testing.T) {
+	// A .jsonnet file must be evaluated through the Jsonnet VM,
+	// not parsed as raw JSON.
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "custom.jsonnet")
+	content := `{
+    version: 1,
+    network: { mtu: 1500 },
+    obfuscation: {},
+    peers: {},
+}`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	m, err := LoadManifestFromFile(path, nil)
+	if err != nil {
+		t.Fatalf("LoadManifestFromFile error: %v", err)
+	}
+	if m.Network.MTU != 1500 {
+		t.Errorf("MTU = %d, want 1500", m.Network.MTU)
+	}
+}
+
+func TestLoadManifest_LargeManifest_ManyPeers(t *testing.T) {
+	// Verify the loader handles manifests with many peers without issues.
+	tmp := t.TempDir()
+	// Generate a manifest with 100 peers via Jsonnet
+	content := `
+local peers = {
+    ['peer-%03d' % i]: { address: '10.0.%d.%d/32' % [i / 256, i % 256] }
+    for i in std.range(1, 100)
+};
+{
+    version: 1,
+    network: { mtu: 1280 },
+    obfuscation: {},
+    peers: { server: { address: '10.0.0.1/24', endpoint: 'vpn:51820', listen_port: 51820 } } + peers,
+}
+`
+	path := filepath.Join(tmp, manifestJsonnet)
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	m, err := LoadManifest(tmp, nil)
+	if err != nil {
+		t.Fatalf("LoadManifest error: %v", err)
+	}
+	// 100 generated peers + 1 server
+	if len(m.Peers) != 101 {
+		t.Errorf("len(Peers) = %d, want 101", len(m.Peers))
+	}
+}
+
+func TestLoadManifest_JsonnetSyntaxError(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, manifestJsonnet)
+	if err := os.WriteFile(path, []byte(`{ version: 1, broken`), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	_, err := LoadManifest(tmp, nil)
+	if err == nil {
+		t.Fatal("expected error for Jsonnet syntax error, got nil")
+	}
+	// go-jsonnet errors include file:line
+	if !strings.Contains(err.Error(), manifestJsonnet) {
+		t.Errorf("error = %q, want to mention the Jsonnet file", err.Error())
+	}
+}
+
+func TestLoadManifest_EmptyJSONFile(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, manifestJSON)
+	if err := os.WriteFile(path, []byte(`{}`), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	_, err := LoadManifest(tmp, nil)
+	if err == nil {
+		t.Fatal("expected error for empty JSON (version=0), got nil")
+	}
+	if !strings.Contains(err.Error(), "version") {
+		t.Errorf("error = %q, want to mention 'version'", err.Error())
+	}
+}
+
+func TestLoadManifestFromFile_JSONExtension(t *testing.T) {
+	// .json file must be parsed as plain JSON, not through Jsonnet VM.
+	// Jsonnet syntax (trailing commas, unquoted keys) must cause an error.
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "manifest.json")
+	if err := os.WriteFile(path, []byte(`{version: 1}`), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	_, err := LoadManifestFromFile(path, nil)
+	if err == nil {
+		t.Fatal("expected JSON parse error for Jsonnet-style syntax in .json file")
 	}
 }
