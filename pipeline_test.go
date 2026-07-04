@@ -447,6 +447,77 @@ func TestBuildServerConfig(t *testing.T) {
 	if !contains(output, "S1 = 50") {
 		t.Error("expected S1 in output")
 	}
+	// Verify iptables rules use the network address (10.0.0.0/24), not the host address.
+	// Regression: the old extractSubnet returned the host 10.0.0.1/24 here.
+	if !contains(output, "-s 10.0.0.0/24") {
+		t.Error("expected iptables rules to reference network address 10.0.0.0/24")
+	}
+	if contains(output, "-s 10.0.0.1/24") {
+		t.Error("iptables rules must not reference host address 10.0.0.1/24")
+	}
+}
+
+// TestBuildServerConfig_IptablesUsesNetworkAddress is a regression test for the
+// third-octet bug: extractSubnet previously replaced parts[2] (the third octet)
+// instead of the last octet, so a server at 10.0.50.1/24 produced iptables rules
+// referencing the wrong network 10.0.0.1/24. ExtractSubnet (helpers.go) computes
+// the correct network address via net.ParseCIDR.
+func TestBuildServerConfig_IptablesUsesNetworkAddress(t *testing.T) {
+	manifest := Manifest{
+		Peers: map[string]PeerManifest{
+			"server": {
+				Address:    "10.0.50.1/24",
+				Endpoint:   "vpn.example.com:51820",
+				ListenPort: 51820,
+				TunName:    "awg0",
+				MainIface:  "eth0",
+			},
+			"phone": {
+				Address: "10.0.50.2/32",
+			},
+		},
+		Network: NetworkConfig{
+			MTU: 1420,
+		},
+	}
+
+	obf := ServerObfuscationConfig{
+		S1: 50, S2: 100, S3: 150, S4: 200,
+		H1: HeaderRange{Min: 1, Max: 10},
+		H2: HeaderRange{Min: 11, Max: 20},
+		H3: HeaderRange{Min: 21, Max: 30},
+		H4: HeaderRange{Min: 31, Max: 40},
+		Jc: 4, Jmin: 50, Jmax: 1000,
+	}
+
+	serverPriv, serverPub := GenerateKeyPair()
+	phonePriv, phonePub := GenerateKeyPair()
+	phonePSK := GeneratePSK()
+	creds := map[string]PeerCredentials{
+		"server": {PrivateKey: serverPriv, PublicKey: serverPub},
+		"phone":  {PrivateKey: phonePriv, PublicKey: phonePub, PresharedKey: phonePSK},
+	}
+
+	output, err := buildServerConfig(manifest, "server", obf, creds)
+	if err != nil {
+		t.Fatalf("buildServerConfig failed: %v", err)
+	}
+
+	// Correct network address for 10.0.50.1/24 is 10.0.50.0/24.
+	if !contains(output, "-s 10.0.50.0/24") {
+		t.Error("expected iptables rules to reference network address 10.0.50.0/24")
+	}
+	if !contains(output, "-d 10.0.50.0/24") {
+		t.Error("expected iptables rules to reference network address 10.0.50.0/24 in -d rule")
+	}
+
+	// Must NOT contain the buggy output (10.0.0.1/24) nor the host address.
+	if contains(output, "10.0.0.1/24") {
+		t.Error("iptables rules must not reference wrong subnet 10.0.0.1/24 (third-octet bug)")
+	}
+	if contains(output, "-s 10.0.50.1/24") {
+		t.Error("iptables rules must not reference host address 10.0.50.1/24")
+	}
 }
 
 func TestBuildClientConfig(t *testing.T) {

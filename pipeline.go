@@ -9,8 +9,6 @@ import (
 	"strings"
 )
 
-const ipv4Octets = 4
-
 // GenerateOptions configures the generate pipeline.
 type GenerateOptions struct {
 	ProjectDir string
@@ -233,8 +231,8 @@ func buildServerConfig(
 		return nil, fmt.Errorf("credentials for server peer %s not found", serverName)
 	}
 
-	// Extract subnet from server address (e.g., "10.0.0.1/24" → "10.0.0.0/24")
-	subnet := extractSubnet(serverPeer.Address)
+	// Extract network address from server address (e.g., "10.0.0.1/24" → "10.0.0.0/24")
+	subnet := ExtractSubnet(serverPeer.Address)
 
 	// Build InterfaceConfig
 	iface := InterfaceConfig{
@@ -411,21 +409,6 @@ func buildClientConfig(
 	}
 
 	return buf.Bytes(), nil
-}
-
-// extractSubnet extracts the subnet address from a CIDR string.
-// For example: "10.0.0.1/24" → "10.0.0.0/24".
-func extractSubnet(cidr string) string {
-	// Simple string manipulation: replace last octet with 0
-	// This works for IPv4 addresses like "10.0.0.1/24"
-	parts := strings.Split(cidr, ".")
-	if len(parts) == ipv4Octets {
-		// Replace last octet with "0"
-		parts[2] = "0"
-		return strings.Join(parts, ".")
-	}
-	// Fallback: return original if format is unexpected
-	return cidr
 }
 
 // Generate orchestrates the full config generation pipeline.
