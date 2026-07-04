@@ -39,10 +39,12 @@ func EmptyCredentials() *PersistedCredentials {
 // output directory or server config does not exist (first-run path).
 //
 // The serverPeerName identifies which subdirectory contains the server config.
-// Peer credentials are extracted from the server config's [Peer] sections,
-// which include #_Name and #_PrivateKey metadata comments written by
-// WriteServerConfig. When the server config is missing, the function falls
-// back to reading individual client configs from peer subdirectories.
+// Server credentials come from the server config's [Interface]; peer public
+// material (PublicKey, PresharedKey, Name) comes from its [Peer] sections.
+// Because the server config never carries a peer's PrivateKey (it is a client
+// secret), each peer's PrivateKey is recovered from its own client config at
+// outputDir/<peer>/awg0.conf so keys are reused across runs. When the server
+// config is missing, the function falls back to scanning peer subdirectories.
 func LoadCredentials(outputDir, serverPeerName string) (*PersistedCredentials, error) {
 	serverConfigPath := filepath.Join(outputDir, serverPeerName, outputConfigName)
 
@@ -54,21 +56,15 @@ func LoadCredentials(outputDir, serverPeerName string) (*PersistedCredentials, e
 	creds := EmptyCredentials()
 
 	if err == nil {
-		// Primary path: server config exists — extract all credentials from it.
+		// Primary path: server config exists. Server credentials come from
+		// [Interface]; peer public material (PublicKey, PresharedKey, Name)
+		// comes from the [Peer] sections, with each peer's PrivateKey recovered
+		// from its own client config (a peer private key is a client secret).
 		creds.Server = PeerCredentials{
 			PrivateKey: serverCfg.Interface.PrivateKey,
 			PublicKey:  serverCfg.Interface.PublicKey,
 		}
-		for _, peer := range serverCfg.Peers {
-			if peer.Name == "" {
-				continue // unnamed peers cannot be matched to manifest entries
-			}
-			creds.Peers[peer.Name] = PeerCredentials{
-				PrivateKey:   peer.PrivateKey,
-				PublicKey:    peer.PublicKey,
-				PresharedKey: peer.PresharedKey,
-			}
-		}
+		creds.Peers = loadPeersFromServer(outputDir, serverCfg.Peers)
 		return creds, nil
 	}
 
@@ -96,6 +92,31 @@ func LoadCredentials(outputDir, serverPeerName string) (*PersistedCredentials, e
 	}
 
 	return creds, nil
+}
+
+// loadPeersFromServer builds peer credentials from the server config's [Peer]
+// sections. Public material (PublicKey, PresharedKey) is taken from the server
+// config; each peer's PrivateKey is recovered from its own client config at
+// outputDir/<peer>/awg0.conf, since the server config never stores a peer
+// private key (it is a client secret). Unnamed peers are skipped — they cannot
+// be matched to manifest entries.
+func loadPeersFromServer(outputDir string, serverPeers []PeerConfig) map[string]PeerCredentials {
+	peers := make(map[string]PeerCredentials, len(serverPeers))
+	for _, peer := range serverPeers {
+		if peer.Name == "" {
+			continue
+		}
+		entry := PeerCredentials{
+			PublicKey:    peer.PublicKey,
+			PresharedKey: peer.PresharedKey,
+		}
+		clientPath := filepath.Join(outputDir, peer.Name, outputConfigName)
+		if c, err := extractClientCredentials(clientPath); err == nil && c.PrivateKey != "" {
+			entry.PrivateKey = c.PrivateKey
+		}
+		peers[peer.Name] = entry
+	}
+	return peers
 }
 
 // extractClientCredentials reads a client config file and extracts PrivateKey

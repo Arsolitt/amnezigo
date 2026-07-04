@@ -47,6 +47,26 @@ func writeTestConfig(t *testing.T, path string, cfg ServerConfig) {
 	}
 }
 
+// writePeerClientConfig writes a minimal client config carrying the peer's
+// PrivateKey, mirroring what the generate pipeline produces under
+// <outputDir>/<peer>/awg0.conf. LoadCredentials reads peer private keys from
+// these per-peer files (never from the server config, which stores only
+// public material — a peer private key is a client secret).
+func writePeerClientConfig(t *testing.T, dir, peerName, privKey, psk string) {
+	t.Helper()
+	peerDir := filepath.Join(dir, peerName)
+	if err := os.MkdirAll(peerDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	content := "[Interface]\nPrivateKey = " + privKey + "\n"
+	if psk != "" {
+		content += "\n[Peer]\nPresharedKey = " + psk + "\n"
+	}
+	if err := os.WriteFile(filepath.Join(peerDir, outputConfigName), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // ---- Step B: server credential extraction ----
 
 func TestLoadCredentials_ServerConfig(t *testing.T) {
@@ -118,6 +138,10 @@ func TestLoadCredentials_ServerConfigWithPeers(t *testing.T) {
 	}
 	path := filepath.Join(serverDir, "awg0.conf")
 	writeTestConfig(t, path, cfg)
+	// Peer private keys live in each peer's own client config; the server
+	// config carries only public material (mirrors the generate pipeline).
+	writePeerClientConfig(t, dir, "phone", "phone-priv", "")
+	writePeerClientConfig(t, dir, "laptop", "laptop-priv", "")
 
 	creds, err := LoadCredentials(dir, "server")
 	if err != nil {
@@ -403,6 +427,9 @@ func TestLoadCredentials_RoundTrip_WriteAndReload(t *testing.T) {
 		},
 	}
 	writeTestConfig(t, filepath.Join(serverDir, "awg0.conf"), cfg)
+	// Peer private keys live in per-peer client configs, not the server config.
+	writePeerClientConfig(t, dir, "phone", phonePriv, phonePSK)
+	writePeerClientConfig(t, dir, "laptop", laptopPriv, laptopPSK)
 
 	creds, err := LoadCredentials(dir, "server")
 	if err != nil {
@@ -471,6 +498,8 @@ func TestLoadCredentials_Idempotent(t *testing.T) {
 		},
 	}
 	writeTestConfig(t, filepath.Join(serverDir, "awg0.conf"), cfg)
+	// Peer private key lives in the per-peer client config, not the server config.
+	writePeerClientConfig(t, dir, "phone", peerPriv, peerPSK)
 
 	creds1, _ := LoadCredentials(dir, "server")
 	creds2, _ := LoadCredentials(dir, "server")
@@ -483,5 +512,91 @@ func TestLoadCredentials_Idempotent(t *testing.T) {
 	}
 	if creds1.Peers["phone"].PresharedKey != creds2.Peers["phone"].PresharedKey {
 		t.Error("non-idempotent peer psk")
+	}
+}
+
+// TestLoadCredentials_PeerPrivkeyFromClientConfig pins the fix for the
+// credential-reuse bug: a peer's PrivateKey must come from its own client
+// config, never from the server config. The server config [Peer] section is
+// seeded with a stale "server-side" private key; LoadCredentials must ignore it
+// and return the key from output/<peer>/awg0.conf instead. Regression guard
+// for the rotate-on-every-generate bug.
+func TestLoadCredentials_PeerPrivkeyFromClientConfig(t *testing.T) {
+	dir := t.TempDir()
+	serverDir := filepath.Join(dir, "server")
+	if err := os.MkdirAll(serverDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := ServerConfig{
+		Interface: InterfaceConfig{
+			PrivateKey: "srv-priv", PublicKey: "srv-pub",
+			Address: "10.0.0.1/24", ListenPort: 51820, MTU: 1280,
+		},
+		Obfuscation: validObfuscation(t),
+		Peers: []PeerConfig{
+			{
+				Name: "phone",
+				// Stale server-side copy — must be ignored in favour of the
+				// peer's own client config.
+				PrivateKey:   "STALE-SERVER-SIDE-PRIV",
+				PublicKey:    "phone-pub",
+				PresharedKey: "phone-psk",
+				AllowedIPs:   "10.0.0.2/32",
+			},
+		},
+	}
+	writeTestConfig(t, filepath.Join(serverDir, "awg0.conf"), cfg)
+	writePeerClientConfig(t, dir, "phone", "phone-real-priv", "phone-psk")
+
+	creds, err := LoadCredentials(dir, "server")
+	if err != nil {
+		t.Fatalf("LoadCredentials: %v", err)
+	}
+	phone := creds.Peers["phone"]
+	if phone.PrivateKey != "phone-real-priv" {
+		t.Errorf("peer priv = %q, want %q (from client config, not server)",
+			phone.PrivateKey, "phone-real-priv")
+	}
+	if phone.PublicKey != "phone-pub" {
+		t.Errorf("peer pub = %q, want %q (from server config)", phone.PublicKey, "phone-pub")
+	}
+	if phone.PresharedKey != "phone-psk" {
+		t.Errorf("peer psk = %q, want %q", phone.PresharedKey, "phone-psk")
+	}
+}
+
+// TestLoadCredentials_PeerWithoutClientConfig covers a freshly declared peer
+// whose client config has not been generated yet: PrivateKey must be empty so
+// the pipeline generates a fresh keypair on the next run.
+func TestLoadCredentials_PeerWithoutClientConfig(t *testing.T) {
+	dir := t.TempDir()
+	serverDir := filepath.Join(dir, "server")
+	if err := os.MkdirAll(serverDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := ServerConfig{
+		Interface: InterfaceConfig{
+			PrivateKey: "srv-priv", PublicKey: "srv-pub",
+			Address: "10.0.0.1/24", ListenPort: 51820, MTU: 1280,
+		},
+		Obfuscation: validObfuscation(t),
+		Peers: []PeerConfig{
+			{Name: "phone", PublicKey: "phone-pub", PresharedKey: "phone-psk",
+				AllowedIPs: "10.0.0.2/32"},
+		},
+	}
+	writeTestConfig(t, filepath.Join(serverDir, "awg0.conf"), cfg)
+	// No client config for "phone" — simulates a newly added manifest peer.
+
+	creds, err := LoadCredentials(dir, "server")
+	if err != nil {
+		t.Fatalf("LoadCredentials: %v", err)
+	}
+	phone := creds.Peers["phone"]
+	if phone.PrivateKey != "" {
+		t.Errorf("peer priv = %q, want empty (no client config → fresh key on next run)",
+			phone.PrivateKey)
 	}
 }
