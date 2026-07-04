@@ -11,8 +11,7 @@
 
 <p align="center">
   <a href="https://pkg.go.dev/github.com/Arsolitt/amnezigo"><img src="https://pkg.go.dev/badge/github.com/Arsolitt/amnezigo.svg" alt="Go Reference"></a>
-  <a href="https://goreportcard.com/report/github.com/Arsolitt/amnezigo"><img src="https://goreportcard.com/badge/github.com/Arsolitt/amnezigo" alt="Go Report Card"></a>
-  <a href="https://github.com/Arsolitt/amnezigo/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Arsolitt/amnezigo?color=blue" alt="License"></a>
+  <a href="https://github.com/Arsolitt/amnezigo/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-blue" alt="License: GPL-3.0"></a>
   <a href="https://github.com/Arsolitt/amnezigo"><img src="https://img.shields.io/github/go-mod/go-version/Arsolitt/amnezigo?logo=go&logoColor=white" alt="Go Version"></a>
 </p>
 
@@ -121,4 +120,4 @@ You are an expert proficient in network protocols and AmneziaWG configuration.
 
 ## License
 
-[MIT](LICENSE)
+[GPL-3.0](LICENSE)
