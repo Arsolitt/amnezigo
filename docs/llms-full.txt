@@ -1233,10 +1233,10 @@ PublicKey = lmN7...serverPublicKey...=
 Address = 10.0.0.1/24
 ListenPort = 51820
 MTU = 1280
-PostUp = iptables -A INPUT -i awg0 -j ACCEPT; iptables -A OUTPUT -o awg0 -j ACCEPT; iptables -A FORWARD -i awg0 -o eth0 -s 10.0.0.1/24 -j ACCEPT; iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT; iptables -A FORWARD -i eth0 -o awg0 -d 10.0.0.1/24 -m state --state ESTABLISHED,RELATED -j ACCEPT; iptables -t nat -A POSTROUTING -s 10.0.0.1/24 -o eth0 -j MASQUERADE
-ip6tables -A INPUT -i awg0 -j ACCEPT; ip6tables -A OUTPUT -o awg0 -j ACCEPT; ip6tables -A FORWARD -i awg0 -o eth0 -s 10.0.0.1/24 -j ACCEPT; ip6tables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT; ip6tables -A FORWARD -i eth0 -o awg0 -d 10.0.0.1/24 -m state --state ESTABLISHED,RELATED -j ACCEPT; ip6tables -t nat -A POSTROUTING -s 10.0.0.1/24 -o eth0 -j MASQUERADE
-PostDown = iptables -D INPUT -i awg0 -j ACCEPT; iptables -D OUTPUT -o awg0 -j ACCEPT; iptables -D FORWARD -i awg0 -o eth0 -s 10.0.0.1/24 -j ACCEPT; iptables -D FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT; iptables -D FORWARD -i eth0 -o awg0 -d 10.0.0.1/24 -m state --state ESTABLISHED,RELATED -j ACCEPT; iptables -t nat -D POSTROUTING -s 10.0.0.1/24 -o eth0 -j MASQUERADE
-ip6tables -D INPUT -i awg0 -j ACCEPT; ip6tables -D OUTPUT -o awg0 -j ACCEPT; ip6tables -D FORWARD -i awg0 -o eth0 -s 10.0.0.1/24 -j ACCEPT; ip6tables -D FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT; ip6tables -D FORWARD -i eth0 -o awg0 -d 10.0.0.1/24 -m state --state ESTABLISHED,RELATED -j ACCEPT; ip6tables -t nat -D POSTROUTING -s 10.0.0.1/24 -o eth0 -j MASQUERADE
+PostUp = iptables -A INPUT -i awg0 -j ACCEPT; iptables -A OUTPUT -o awg0 -j ACCEPT; iptables -A FORWARD -i awg0 -o eth0 -s 10.0.0.0/24 -j ACCEPT; iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT; iptables -A FORWARD -i eth0 -o awg0 -d 10.0.0.0/24 -m state --state ESTABLISHED,RELATED -j ACCEPT; iptables -t nat -A POSTROUTING -s 10.0.0.0/24 -o eth0 -j MASQUERADE
+ip6tables -A INPUT -i awg0 -j ACCEPT; ip6tables -A OUTPUT -o awg0 -j ACCEPT; ip6tables -A FORWARD -i awg0 -o eth0 -s 10.0.0.0/24 -j ACCEPT; ip6tables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT; ip6tables -A FORWARD -i eth0 -o awg0 -d 10.0.0.0/24 -m state --state ESTABLISHED,RELATED -j ACCEPT; ip6tables -t nat -A POSTROUTING -s 10.0.0.0/24 -o eth0 -j MASQUERADE
+PostDown = iptables -D INPUT -i awg0 -j ACCEPT; iptables -D OUTPUT -o awg0 -j ACCEPT; iptables -D FORWARD -i awg0 -o eth0 -s 10.0.0.0/24 -j ACCEPT; iptables -D FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT; iptables -D FORWARD -i eth0 -o awg0 -d 10.0.0.0/24 -m state --state ESTABLISHED,RELATED -j ACCEPT; iptables -t nat -D POSTROUTING -s 10.0.0.0/24 -o eth0 -j MASQUERADE
+ip6tables -D INPUT -i awg0 -j ACCEPT; ip6tables -D OUTPUT -o awg0 -j ACCEPT; ip6tables -D FORWARD -i awg0 -o eth0 -s 10.0.0.0/24 -j ACCEPT; ip6tables -D FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT; ip6tables -D FORWARD -i eth0 -o awg0 -d 10.0.0.0/24 -m state --state ESTABLISHED,RELATED -j ACCEPT; ip6tables -t nat -D POSTROUTING -s 10.0.0.0/24 -o eth0 -j MASQUERADE
 Jc = 3
 Jmin = 40
 Jmax = 70
@@ -1268,10 +1268,6 @@ PresharedKey = 1Ym6...phonePSK...=
 AllowedIPs = 10.0.0.3/32
 #_GenKeyTime = 2026-07-04T12:00:00Z
 ```
-
-::: warning
-Notice the `-s 10.0.0.1/24` in the iptables rules above carries the server's **host** address, not the network `10.0.0.0/24`. This is a known quirk: the pipeline's `extractSubnet` zeroes the *third* octet (index 2) rather than the last, which is a no-op for the common `10.0.0.x/24` layout. The rules still function for typical single-server setups, but if your gateway is e.g. `10.0.5.1/24` the emitted subnet will be `10.0.0.1/24`, which is wrong. A correct `ExtractSubnet` exists in `helpers.go` but the pipeline does not use it.
-:::
 
 ## Client Config Structure
 
@@ -1379,9 +1375,6 @@ Each PostUp/PostDown family emits, in order:
 The `client-to-client` rule (step 5) is currently **dead code**: `ClientToClient` is hardcoded to `false` in the build pipeline, so that rule is never emitted regardless of the manifest. The remaining subnet/ruleset is what you will actually see.
 :::
 
-::: warning
-The `<subnet>` value plugged into the `-s`/`-d` rules comes from `extractSubnet(serverPeer.Address)`, which has the off-by-one quirk noted in the server example above. Verify the emitted subnet matches your network before relying on the NAT rules.
-:::
 ---
 url: /cli-reference
 ---
@@ -2715,19 +2708,6 @@ is always written (as `0` when `keepalive` is unset).
 
 **Fix:** for split tunneling, hand-edit the client config after generation,
 or post-process the output. Re-running `generate` will overwrite your edits.
-
-
-### `main_iface` iptables use the wrong subnet for non-zero third octets
-
-When a server peer sets `main_iface`, `generate` derives the iptables source
-subnet with an internal `extractSubnet` helper that replaces the **third**
-IPv4 octet instead of the last. For addresses whose third octet is already
-`0` (e.g. `10.0.0.1/24`, `10.8.0.1/24`) the output is correct; for any other
-subnet (e.g. `10.0.50.1/24`, `192.168.5.1/24`) the generated `PostUp`/
-`PostDown` rules reference the wrong network, so NAT/forwarding for your
-clients may not work. Workaround: choose a server address whose third octet
-is `0`, omit `main_iface`, or hand-edit the generated `PostUp`/`PostDown`
-lines to use the correct network address.
 
 ## Validation Pitfalls
 
