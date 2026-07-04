@@ -1,275 +1,299 @@
-# Agent Guidelines for Amnezigo
+# Repository Guidelines
 
-## Build/Test Commands
+Agent guidelines for **amnezigo** — a CLI tool and Go library that generates
+AmneziaWG v2.0 configurations from a declarative manifest. Module:
+`github.com/Arsolitt/amnezigo`, Go 1.26.1, GPL-3.0.
 
-- Build: `go build -o build/amnezigo ./cmd/amnezigo/`
-- Install: `go install github.com/Arsolitt/amnezigo/cmd/amnezigo@latest`
-- Run all tests: `go test ./...`
-- Run single test: `go test -run TestFunctionName ./internal/package`
-- Run tests with coverage: `go test -cover ./...`
-- Lint code: `golangci-lint run`
-- Lint and auto-fix: `golangci-lint run --fix`
-- Always run `golangci-lint run --fix` first to auto-resolve issues before fixing remaining ones manually
+> The repo completed a **declarative refactor** (plan phase P2): the legacy
+> imperative CLI (`init`/`add`/`edit`/`list`/`export`/`remove`) and the
+> `Manager` API were **removed entirely** (commit `226e4b8`). Only `generate`,
+> `validate`, and `analyze` remain. Any reference to the old commands or
+> `Manager` describes deleted code.
 
-## Project Structure
+## Project Overview
 
-```
-github.com/Arsolitt/amnezigo
-|
-+-- cmd/amnezigo/main.go            # CLI entry point (package main)
-|
-+-- internal/cli/                   # Cobra CLI commands (package cli)
-|   +-- cli.go                      # Root command + Execute()
-|   +-- init.go                     # init command
-|   +-- edit.go                     # edit command
-|   +-- add.go                      # add command
-|   +-- list.go                     # list command
-|   +-- export.go                   # export command
-|   +-- remove.go                   # remove command
-|
-+-- [root package: amnezigo]        # All business logic
-    +-- types.go                    # All type definitions
-    +-- parser.go                   # INI config parser (bufio.Scanner)
-    +-- writer.go                   # Config file writers (io.Writer)
-    +-- manager.go                  # High-level CRUD Manager
-    +-- keys.go                     # X25519 key generation
-    +-- generator.go                # Obfuscation param generation
-    +-- cps.go                      # Custom Packet String generation
-    +-- helpers.go                  # IP, port, interface utilities
-    +-- iptables.go                 # iptables rule generation
-    +-- protocols.go                # Protocol template dispatcher
-    +-- quic.go, dns.go, dtls.go, stun.go  # Protocol templates
+amnezigo is a **config generator** (not a daemon). It reads a single manifest
+(`amnezigo.json` or `.amnezigo.jsonnet`) describing the full network topology,
+resolves AWG obfuscation parameters and X25519 crypto, then emits ready-to-deploy
+`awg0.conf` files — one per server, one per client peer. Output is INI with `#_`
+metadata comments that let later runs **reuse peer credentials** across regenerations.
+
+It also doubles as an importable Go library: every business-logic function lives
+in the root package `amnezigo` and is callable without the CLI.
+
+## Architecture & Data Flow
+
+All business logic lives as `.go` files at the **repo root** in package `amnezigo`
+(no `internal/` for logic). The CLI is a thin cobra layer that calls into it.
+
+The core flow is **manifest → generate → configs**:
+
+```mermaid
+flowchart LR
+  M["manifest<br/>(.amnezigo.jsonnet or amnezigo.json)"] --> L[LoadManifest]
+  L --> G["Generate(manifest, opts)"]
+  G --> RO[resolveObfuscation]
+  G --> RC[resolvePeerCredentials<br/>key reuse via #_ metadata]
+  G --> BS[buildServerConfig]
+  G --> BC["buildClientConfig × N"]
+  BS & BC --> W["Write INI + #_ metadata<br/>output/&lt;server&gt;/awg0.conf<br/>output/&lt;peer&gt;/awg0.conf"]
 ```
 
-## Library API
+1. **`LoadManifest`** (`loader.go:26`) — discovers the manifest. `.amnezigo.jsonnet`
+   **takes precedence** over `amnezigo.json`; Jsonnet is evaluated to JSON then
+   parsed. Version field MUST equal `1` (`currentManifestVersion`).
+2. **`Generate`** (`pipeline.go:423`) — the orchestrator. Two-pass: compute all
+   configs in memory, then write. Ordered steps:
+   - `resolveObfuscation` (`pipeline.go:39`) — nil pointer fields in the manifest
+     signal "generate randomly"; fills S/H/J defaults.
+   - `LoadCredentials` + `resolvePeerCredentials` (`pipeline.go:164`) — reuse
+     persisted keys unless `--full-reset`; client keys recovered from each peer's
+     own client config and the server's `#_PrivateKey` metadata.
+   - `buildServerConfig` / `buildClientConfig` — build INI structs.
+   - Write each as `FileOutput{RelPath, Content}`. Server at `<serverName>/awg0.conf`,
+     each client at `<peerName>/awg0.conf`.
+3. **`WriteServerConfig` / `WriteClientConfig`** (`writer.go`) — INI serialization
+   with `#_`-prefixed metadata lines.
 
-### Manager (manager.go)
-High-level CRUD operations for server configs and peers:
-- `NewManager(configPath string) *Manager`
-- `Load() (ServerConfig, error)`
-- `Save(cfg ServerConfig) error`
-- `AddPeer(name, ip string) (PeerConfig, error)`
-- `RemovePeer(name string) error`
-- `FindPeer(name string) (*PeerConfig, error)`
-- `ListPeers() []PeerConfig`
-- `ExportPeer(name, protocol, endpoint string) (ClientConfig, error)`
-- `BuildPeerConfig(peer PeerConfig, protocol, endpoint string) (ClientConfig, error)`
+Key supporting modules:
 
-### Config I/O (parser.go, writer.go)
-- `ParseServerConfig(r io.Reader) (ServerConfig, error)`
-- `WriteServerConfig(w io.Writer, cfg ServerConfig) error`
-- `WriteClientConfig(w io.Writer, cfg ClientConfig) error`
-- `LoadServerConfig(path string) (ServerConfig, error)`
-- `SaveServerConfig(path string, cfg ServerConfig) error`
+- `generator.go` — random obfuscation params (S-prefixes, junk, header ranges).
+- `cps.go` — CPS (Custom Packet String) grammar and I-packet generation.
+- `protocols.go` + `quic.go`/`dns.go`/`dtls.go`/`stun.go`/`sip.go` — protocol
+  templates that mimic real wire formats; `getTemplate` dispatches by name.
+- `validation.go` — AWG 2.0 size-classification invariants and config findings.
+- `analysis.go` — `Analyze()` heuristic report (RISK001–009).
+- `keys.go` — X25519 keypair + PSK generation with WireGuard clamping.
+- `parser.go` — INI + `#_` metadata parser (server configs only).
 
-### Key Generation (keys.go)
-- `GenerateKeyPair() (string, string)` — panics on crypto/rand failure
-- `DerivePublicKey(privateKey string) string` — panics on invalid base64 or wrong length
-- `GeneratePSK() string` — panics on crypto/rand failure
+## Key Directories
 
-### Obfuscation (generator.go)
-- `GenerateConfig(protocol string, mtu, s1, jc int) ClientObfuscationConfig`
-- `GenerateServerConfig(_, s1, jc int) ServerObfuscationConfig` — first arg (protocol) ignored
-- `GenerateSPrefixes() SPrefixes`
-- `GenerateJunkParams() JunkParams`
-- `GenerateCPS(protocol string, mtu, s1, _ int) (string, string, string, string, string)` — 4th arg unused
-- `GenerateHeaderRanges() [4]HeaderRange`
+```
+cmd/amnezigo/main.go   # Entry point: func main() { cli.Execute() }
+internal/cli/          # Cobra commands: generate.go, validate.go, analyze.go, cli.go
+*.go                   # All business logic (root package `amnezigo`)
+testdata/loader/       # Manifest fixtures (valid/, precedence/, invalid-*, …)
+docs/                  # llms-full.txt is the source of truth; other guides are STALE (see below)
+docs/plans/            # P0–P3 roadmap plans (PR blueprints)
+```
 
-### CPS Generation (cps.go)
-- `BuildCPSTag(tagType, value string) string`
-- `BuildCPS(tags []string) string`
+## Development Commands
 
-### Protocol Templates (protocols.go, quic.go, dns.go, dtls.go, stun.go)
-- `QUICTemplate() I1I5Template`
-- `DNSTemplate() I1I5Template`
-- `DTLSTemplate() I1I5Template`
-- `STUNTemplate() I1I5Template`
+No Makefile. Use the Go toolchain directly:
 
-### Helpers (helpers.go)
-- `IsValidIPAddr(ipaddr string) bool`
-- `ExtractSubnet(ipaddr string) string`
-- `GenerateRandomPort() (int, error)`
-- `DetectMainInterface() string`
-- `FindNextAvailableIP(serverAddress string, existingIPs []string) (string, error)`
+```bash
+# Build (output gitignored under build/)
+go build -o build/amnezigo ./cmd/amnezigo/
 
-### iptables (iptables.go)
-- `GeneratePostUp(tunName, mainIface, subnet string, clientToClient bool) string`
-- `GeneratePostDown(tunName, mainIface, subnet string, clientToClient bool) string`
+# Install
+go install github.com/Arsolitt/amnezigo/cmd/amnezigo@latest
 
-## Code Style Guidelines
+# Tests
+go test ./...                       # all
+go test -run TestFunctionName .     # single root-package test (note: `.` not ./internal/...)
+go test -cover ./...                # coverage summary
+go test ./... -race                 # pre-merge gate
+
+# Lint (run --fix first to auto-resolve, then fix the rest)
+gofmt -l .                          # must be empty
+go vet ./...
+golangci-lint run --fix && golangci-lint run
+
+# Docker (multi-stage: golang:1.26-alpine → amneziavpn/amneziawg-go:0.2.16)
+docker build -t amnezigo .
+```
+
+Production binaries use `CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w"`
+(see `Dockerfile`). Pre-merge quality bar: green tests + `go vet` clean +
+`gofmt -l .` empty + `golangci-lint run` zero errors + `go test ./... -race`.
+
+## Code Conventions & Common Patterns
+
+### Package layout
+- Root package `amnezigo` holds **all** business logic; `internal/cli` is a thin
+  cobra wrapper; `cmd/amnezigo` is a one-line entry point. Tests are co-located
+  with implementation (`*_test.go` in package `amnezigo`, white-box).
 
 ### Imports
-- Order: stdlib, external packages, internal packages (each group separated by blank line)
-- Use aliases only when necessary to avoid conflicts
-- Example:
-  ```go
-  import (
-      "fmt"
-      "os"
+stdlib, then external, then internal — blank line between groups:
+```go
+import (
+    "fmt"
+    "os"
 
-      "github.com/spf13/cobra"
+    "github.com/spf13/cobra"
 
-      "github.com/Arsolitt/amnezigo"
-  )
-  ```
+    "github.com/Arsolitt/amnezigo"
+)
+```
+`goimports` local prefix is `github.com/Arsolitt/amnezigo`.
 
-### Types & Structs
-- Define types in dedicated `types.go` files within packages
-- Exported fields use CamelCase, unexported fields use camelCase
-- Use struct tags only for serialization (JSON, INI, etc.)
-- Group related fields with blank lines between sections
+### Error handling
+- Wrap with context: `fmt.Errorf("loading manifest: %w", err)`.
+- Generator retry loops panic on exhaustion (fail-fast, e.g. `sMaxAttempts`).
+- `tryDerivePublicKey` recovers a panic → returns `""` so the pipeline regenerates.
+- CLI commands use `RunE` and return wrapped errors (except `validate`, which
+  calls `os.Exit(1)` directly via the `exitFn` override seam).
 
-### Functions
-- Exported functions use PascalCase, private functions use camelCase
-- Keep functions focused and under 50 lines when possible
-- Use early returns to reduce nesting
-- Return errors, don't panic unless unrecoverable
+### Crypto & randomness
+- **`crypto/rand` everywhere in production** (via `math/big`). `math/rand` is
+  **forbidden** in non-test files by the linter — use `math/rand/v2` if needed.
+- WireGuard key clamping: `priv[0] &= 248; priv[31] &= 127; priv[31] |= 64`.
+- Keys base64 (`StdEncoding`, 44 chars); `GenerateKeyPair`/`DerivePublicKey`/
+  `GeneratePSK` panic only on unrecoverable system failures.
 
-### Error Handling
-- Wrap errors with `fmt.Errorf("context: %w", err)` to preserve stack traces
-- Check errors immediately after function calls
-- Use `t.Fatalf()` for test setup failures, `t.Errorf()` for assertion failures
+### Determinism
+- Peer iteration is **sorted** (`sort.Strings`) in `Generate`, `buildServerConfig`,
+  and `PeerNames()`. Never rely on Go map iteration order.
 
-### Naming Conventions
-- CLI flags use snake_case with Var prefix: `var addIPAddr string`
-- Variables use descriptive names, avoid abbreviations (e.g., `configPath` not `cfgPath`)
-- Constants use PascalCase for exported, camelCase for internal
-- Test functions follow `TestFunctionName` pattern
-- Factory functions use `New*Command()` pattern for CLI commands
+### Config format: INI + `#_` metadata
+- Standard INI keys (`[Interface]` / `[Peer]`, `key = value`).
+- Lines prefixed `#_` are **persisted metadata** (parsed back); bare `#` are
+  ignored comments. Example: `#_PrivateKey`, `#_EndpointV4`, `#_Name`, `#_GenKeyTime`.
+- `HeaderRange` serialized as `min-max` (uint32).
 
-### Comments
-- Package comments describe purpose and responsibilities
-- Function comments start with what it does, not how
-- Comment complex logic, not obvious code
-- Exported symbols must have comments
+### Atomicity & I/O
+- `SaveServerConfig` (`writer.go:139`) writes atomically: `.tmp` + `os.Rename`.
+- **`Generate` writes via plain `os.WriteFile` (`0600`), NOT the atomic helper** —
+  a mid-run failure can leave partial output. (There is no `SaveClientConfig` or
+  `ParseClientConfig`; client configs are read only by the lightweight
+  `extractClientCredentials` scanner for key recovery.)
 
-### File Organization
-- CLI entry point: `cmd/amnezigo/main.go`
-- Root package: `package amnezigo` (all business logic in types.go, parser.go, writer.go, etc.)
-- CLI commands: `internal/cli/` (thin wrappers calling amnezigo package functions)
-- Tests: `*_test.go` alongside implementation
-- Related functions grouped by responsibility (parser.go, writer.go, etc.)
+### Pointer-nil semantics in the manifest
+`ObfuscationManifest` uses `*int` / `*HeaderRange` to distinguish "set to 0"
+from "unset" — `nil` drives the random-fallback in `resolveObfuscation`.
 
-### Testing
-- Write tests for all exported functions
-- Use table-driven tests for multiple test cases
-- Test both success and error paths
-- Use `strings.NewReader()` or `bytes.Buffer` for I/O testing
+### CPS tag grammar (`cps.go`)
+Supported tags (the legacy `<c>` counter tag is **deliberately removed** — it is
+kernel-module-only and breaks `amneziawg-go` + all AmneziaVPN clients):
 
-### Cobra CLI Commands
-- Define commands with `Use`, `Short`, `Long`, and `Args` fields
-- Use `RunE` for error handling, not `Run`
-- Store flag variables as package-level vars
-- Initialize flags in `init()` function
-- Use factory functions: `NewAddCommand()`, `NewListCommand()`, `NewExportCommand()`, `NewRemoveCommand()`, `NewEditCommand()`
+| Tag | Meaning | Length |
+|-----|---------|--------|
+| `<b 0xNN>` | literal bytes (hex) | `len(NN)/2` |
+| `<r N>` | N random bytes | N |
+| `<rc N>` | N chars from `[a-zA-Z]` (52-char alphabet) | N |
+| `<rd N>` | N random digits | N |
+| `<t>` | timestamp (uint32 BE) | 4 |
+| `<d>` | data passthrough (AWG 2.0 userspace) | 0 |
 
-### Configuration
-- Config files use INI format with [Section] headers
-- Store metadata in commented fields with `#_` prefix
-- `ServerConfig` has `Peers []PeerConfig`
-- Use atomic writes: write to `.tmp` file, then rename
+### CLI conventions
+- `spf13/cobra` v1.8.0. Commands built via `New*Command()` factories — **no
+  `init()`**; flag setup lives inside each factory.
+- Flag names are kebab-case (`--full-reset`, `--dry-run`, `--jpath`).
+- `generate`/`analyze` bind closure-local vars; `validate` binds package-level
+  vars (not re-entrant). Prefer the closure style for new commands.
+- All user output goes through `cmd.OutOrStdout()` so tests inject a buffer.
 
-### Crypto/Security
-- Use `crypto/rand` for cryptographic randomness
-- WireGuard key clamping: `priv[0] &= 248; priv[31] &= 127; priv[31] |= 64`
-- Generate keys with proper error handling (panic only on system failures)
+## Important Files
 
-### Obfuscation Patterns
+| File | Role |
+|------|------|
+| `cmd/amnezigo/main.go` | Entry point → `cli.Execute()` |
+| `internal/cli/cli.go` | Root command + `Execute()`; registers the 3 subcommands |
+| `internal/cli/generate.go` | `generate` — manifest → configs pipeline driver |
+| `internal/cli/validate.go` | `validate <config>` — lint a server config against AWG 2.0 invariants |
+| `internal/cli/analyze.go` | `analyze` — RISK001–009 heuristics + size profiles |
+| `manifest.go` | User-facing manifest schema (`Manifest`, `PeerManifest`, `ObfuscationManifest`) |
+| `loader.go` | Manifest discovery + Jsonnet/JSON precedence + version validation |
+| `pipeline.go` | `Generate()` orchestrator — the heart of the system |
+| `credentials.go` | Peer key reuse across runs |
+| `generator.go` | Random obfuscation generation |
+| `cps.go` | CPS grammar + I-packet generation |
+| `protocols.go` + `quic/dns/dtls/stun/sip.go` | Protocol templates + `getTemplate` dispatch |
+| `validation.go` | `ValidatePacketSizes`, `ValidateHeaderRange`, `ValidateServerConfig` |
+| `analysis.go` | `Analyze()` report + RISK heuristics |
+| `keys.go` | X25519 keypair + PSK |
+| `parser.go` / `writer.go` | INI + `#_` metadata parse/serialize |
+| `presets.go` | Named obfuscation bundles (`lan-conservative`, `home-balanced`, `mobile-aggressive`, `test-minimal`) |
+| `testdata/loader/valid/amnezigo.json` | Canonical reference manifest |
+| `docs/llms-full.txt` | **Source-of-truth** AI-friendly doc (current architecture) |
 
-- Store H1-H4 as HeaderRange{Min, Max} for ranges
-- I1-I5 CPS strings generated per-peer at export time
-- Protocol templates in root package (quic.go, dns.go, dtls.go, stun.go, sip.go)
-- Use tag-based CPS construction: `<b 0x...>`, `<r N>`, `<rc N>`, `<rd N>`, `<t>`, `<d>`
+## Runtime / Tooling Preferences
 
-### Adding a New Protocol Template (P1.2 framework)
+- **Go 1.26.1** (pinned in `go.mod`; `installation.md` confirms Go 1.26+ required).
+- Direct deps: `github.com/google/go-jsonnet` v0.22.0, `github.com/spf13/cobra`
+  v1.8.0, `golang.org/x/crypto` v0.45.0 (curve25519). No test-only deps beyond stdlib.
+- **Linter**: `golangci-lint` v2.6.2 with a strict "golden config" (~70 linters).
+  Notable: `depguard` forbids `math/rand` (non-test), `log` outside main (use
+  `log/slog`); `mnd` flags magic numbers; `golines` enforces **120-char** max line
+  length; `goimports` local prefix `github.com/Arsolitt/amnezigo`.
+- No Makefile; all commands are plain `go` / `golangci-lint` / `docker`.
+- `.gitignore` excludes `bin`, `build`, `*.conf`, `*.config`.
 
-Every new protocol template MUST satisfy this contract. Reviewers reject PRs that miss any item.
+## Testing & QA
 
-**Required interface**
+- **Stdlib `testing` only — no testify.** Assertions are manual
+  `if got != want { t.Errorf(...) }`; `t.Fatalf` for setup failures.
+- **Two-step error contract** in failure tests: assert `err != nil`, then
+  `strings.Contains(err.Error(), expectedSubstring)`. **Error substrings are part
+  of the public contract** — editing a message in `loader.go`/`validation.go`
+  silently breaks tests.
+- **Naming**: `TestFunctionName` for unit tests; `TestFunctionName_Scenario` for
+  variants. Table-driven (`t.Run`) for fan-out (protocols, presets, MTU, boundary
+  values); one-test-per-case for targeted regressions.
+- **Fixtures**: real files under `testdata/loader/<sub>/` accessed via
+  `filepath.Join("testdata", "loader", ...)`. **Tests are path-relative and only
+  pass when `go test ./...` runs from the repo root** (where `package amnezigo`
+  lives).
+- **No `t.Parallel()`** in root tests (the `tparallel` linter is on but
+  `paralleltest` is off). Adding it is allowed but unprecedented.
+- In-memory I/O via `strings.NewReader` / `bytes.Buffer`; filesystem via
+  `t.TempDir()`. No golden-file pattern.
+- Randomness in tests relies on statistical variety over many iterations (e.g.
+  `TestGenerateKeyPairUniqueness` loops 100×), not seeded RNG. The `analyze --seed`
+  flag seeds an injected `io.Reader` (`math/rand/v2` PCG) only inside the CLI.
+- All test helpers call `t.Helper()`.
 
-- File `<protocol>.go` at the repository root.
-- Constructor `XxxTemplate() I1I5Template` — pure data construction, no I/O, no globals.
-- Test file `<protocol>_test.go` co-located.
-- Switch case key, `--protocol` flag value, and doc table row all match the file's lowercase short-name.
+### Reference manifest
+`testdata/loader/valid/amnezigo.json` is the canonical manifest all loader/
+generator tests build on: `version=1`, `network.mtu=1280`, obfuscation
+(`protocol:"quic"`, `s1:30`/`s2:35`/`s3:20`/`s4:12`, full H1–H4, `jc:5`/
+`jmin:250`/`jmax:750`), 2 peers (`server` + `phone`).
 
-**Tag mix rules**
+## Adding a New Protocol Template
 
-- No `<c>` tag (removed in P0.1). For pseudo-monotonic bytes use `<rd N>` or `<r N>`.
-- `<t>` is 4 bytes (post-P0.2).
-- `<rc>` is `[a-zA-Z]` only (post-P0.5). For mixed letter+digit fields, concatenate `<rc 4><rd 2>`.
-- At most one `<t>` per interval.
-- No new tag types — propose those in P1.1, not in a template PR.
+Every new protocol template MUST satisfy this contract. Reviewers reject PRs that
+miss any item. (sip.go + sip_test.go is the reference implementation.)
+
+**Required**
+- File `<protocol>.go` at the repo root with constructor `XxxTemplate() I1I5Template`
+  (pure data, no I/O/globals).
+- Co-located `<protocol>_test.go`.
+- A `case` in `protocols.go:getTemplate` switch, append the constructor to the
+  random-fallback slice, a row in `TestGetTemplate_NamedProtocols`
+  (`protocols_test.go`), and the `--protocol` flag helptext in `internal/cli/analyze.go`.
+
+**Tag rules**
+- No `<c>` tag (removed in P0.1). For pseudo-monotonic bytes use `<rd N>` / `<r N>`.
+- `<t>` is 4 bytes; at most one `<t>` per interval. `<rc>` is `[a-zA-Z]` only.
 
 **Byte budget**
+- Each interval ≥ 16 B (avoid raw-WG size collisions) and ≤ `MTU - 49 - 149 - S1`.
+- Recommended ceiling ≤ 700 B per interval; `I5` always empty; `I1 ≥ I2 ≥ I3 ≥ I4`.
+- Leading bytes must not collide with any prefix in the `existingTemplatePrefixes`
+  slice in `protocols_test.go` — new fixed prefixes MUST be appended there in the
+  same PR.
 
-- Each interval >= 16 B (avoid raw-WG size collisions).
-- Each interval <= `MTU - 49 - 149 - S1` (worst case MTU=1280, S1=64 -> 1018 B).
-- Recommended ceiling <= 700 B per interval; raise only with reviewer agreement.
-- I5 always empty (`[]TagSpec{}` literal) for named templates.
-- I1 >= I2 >= I3 >= I4 in byte budget (STUN's I2 > I1 is a known exception).
-- Leading bytes should not collide with any prefix in the centralized `existingTemplatePrefixes` slice in `protocols_test.go`. New templates that introduce a fixed prefix MUST append it to that slice in the same PR.
+**Required per-template tests**
+`TestXxxTemplate_AllIntervalsNonEmpty_I1ToI4`, `_I5Empty`, `_NoForbiddenTags`,
+`_NoCounterLiteral`, `_FitsMTU`, `_ByteBudgetUnderCeiling`,
+`_AtMostOneTimestampPerInterval`, `_AvoidsExistingPrefixes` (calls
+`assertTemplateAvoidsExistingPrefixes`).
 
-**Required tests**
+## Gotchas
 
-- `TestXxxTemplate_AllIntervalsNonEmpty_I1ToI4`
-- `TestXxxTemplate_I5Empty`
-- `TestXxxTemplate_NoForbiddenTags`
-- `TestXxxTemplate_NoCounterLiteral` — scans the rendered CPS string for `<c>` substring
-- `TestXxxTemplate_FitsMTU`
-- `TestXxxTemplate_ByteBudgetUnderCeiling`
-- `TestXxxTemplate_AtMostOneTimestampPerInterval`
-- `TestXxxTemplate_AvoidsExistingPrefixes` (recommended if leading bytes are fixed; calls the shared `assertTemplateAvoidsExistingPrefixes` helper)
-- One row added to `TestGetTemplate_NamedProtocols` in `protocols_test.go`.
-
-**Wiring checklist (each template PR ticks every box)**
-
-- [ ] `protocols.go:getTemplate` switch — new `case`
-- [ ] `protocols.go:getTemplate` random-fallback slice — append constructor
-- [ ] `protocols.go:getTemplate` doc-comment — append protocol name
-- [ ] `protocols_test.go:TestGetTemplate_NamedProtocols` — append row
-- [ ] `internal/cli/export.go` — extend `--protocol` helptext
-- [ ] `docs/cli-reference.md` — extend allowed-values list and protocol table
-- [ ] `docs/obfuscation.md` — extend Available Protocols table
-
-**Quality bar**
-
-`go test ./... -race` green. `gofmt -l .` empty. `go vet ./...` clean. `golangci-lint run` zero errors. PR description ticks every wiring-checklist box explicitly.
-
-### Config File Parsing
-- Use bufio.Scanner for line-by-line INI parsing
-- Skip empty lines and regular comments (# prefix)
-- Parse commented metadata fields with #_ prefix
-- Handle sections with [SectionName] headers
-- Parse H1-H4 ranges as "min-max" string format
-
-### File I/O Patterns
-- Load configs: `os.Open()` → `ParseServerConfig(file)`
-- Save configs: `Create(.tmp)` → `Write()` → `Rename(tmp, path)`
-- Always defer file.Close() after opening
-- Use atomic writes to prevent corruption
-
-### IP Address Handling
-- Parse CIDR with `net.ParseCIDR()` to get subnet
-- Use `ipnet.Contains()` to check subnet membership
-- Convert IP to bytes with `ip.To4()` for IPv4
-- Find next available IP by iterating subnet (.2 to .254)
-
-### Package Organization
-- `package amnezigo` (root): All business logic (config, crypto, obfuscation, network)
-- `cmd/amnezigo/`: CLI entry point (package main)
-- `internal/cli/`: Cobra CLI commands (package cli, thin wrappers over root package)
-
-### Common Patterns
-- Use string slices for collecting config data
-- Use maps for quick lookup (existing IPs, etc.)
-- Generate random values with `rand.Int(rand.Reader, range)`
-- Hex encoding with `encoding/hex.EncodeToString()`
-- Time parsing with `time.Parse(time.RFC3339, value)`
-- Switch statements for key/value parsing
-- Use `continue` in loops to skip invalid entries
-
-### Error Message Format
-- Prefix with context: `"failed to load config: %w"`
-- Include specific identifiers when available: `"peer '%s' not found"`
-- Use fmt.Errorf for wrapping, not log.Printf
-- Return errors from RunE functions, don't log inside
+- **`generate` is not atomic on disk** — it writes via `os.WriteFile`, not
+  `SaveServerConfig`. A mid-run crash can leave a partial `output/` tree.
+- **Per-client I1–I5 are not stored in the server config** — they live only in
+  each client's own `awg0.conf`. CPS strings are regenerated every run; only
+  crypto keys are reused.
+- **Each client's PrivateKey is stored as `#_PrivateKey` in the server config's
+  `[Peer]`** — this is the key-reuse recovery source, alongside the client config.
+- **Docs split**: `docs/llms-full.txt` is current. The standalone guides
+  (`installation.md`, `cli-reference.md`, `configuration.md`, `library-usage.md`,
+  `obfuscation.md`) document the **removed** imperative CLI and are stale.
+- **`validate` always parses with `Strict:true`** regardless of `--strict`;
+  `--strict` only affects the exit code (warnings → exit 1). `--quiet` is
+  text/summary-only (ignored in JSON mode).
+- **`analyze` always exits 0** — findings are informational.
+- Default protocol is `quic`; default MTU is `1280` when unset in the manifest.
