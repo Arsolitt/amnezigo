@@ -1,11 +1,22 @@
-# Amnezigo
+<p align="center">
+  <img src="assets/amnezigo-logo.png" alt="Amnezigo" width="256">
+</p>
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/Arsolitt/amnezigo.svg)](https://pkg.go.dev/github.com/Arsolitt/amnezigo)
-[![Go Report Card](https://goreportcard.com/badge/github.com/Arsolitt/amnezigo)](https://goreportcard.com/report/github.com/Arsolitt/amnezigo)
+<h1 align="center">Amnezigo</h1>
 
-**Amnezia** + **Go** = **Amnezigo**
+<p align="center">
+  <strong>Amnezia</strong> + <strong>Go</strong> = <strong>Amnezigo</strong><br>
+  A CLI tool and Go library for generating <a href="https://github.com/amnezia-vpn/amneziawg">AmneziaWG</a> v2.0 configurations from a declarative manifest.
+</p>
 
-A CLI tool and Go library for generating [AmneziaWG](https://github.com/amnezia-vpn/amneziawg) v2.0 configurations from a declarative manifest.
+<p align="center">
+  <a href="https://pkg.go.dev/github.com/Arsolitt/amnezigo"><img src="https://pkg.go.dev/badge/github.com/Arsolitt/amnezigo.svg" alt="Go Reference"></a>
+  <a href="https://goreportcard.com/report/github.com/Arsolitt/amnezigo"><img src="https://goreportcard.com/badge/github.com/Arsolitt/amnezigo" alt="Go Report Card"></a>
+  <a href="https://github.com/Arsolitt/amnezigo/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Arsolitt/amnezigo?color=blue" alt="License"></a>
+  <a href="https://github.com/Arsolitt/amnezigo"><img src="https://img.shields.io/github/go-mod/go-version/Arsolitt/amnezigo?logo=go&logoColor=white" alt="Go Version"></a>
+</p>
+
+---
 
 ## Features
 
@@ -23,10 +34,16 @@ A CLI tool and Go library for generating [AmneziaWG](https://github.com/amnezia-
 
 ## Quick Start
 
-Install:
+Install the CLI:
 
 ```shell
 go install github.com/Arsolitt/amnezigo/cmd/amnezigo@latest
+```
+
+Or build with Docker:
+
+```shell
+docker build -t amnezigo .
 ```
 
 Declare your network in `amnezigo.json` — one server peer (sets both `endpoint` and `listen_port`) plus any number of client peers:
@@ -89,7 +106,7 @@ The complete, AI-friendly documentation lives in a single file:
 
 It is recommended to copy the following prompt and send it to an AI assistant — this can significantly improve the quality of generated AmneziaWG configurations:
 
-```
+```text
 https://raw.githubusercontent.com/Arsolitt/amnezigo/refs/heads/main/docs/llms-full.txt This link is the full documentation of Amnezigo.
 
 【Role Setting】
