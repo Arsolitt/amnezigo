@@ -187,7 +187,7 @@ For the full field-by-field breakdown — including why `h1`–`h4` cannot overl
 
 The obfuscation profile above is *shared*, but each client **also** gets its own **custom packet strings** — the `I1` through `I4` lines in the example config. (There is an `I5` slot too, but it is left empty for the built-in protocol templates.) These strings are **client-only**: they never appear on the server's `[Interface]`, and they differ from client to client.
 
-Each client's CPS shape is chosen by a **protocol**: `quic`, `dns`, `dtls`, `stun`, or `sip`. The protocol is set per-peer (`"protocol": "dns"` on a client). CPS strings are written in a small tag mini-language — for example `<b 0xc0>` emits a fixed byte, `<r 12>` emits twelve random bytes, `<t>` emits a four-byte timestamp, and `<d>` is a runtime passthrough expanded by the AWG 2.0 userspace. Different protocols compose these tags differently, so one client's handshake can mimic QUIC while another's mimics DNS.
+Each client's CPS shape is chosen by a **protocol**: `quic`, `dns`, `dtls`, `stun`, `sip`, or `rtp`. The protocol is set per-peer (`"protocol": "dns"` on a client). CPS strings are written in a small tag mini-language — for example `<b 0xc0>` emits a fixed byte, `<r 12>` emits twelve random bytes, `<t>` emits a four-byte timestamp, and `<d>` is a runtime passthrough expanded by the AWG 2.0 userspace. Different protocols compose these tags differently, so one client's handshake can mimic QUIC while another's mimics DNS.
 
 ::: warning Not every tag works everywhere
 The `<c>` counter tag does **not** exist — it was removed and is rejected by amneziawg-go and all AmneziaVPN clients ("unknown tag"). The `<d>` tag requires the AWG **2.0** userspace; the legacy kernel module rejects it. Stick to `<b>`, `<r>`, `<rc>`, `<rd>`, `<t>`, and `<d>`.
@@ -1956,6 +1956,27 @@ The invariant has three legs (`ValidatePacketSizes` in `validation.go`):
 
 `generate` builds every config in memory and panics if any of these fail — they never reach disk.
 
+## How AmneziaWG Defeats DPI
+
+A passive DPI box fingerprints vanilla WireGuard along several independent axes. AWG 2.0 breaks each one with a dedicated knob — the invariants above exist so the four knobs do not collide with each other on the wire.
+
+| DPI signal | What vanilla WG leaks | AWG countermeasure | Parameter |
+|---|---|---|---|
+| Handshake initiation is the first large UDP packet to a fixed port | The 148-byte initiation stands out as the session opener | Bury it behind `Jc` random-length junk packets | `Jc`, `Jmin`, `Jmax` |
+| Message type byte is `{1,2,3,4}` at offset 0 | The first 4 bytes identify the WG message type | Replace with a random value drawn from a wide range | `H1`–`H4` |
+| Fixed handshake sizes 148 / 92 / 64 | A size histogram reveals the WG handshake | Pad each message with `Sn` random bytes | `S1`, `S2`, `S3` |
+| Fixed keepalive/transport size 32 | Steady-state data has a recognizable length floor | Pad every transport packet (the bulk of real traffic) | `S4` |
+| Statistical/timing shape of a VPN flow | Packet cadence and size distribution look like a tunnel | Prepend 1–5 cover packets mimicking a real UDP protocol so DPI buckets the flow as permitted | `I1`–`I5` + `protocol` |
+
+**Why the invariants exist — receive-side classification.** The AWG receiver (`DeterminePacketTypeAndPadding` in `amneziawg-go` `device/receive.go`) classifies every inbound packet by two checks: its length must equal `Sn + baseSize` for exactly one message type, **and** its first 4 bytes must fall inside that type's `Hn` range. If two padded sizes coincided, or a junk/I-packet length matched a padded size whose random header happened to land in-range, the receiver would misclassify. Amnezigo enforces the three legs of the invariant so this never happens by construction.
+
+**S4 is the high-leverage pad.** `S1`–`S3` pad only the handshake (which fires roughly every two minutes); `S4` pads *every transport-data packet* — the overwhelming majority of bytes in a real session. Raising `S4` is the single most effective way to blur steady-state size fingerprinting, at the cost of `S4` extra bytes per packet (~`S4`/MTU throughput overhead). If bandwidth is constrained, lower `S4` first; if a censor is profiling data-plane sizes, raise it.
+
+:::: tip Amnezigo is stricter than upstream
+Neither `amneziawg-go` (the runtime) nor the AmneziaVPN desktop/mobile client (the reference generator) enforce cross-field size checks. Upstream accepts a junk range that overlaps a padded size, or a junk packet matching a raw WG length — the receiver simply drops the misclassified junk, but a censor can still observe the leakage. Amnezigo's `ValidatePacketSizes` rejects all eight collisions, and its generator retries until the range is clean. The AmneziaVPN client also hardcodes `Jmin=10` (below the 32-byte minimum the receiver will even look at), while amnezigo's generator floor is `64`. The cost of this strictness is zero — every config valid upstream also satisfies amnezigo's checks, and the extra collisions amnezigo forbids are ones you would never want.
+::::
+
+
 ::: tip Numeric obfuscation fields are POINTERS — omit ≠ zero
 In `amnezigo.json`, `s1`–`s4`, `h1`–`h4`, `jc`, `jmin`, `jmax` decode to `*int` / `*HeaderRange`. Omitting a key = `nil` = **random generation** at build time. Setting the field, even to `0`, = **fixed**. So `{"s1":0}` is a legal fixed-zero S-prefix and is *not* the same as omitting `s1`. Random fill is bounded: S1–S3 ∈ [0,64], S4 ∈ [0,32], Jc ∈ [0,10], Jmin/Jmax ∈ [64,1024], H ranges as below.
 :::
@@ -2107,6 +2128,7 @@ The top-level `obfuscation.protocol` is **decorative** — `generate` does not r
 | `dtls` | DTLS 1.2 ClientHello (RFC 6347) | `0x16` ContentType=Handshake | `<b>` for record/handshake headers, `<t>` + `<r 28>` for the 32-byte Random | I1 carries a realistic cipher-suite list |
 | `stun` | STUN Binding Request (RFC 5389) | `0x0001` message type | `<b 0x2112a442>` magic cookie, `<r 12>` transaction ID | I2 adds a PADDING attribute |
 | `sip` | SIP OPTIONS request over UDP (RFC 3261) | ASCII `"OPTIONS "` (`0x4f...`) | `<rc>` for user/host tokens, `<rd>` for CSeq digits | No `<t>` (timestamp), no `<r>` — pure ASCII |
+| `rtp` | RTP media packet (RFC 3550) | `0x80` V=2 first byte | `<b>` for fixed header (V/PT), `<r>` for seq/SSRC/payload, `<t>` for 32-bit timestamp | Binary-only (no `<rc>`/`<rd>`); PT=0 (PCMU/G.711 μ-law) |
 | `random` | (none — standalone intervals) | none | 3–6 tags drawn from `{b, r, rc, rd, t}`, at most one `<t>` | Fills all five intervals; never emits `<d>` |
 
 **`random` tag selection** (`generateRandomTags` in `cps.go`): 3–6 tags per interval (`minTagCount = 3`, `maxTagCount = 6`); `<b>` payload length 4–16 bytes (`minByteLen = 4`, `maxByteLen = 16`); `<r>`/`<rc>`/`<rd>` sizes 5–40 (`minSize = 5`, `maxSize = 40`); at most one `<t>` per interval. `<d>` is excluded from random mode — it has no chaining context there.
@@ -2144,6 +2166,29 @@ With the default MTU `1280` and `S1 = 0`, `maxISize = 1082`. Raise `S1` and the 
 ::: warning Tiny MTU collapses every interval to `<t>`
 If `maxISize ≤ 0` (e.g. very large `S1` combined with a small MTU), every interval falls back to bare `<t>` (4 bytes). Named-template intervals are shrunk tag-by-tag before this fallback; `random` mode retries, then perturbs, then falls back. Keep `MTU − S1 > 198` (i.e. `MTU − S1 ≥ 199`) to avoid this.
 :::
+
+## Choosing Parameters
+
+The built-in [presets](/presets) cover the common cases; the heuristics below guide manual tuning. Run `amnezigo analyze` on a generated config to surface the RISK001–RISK009 findings referenced here.
+
+**Size prefixes.** Keep `S4 ≥ 8` (RISK003) — below that, keepalive packets (`32 + S4` bytes) are trivially distinguishable. Larger `S4` masks data-plane sizes better but costs throughput (~`S4`/MTU per packet). `S1`–`S3` matter less (handshakes are rare) but must keep all four padded sizes ≥ 5 bytes apart (RISK004) and clear of the raw WG sizes `148`/`92`/`64`/`32` (RISK005). Note that a large `S1` shrinks the I-packet budget (`maxISize = MTU − 198 − S1`), weakening protocol mimicry.
+
+**Header ranges.** Each `Hn` range should span at least ~1 M values (RISK007) — a 2-value range is barely better than the fixed type-byte it replaces, while a ~100 M-value range is effectively uncountable for DPI memorization. The four ranges must be pairwise non-overlapping (the receiver disambiguates message type by which range the header lands in) and must avoid `[1..4]` (so vanilla WireGuard traffic is not accidentally accepted). Wide ranges cost nothing at runtime — they are classification windows, not packet sizes.
+
+**Junk.** `Jc` controls noise density before each handshake; `Jmin`/`Jmax` control its size spread. Keep the range width ≥ 32 (RISK006) and entirely clear of all padded and raw WG sizes. A wider range (`Jmax − Jmin ≥ 500`) gives junk a less predictable size distribution; a higher `Jc` (≥ 5) buries the handshake more thoroughly but adds `Jc` packet-times of latency to each rekey.
+
+**Cover protocol (`I1`–`I5`).** Pick a UDP-based protocol common on your network — `dns`, `quic`, `stun`, `sip`, `dtls` are all good choices; `random` emits standalone random tags and is not a real protocol (a censor may flag unrecognised UDP). Keep I-packet sizes in the 100–500 B sweet spot, never above the ~1200 B MTU ceiling, and ensure the five sizes span ≥ 20 B (RISK002) so they do not form a tight, fingerprintable cluster. `I5` is empty for named templates.
+
+**MTU.** The default `1280` is safe everywhere (IPv6 minimum, avoids fragmentation on most links). `1420` (the classic WireGuard MTU) gives more I-packet headroom but can fragment on IPv6 links with a 1500-byte Ethernet MTU once obfuscation overhead is added — see below. Keep `MTU − S1 ≥ 199`, or every I-interval collapses to a bare `<t>` (4 bytes).
+
+**S4 + MTU fragmentation constraint.** `S4` is prepended to *every* transport-data packet, so the outer IP packet grows by `S4` bytes. For no IP fragmentation on a standard 1500-byte Ethernet link:
+
+```
+tunnel_MTU + S4 ≤ 1440   (IPv4 outer transport: 20 IP + 8 UDP + 32 WG = 60 fixed)
+tunnel_MTU + S4 ≤ 1420   (IPv6 outer transport: 40 IP + 8 UDP + 32 WG = 80 fixed)
+```
+
+Every MTU-1280 preset satisfies both with ≥ 100 bytes of headroom. `standard-1420` (`MTU 1420`, `S4 16`) is IPv4-safe (4-byte margin) but **exceeds the IPv6 budget by 16 bytes** — use it only when the outer transport is IPv4, or the physical link supports jumbo frames (≥ 1520 MTU). This is not specific to amnezigo: even vanilla WireGuard at MTU 1420 on IPv6 sits at the exact 1500-byte limit, so any obfuscation padding pushes it over.
 
 ## Manifest Reference — `obfuscation.*`
 
@@ -2190,13 +2235,13 @@ Fully pinned obfuscation (matches the `home-balanced` preset):
 }
 ```
 
-See [Built-in Presets](/presets) for four ready-made parameter bundles you can copy verbatim.
+See [Built-in Presets](/presets) for seven ready-made parameter bundles you can copy verbatim.
 ---
 url: /presets
 ---
 # Built-in Presets
 
-Amnezigo ships four **named bundles of obfuscation parameters** in `presets.go`, each tuned for a network environment. Every preset is valid by construction: its `S1`–`S4` produce four pairwise-distinct AWG-padded handshake sizes, its junk range `[Jmin..Jmax]` excludes all padded and raw WireGuard sizes, and its `H1`–`H4` ranges are non-overlapping and above the WireGuard type-id window `[1..4]`.
+Amnezigo ships seven **named bundles of obfuscation parameters** in `presets.go`, each tuned for a network environment. Every preset is valid by construction: its `S1`–`S4` produce four pairwise-distinct AWG-padded handshake sizes, its junk range `[Jmin..Jmax]` excludes all padded and raw WireGuard sizes, and its `H1`–`H4` ranges are non-overlapping and above the WireGuard type-id window `[1..4]`.
 
 ::: danger Presets are DATA — there is NO `preset` manifest field
 The README's old `amnezigo init --preset NAME` command and the `Manager.InitWithPreset` API are **STALE and gone**. The `init`/`add`/`edit`/`remove`/`export`/`list` commands and the `Manager` type were all removed — only `generate`, `validate`, and `analyze` exist today. `generate` does **not** resolve a preset name. To use a preset, **copy its values into `obfuscation.*`** in your manifest (or expose them through a Jsonnet lib). See [How To Use A Preset](#how-to-use-a-preset).
@@ -2204,13 +2249,16 @@ The README's old `amnezigo init --preset NAME` command and the `Manager.InitWith
 
 ## Preset Table
 
-All four presets use **MTU 1280**. `H1`–`H4` are ranges shown as `min–max`.
+Six presets use **MTU 1280** (IPv6-safe, avoids fragmentation); `standard-1420` uses **1420** for more I-packet headroom. `H1`–`H4` are ranges shown as `min–max`.
 
 | Name | MTU | S1 | S2 | S3 | S4 | H1 | H2 | H3 | H4 | Jc | Jmin | Jmax | DefaultProtocol | When to use |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | `lan-conservative` | 1280 | 10 | 10 | 15 | 5 | 10–1000000 | 2000000–100000000 | 200000000–500000000 | 700000000–2000000000 | 3 | 160 | 240 | `random` | Corporate LANs with minimal DPI; low overhead preferred over deep obfuscation. |
 | `home-balanced` | 1280 | 30 | 35 | 20 | 12 | 100–5000000 | 10000000–200000000 | 400000000–800000000 | 1000000000–2100000000 | 5 | 250 | 750 | `quic` | Good default for home internet where some DPI may exist but is not aggressive. |
 | `mobile-aggressive` | 1280 | 60 | 60 | 50 | 24 | 50–10000000 | 50000000–500000000 | 700000000–1200000000 | 1500000000–2147000000 | 8 | 500 | 1000 | `dns` | Carrier networks with heavy DPI inspection (MTS, Beeline, etc.). Maximum entropy. |
+| `stealth-paranoid` | 1280 | 30 | 24 | 20 | 40 | 50–50000000 | 100000000–600000000 | 700000000–1300000000 | 1500000000–2147000000 | 10 | 300 | 1100 | `quic` | Hostile DPI / national firewalls (GFW, Iran). Large `S4` pads every transport packet; wide junk, wide headers. Highest per-packet cost (~3%). |
+| `standard-1420` | 1420 | 32 | 28 | 20 | 16 | 100–5000000 | 10000000–200000000 | 400000000–800000000 | 1000000000–2100000000 | 5 | 250 | 800 | `quic` | Balanced profile at the classic WG MTU 1420 — more I-packet headroom. **IPv4-only** outer transport (fragments on IPv6; see S4+MTU constraint). |
+| `low-overhead` | 1280 | 12 | 10 | 8 | 8 | 50–50000000 | 100000000–400000000 | 500000000–900000000 | 1100000000–2100000000 | 2 | 180 | 320 | `dns` | Bandwidth-constrained links (satellite, metered). `S4` at the 8 B floor; minimal junk. Trades masking for throughput. |
 | `test-minimal` | 1280 | 5 | 7 | 7 | 7 | 5–10000 | 20000–50000 | 100000–500000 | 1000000–5000000 | 1 | 200 | 250 | `random` | Smallest valid parameter set — integration testing and CI **only**. NOT for production. |
 
 ::: warning DefaultProtocol is metadata only
@@ -2224,7 +2272,24 @@ For reference, the AWG-padded handshake sizes each preset produces (`S1+148`, `S
 | `lan-conservative` | 158 | 102 | 79 | 37 |
 | `home-balanced` | 178 | 127 | 84 | 44 |
 | `mobile-aggressive` | 208 | 152 | 114 | 56 |
+| `stealth-paranoid` | 178 | 116 | 84 | 72 |
+| `standard-1420` | 180 | 120 | 84 | 48 |
+| `low-overhead` | 160 | 102 | 72 | 40 |
 | `test-minimal` | 153 | 99 | 71 | 39 |
+
+## Quick Pick
+
+| Your situation | Preset |
+|---|---|
+| Just want it to work — home broadband, light DPI | `home-balanced` |
+| On mobile carrier with active DPI (MTS, Beeline, Megafon) | `mobile-aggressive` |
+| Behind a national firewall / hostile censor (GFW, Iran) | `stealth-paranoid` |
+| Corporate LAN, barely any DPI, want low overhead | `lan-conservative` |
+| Link allows MTU 1420 (IPv4 outer) and you want richer cover packets | `standard-1420` |
+| Satellite / metered / very slow — every byte counts | `low-overhead` |
+| Writing a test or CI pipeline | `test-minimal` |
+
+When in doubt, start with `home-balanced`, run `amnezigo analyze` on the generated config, and escalate to `mobile-aggressive` or `stealth-paranoid` only if RISK findings or real-world blocking warrant it.
 
 ## How To Use A Preset
 
@@ -2689,7 +2754,7 @@ drives I1-I5 generation, defaulting to `quic` when empty. The testdata
 manifests set `obfuscation.protocol`, which gives the impression it matters.
 
 **Fix:** set `protocol` on each client peer (`"quic"`, `"dns"`, `"dtls"`,
-`"stun"`, `"sip"`, or `"random"`). Ignore `obfuscation.protocol` for now.
+`"stun"`, `"sip"`, `"rtp"`, or `"random"`). Ignore `obfuscation.protocol` for now.
 
 ### `analyze` reads `awg0.conf` from the current directory by default
 

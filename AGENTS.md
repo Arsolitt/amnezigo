@@ -59,7 +59,7 @@ Key supporting modules:
 
 - `generator.go` — random obfuscation params (S-prefixes, junk, header ranges).
 - `cps.go` — CPS (Custom Packet String) grammar and I-packet generation.
-- `protocols.go` + `quic.go`/`dns.go`/`dtls.go`/`stun.go`/`sip.go` — protocol
+- `protocols.go` + `quic.go`/`dns.go`/`dtls.go`/`stun.go`/`sip.go`/`rtp.go` — protocol
   templates that mimic real wire formats; `getTemplate` dispatches by name.
 - `validation.go` — AWG 2.0 size-classification invariants and config findings.
 - `analysis.go` — `Analyze()` heuristic report (RISK001–009).
@@ -199,12 +199,12 @@ kernel-module-only and breaks `amneziawg-go` + all AmneziaVPN clients):
 | `credentials.go` | Peer key reuse across runs |
 | `generator.go` | Random obfuscation generation |
 | `cps.go` | CPS grammar + I-packet generation |
-| `protocols.go` + `quic/dns/dtls/stun/sip.go` | Protocol templates + `getTemplate` dispatch |
+| `protocols.go` + `quic/dns/dtls/stun/sip/rtp.go` | Protocol templates + `getTemplate` dispatch |
 | `validation.go` | `ValidatePacketSizes`, `ValidateHeaderRange`, `ValidateServerConfig` |
 | `analysis.go` | `Analyze()` report + RISK heuristics |
 | `keys.go` | X25519 keypair + PSK |
 | `parser.go` / `writer.go` | INI + `#_` metadata parse/serialize |
-| `presets.go` | Named obfuscation bundles (`lan-conservative`, `home-balanced`, `mobile-aggressive`, `test-minimal`) |
+| `presets.go` | Named obfuscation bundles (`lan-conservative`, `home-balanced`, `mobile-aggressive`, `stealth-paranoid`, `standard-1420`, `low-overhead`, `test-minimal`) |
 | `testdata/loader/valid/amnezigo.json` | Canonical reference manifest |
 | `docs/llms-full.txt` | **Source-of-truth** AI-friendly doc (current architecture) |
 

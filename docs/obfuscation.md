@@ -1,3 +1,5 @@
+> **⚠ STALE — kept for history only.** This standalone guide documents the removed imperative CLI (`init`/`add`/`export`) and contains factual drift (e.g. it claims `<t>` is 8 bytes; the correct value is **4 bytes**, see `cps.go:cpsTimestampSize`). The authoritative, current obfuscation reference — including parameter-selection principles, sizing tables, and all seven built-in presets — lives in [`docs/llms-full.txt`](llms-full.txt) under the `/obfuscation` and `/presets` pages. Use that file instead.
+
 # Obfuscation Parameters
 
 > How AmneziaWG traffic obfuscation works and what each parameter controls.

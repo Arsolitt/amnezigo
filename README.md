@@ -85,8 +85,11 @@ Built-in presets provide tuned obfuscation parameters for common network environ
 | Preset | Description |
 | --- | --- |
 | `lan-conservative` | Small S values, narrow junk range for corporate LANs with minimal DPI |
-| `home-balanced` | Moderate parameters for home internet connections |
-| `mobile-aggressive` | Maximum entropy for carrier networks with heavy DPI |
+| `home-balanced` | Moderate parameters for home internet connections (default) |
+| `mobile-aggressive` | Large S/junk for carrier networks with heavy DPI (MTS, Beeline) |
+| `stealth-paranoid` | Max `S4` + wide junk/headers for hostile DPI (GFW, Iran); ~3% per-packet cost |
+| `standard-1420` | Balanced profile at the classic WG MTU 1420 — more I-packet headroom |
+| `low-overhead` | Minimal overhead for bandwidth-constrained links (satellite, metered) |
 | `test-minimal` | Smallest valid set for integration testing and CI |
 
 Use `amnezigo.GetPreset(name)` from Go code, or copy the values from the [Presets reference](docs/llms-full.txt).
