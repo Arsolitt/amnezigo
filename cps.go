@@ -102,7 +102,7 @@ func BuildCPS(tags []string) string {
 // holds packet sizes (typically the four AWG-padded handshake sizes) that
 // each I-packet length must avoid.
 func generateCPSConfig(protocol string, mtu, s1 int, forbidden [4]int) CPSConfig {
-	if protocol == "random" {
+	if protocol == protocolRandom {
 		return generateSimpleCPS(mtu, s1, forbidden)
 	}
 	return generateProtocolCPS(protocol, mtu, s1, forbidden)

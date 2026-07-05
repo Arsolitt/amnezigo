@@ -89,7 +89,7 @@ func TestGenerateProtocolCPSMTUConstraints(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			for _, protocol := range []string{"quic", "dns", "dtls", "stun"} {
+			for _, protocol := range []string{protocolQUIC, protocolDNS, protocolDTLS, protocolSTUN, protocolSIP, protocolRTP} {
 				t.Run(protocol, func(t *testing.T) {
 					cps := generateProtocolCPS(protocol, tt.mtu, tt.s1, [4]int{})
 					maxI := calculateMaxISize(tt.mtu, tt.s1)
@@ -112,7 +112,7 @@ func TestGenerateProtocolCPSMTUConstraints(t *testing.T) {
 
 // TestGenerateProtocolCPSZeroMaxI tests edge case where maxI is zero.
 func TestGenerateProtocolCPSZeroMaxI(t *testing.T) {
-	for _, protocol := range []string{"quic", "dns", "dtls", "stun"} {
+	for _, protocol := range []string{protocolQUIC, protocolDNS, protocolDTLS, protocolSTUN, protocolSIP, protocolRTP} {
 		t.Run(protocol, func(t *testing.T) {
 			// MTU so small that maxI becomes 0
 			mtu := 100

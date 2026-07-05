@@ -12,7 +12,7 @@ import (
 // Analysis heuristic thresholds.
 const (
 	// defaultAnalysisProtocol is the default protocol used when none is specified.
-	defaultAnalysisProtocol = "random"
+	defaultAnalysisProtocol = protocolRandom
 
 	// iPacketClusterMinWidth is the minimum acceptable spread of I-packet sizes.
 	iPacketClusterMinWidth = 20

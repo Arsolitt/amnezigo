@@ -11,11 +11,12 @@ func TestGetTemplate_NamedProtocols(t *testing.T) {
 		protocol string
 		wantNil  bool
 	}{
-		{"quic", false},
-		{"dns", false},
-		{"dtls", false},
-		{"stun", false},
+		{protocolQUIC, false},
+		{protocolDNS, false},
+		{protocolDTLS, false},
+		{protocolSTUN, false},
 		{protocolSIP, false},
+		{protocolRTP, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.protocol, func(t *testing.T) {
@@ -83,6 +84,7 @@ var existingTemplatePrefixes = [][]byte{
 	{0x16},             // DTLS handshake content type
 	{0x00, 0x01},       // STUN binding request message type
 	[]byte("OPTIONS "), // SIP OPTIONS method literal
+	{0x80},             // RTP V=2 first byte
 	// future templates append here
 }
 

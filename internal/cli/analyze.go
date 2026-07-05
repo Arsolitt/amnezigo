@@ -50,7 +50,7 @@ Use --seed N for reproducible output (0 = crypto/rand).`,
 	}
 
 	cmd.Flags().StringVar(&protocol, "protocol", "random",
-		"obfuscation protocol: random, quic, dns, dtls, stun")
+		"obfuscation protocol: random, quic, dns, dtls, stun, sip, rtp")
 	cmd.Flags().StringVar(&peerName, "peer", "",
 		"analyze only this peer (empty = all)")
 	cmd.Flags().StringVar(&output, "output", outputFormatText,
