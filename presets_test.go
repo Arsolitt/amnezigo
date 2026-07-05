@@ -58,6 +58,9 @@ func TestGetPreset_Known(t *testing.T) {
 		"lan-conservative",
 		"home-balanced",
 		"mobile-aggressive",
+		"stealth-paranoid",
+		"standard-1420",
+		"low-overhead",
 		"test-minimal",
 	}
 	for _, name := range expectedNames {
@@ -86,11 +89,11 @@ func TestGetPreset_Unknown(t *testing.T) {
 }
 
 // TestListPresets_ReturnsAll verifies that ListPresets returns at least the
-// four required presets and that every entry has a non-empty Name.
+// seven built-in presets and that every entry has a non-empty Name.
 func TestListPresets_ReturnsAll(t *testing.T) {
 	presets := ListPresets()
-	if len(presets) < 4 {
-		t.Errorf("expected at least 4 presets, got %d", len(presets))
+	if len(presets) < 7 {
+		t.Errorf("expected at least 7 presets, got %d", len(presets))
 	}
 	seen := make(map[string]bool)
 	for _, p := range presets {
@@ -103,7 +106,10 @@ func TestListPresets_ReturnsAll(t *testing.T) {
 		seen[p.Name] = true
 	}
 
-	required := []string{"lan-conservative", "home-balanced", "mobile-aggressive", "test-minimal"}
+	required := []string{
+		"lan-conservative", "home-balanced", "mobile-aggressive",
+		"stealth-paranoid", "standard-1420", "low-overhead", "test-minimal",
+	}
 	for _, name := range required {
 		if !seen[name] {
 			t.Errorf("required preset %q not found in ListPresets()", name)
@@ -149,11 +155,13 @@ func TestPresetMTU(t *testing.T) {
 // TestPresetDefaultProtocol verifies each preset has a valid default protocol.
 func TestPresetDefaultProtocol(t *testing.T) {
 	validProtocols := map[string]bool{
-		"random": true,
-		"quic":   true,
-		"dns":    true,
-		"dtls":   true,
-		"stun":   true,
+		protocolRandom: true,
+		protocolQUIC:   true,
+		protocolDNS:    true,
+		protocolDTLS:   true,
+		protocolSTUN:   true,
+		protocolSIP:    true,
+		protocolRTP:    true,
 	}
 	presets := ListPresets()
 	for _, p := range presets {

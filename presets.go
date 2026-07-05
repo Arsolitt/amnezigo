@@ -40,10 +40,13 @@ func (p Preset) ToServerObfuscation() ServerObfuscationConfig {
 //
 // Padded sizes per preset (for quick reference during review):
 //
-//	lan-conservative:  S1+148=158, S2+92=102, S3+64=79, S4+32=37  → all distinct
-//	home-balanced:     S1+148=178, S2+92=127, S3+64=84, S4+32=44  → all distinct
-//	mobile-aggressive: S1+148=208, S2+92=152, S3+64=114, S4+32=56 → all distinct
-//	test-minimal:      S1+148=153, S2+92=99,  S3+64=71, S4+32=39  → all distinct
+//	lan-conservative:  S1+148=158, S2+92=102, S3+64=79,  S4+32=37  → all distinct
+//	home-balanced:     S1+148=178, S2+92=127, S3+64=84,  S4+32=44  → all distinct
+//	mobile-aggressive: S1+148=208, S2+92=152, S3+64=114, S4+32=56  → all distinct
+//	stealth-paranoid:  S1+148=178, S2+92=116, S3+64=84,  S4+32=72  → all distinct
+//	standard-1420:     S1+148=180, S2+92=120, S3+64=84,  S4+32=48  → all distinct
+//	low-overhead:      S1+148=160, S2+92=102, S3+64=72,  S4+32=40  → all distinct
+//	test-minimal:      S1+148=153, S2+92=99,  S3+64=71,  S4+32=39  → all distinct
 //
 // Junk ranges must exclude ALL padded sizes AND raw WG constants (148, 92, 64, 32).
 //
@@ -64,7 +67,7 @@ var presetRegistry = []Preset{
 		H2:              HeaderRange{Min: 2000000, Max: 100000000},
 		H3:              HeaderRange{Min: 200000000, Max: 500000000},
 		H4:              HeaderRange{Min: 700000000, Max: 2000000000},
-		DefaultProtocol: "random",
+		DefaultProtocol: protocolRandom,
 	},
 	{
 		Name:            "home-balanced",
@@ -98,7 +101,65 @@ var presetRegistry = []Preset{
 		H2:              HeaderRange{Min: 50000000, Max: 500000000},
 		H3:              HeaderRange{Min: 700000000, Max: 1200000000},
 		H4:              HeaderRange{Min: 1500000000, Max: 2147000000},
-		DefaultProtocol: "dns",
+		DefaultProtocol: protocolDNS,
+	},
+	{
+		Name: "stealth-paranoid",
+		Description: "Maximum steady-state masking for hostile DPI (national firewalls, " +
+			"deep statistical inspection). Large S4 pads every transport packet; wide junk " +
+			"range, high junk count, wide header ranges. Highest throughput cost (~3% per packet).",
+		MTU:             1280,
+		S1:              30,
+		S2:              24,
+		S3:              20,
+		S4:              40,
+		Jc:              10,
+		Jmin:            300,
+		Jmax:            1100,
+		H1:              HeaderRange{Min: 50, Max: 50000000},
+		H2:              HeaderRange{Min: 100000000, Max: 600000000},
+		H3:              HeaderRange{Min: 700000000, Max: 1300000000},
+		H4:              HeaderRange{Min: 1500000000, Max: 2147000000},
+		DefaultProtocol: protocolQUIC,
+	},
+	{
+		Name: "standard-1420",
+		Description: "Balanced profile at the classic WireGuard MTU 1420. Same masking " +
+			"strength as home-balanced but with more I-packet headroom (maxISize 1190) for " +
+			"richer protocol mimicry. Use when the link MTU allows 1420. Note: S4+MTU exceeds " +
+			"the IPv6 Ethernet budget by 16 B — use IPv4 outer transport or a jumbo-frame link.",
+		MTU:             1420,
+		S1:              32,
+		S2:              28,
+		S3:              20,
+		S4:              16,
+		Jc:              5,
+		Jmin:            250,
+		Jmax:            800,
+		H1:              HeaderRange{Min: 100, Max: 5000000},
+		H2:              HeaderRange{Min: 10000000, Max: 200000000},
+		H3:              HeaderRange{Min: 400000000, Max: 800000000},
+		H4:              HeaderRange{Min: 1000000000, Max: 2100000000},
+		DefaultProtocol: protocolQUIC,
+	},
+	{
+		Name: "low-overhead",
+		Description: "Minimal-overhead profile for bandwidth-constrained links (satellite, " +
+			"metered, slow cellular). S4 at the RISK003 floor (8 B), low junk count, DNS cover. " +
+			"Trades masking strength for throughput; still fully valid and obfuscated.",
+		MTU:             1280,
+		S1:              12,
+		S2:              10,
+		S3:              8,
+		S4:              8,
+		Jc:              2,
+		Jmin:            180,
+		Jmax:            320,
+		H1:              HeaderRange{Min: 50, Max: 50000000},
+		H2:              HeaderRange{Min: 100000000, Max: 400000000},
+		H3:              HeaderRange{Min: 500000000, Max: 900000000},
+		H4:              HeaderRange{Min: 1100000000, Max: 2100000000},
+		DefaultProtocol: protocolDNS,
 	},
 	{
 		Name:            "test-minimal",
@@ -115,7 +176,7 @@ var presetRegistry = []Preset{
 		H2:              HeaderRange{Min: 20000, Max: 50000},
 		H3:              HeaderRange{Min: 100000, Max: 500000},
 		H4:              HeaderRange{Min: 1000000, Max: 5000000},
-		DefaultProtocol: "random",
+		DefaultProtocol: protocolRandom,
 	},
 }
 
