@@ -23,7 +23,7 @@
 - **One-shot generation** — `amnezigo generate` builds the server plus every client config in a single atomic run
 - **Credential reuse** — keys are recovered from existing output, so re-running `generate` keeps peers stable
 - **AmneziaWG obfuscation** — S1–S4 size prefixes, H1–H4 header ranges, junk packets, and per-client I1–I5 custom packet strings
-- **Protocol templates** — QUIC, DNS, DTLS, STUN, and SIP handshake shapes
+- **Protocol templates** — QUIC, DNS, DTLS, STUN, SIP, and RTP handshake shapes
 - **Built-in presets** — tuned parameter sets for LAN, home, mobile, and CI environments
 - **iptables rules** — PostUp/PostDown NAT and forwarding generated when `main_iface` is set
 - **Validation** — `amnezigo validate` checks configs against AWG 2.0 invariants
@@ -92,17 +92,19 @@ Built-in presets provide tuned obfuscation parameters for common network environ
 | `low-overhead` | Minimal overhead for bandwidth-constrained links (satellite, metered) |
 | `test-minimal` | Smallest valid set for integration testing and CI |
 
-Use `amnezigo.GetPreset(name)` from Go code, or copy the values from the [Presets reference](docs/llms-full.txt).
+Use `amnezigo.GetPreset(name)` from Go code, or copy the values from the [Presets reference](docs/presets.md).
 
 ## Documentation
 
-The complete, AI-friendly documentation lives in a single file:
+Human-readable reference docs live under [`docs/`](docs/README.md):
 
-| Page | Description |
-|------|-------------|
-| [**llms-full.txt**](docs/llms-full.txt) | Overview, quick start, manifest reference, examples, output format, CLI reference, credentials, Jsonnet, obfuscation, presets, validation, gotchas |
+| Section | Pages |
+|---------|-------|
+| Getting started | [Overview](docs/overview.md) · [Installation](docs/installation.md) · [Quick Start](docs/quick-start.md) |
+| Reference | [Manifest](docs/manifest-reference.md) · [Examples](docs/manifest-examples.md) · [CLI](docs/cli-reference.md) · [Library](docs/library-usage.md) · [Output Format](docs/output-format.md) · [Obfuscation](docs/obfuscation.md) · [Presets](docs/presets.md) |
+| Guides | [Jsonnet](docs/jsonnet.md) · [Credentials](docs/credentials.md) · [Validation](docs/validation.md) · [Gotchas](docs/gotchas.md) |
 
-> **Note:** The standalone guides under `docs/` (`installation.md`, `cli-reference.md`, `configuration.md`, `library-usage.md`, `obfuscation.md`) describe the **pre-declarative** imperative CLI (`init` / `add` / `export`), which was removed in the declarative refactor. Treat `llms-full.txt` as the source of truth.
+The AI-friendly single-file documentation is at [docs/llms-full.txt](docs/llms-full.txt).
 
 ## Using with AI Assistants
 

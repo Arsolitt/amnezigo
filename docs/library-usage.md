@@ -1,43 +1,58 @@
-# Using as a Go Library
+# Library Usage
 
-> Use Amnezigo as a Go library to generate and manage AmneziaWG configurations programmatically.
+> Go API reference for `github.com/Arsolitt/amnezigo` — the declarative config-generator library that powers the `amnezigo` CLI.
 
 ## Table of Contents
 
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Manager API](#manager-api)
-- [Config Parsing & Writing](#config-parsing--writing)
-- [Key Generation](#key-generation)
-- [Obfuscation](#obfuscation)
-- [CPS Construction](#cps-construction)
-- [Protocol Templates](#protocol-templates)
-- [Network Helpers](#network-helpers)
-- [iptables Rules](#iptables-rules)
-- [Type Reference](#type-reference)
-- [Gotchas & Important Notes](#gotchas--important-notes)
+- [Import & overview](#import--overview)
+- [Generate pipeline](#generate-pipeline)
+- [Manifest loading](#manifest-loading)
+- [Manifest types & methods](#manifest-types--methods)
+- [Crypto / keys](#crypto--keys)
+- [Validation](#validation)
+- [Analysis](#analysis)
+- [Presets](#presets)
+- [Credentials](#credentials)
+- [Library gotchas](#library-gotchas)
 
 ---
 
-## Installation
+## Import & overview
 
-```bash
-go get github.com/Arsolitt/amnezigo
+```go
+import "github.com/Arsolitt/amnezigo"
 ```
 
-All business logic lives in the root package `amnezigo`. CLI commands are in `internal/cli` as thin wrappers over this package.
+The root package `amnezigo` exposes every business-logic entry point: manifest loading, the generate pipeline, validation, analysis, presets, credential reuse, and X25519 key utilities. The `amnezigo` binary (see [CLI Reference](./cli-reference.md)) is a thin wrapper over `LoadManifest` → `Generate` → `ValidateServerConfig` → `Analyze`; the same calls are available to any Go program. There is no `Manager` type and no `init`/`add`/`edit`/`remove`/`export`/`list` surface — generation is driven by a single declarative manifest (see [Manifest Reference](./manifest-reference.md)).
 
----
+## Generate pipeline
 
-## Quick Start
+`Generate` is the single orchestrator. It resolves obfuscation, loads or reuses credentials, builds one server config plus one client config per client peer, and writes them to disk unless `DryRun` is set or `OutputDir` is empty.
 
-This example demonstrates the full workflow: creating a manager, adding a peer, and exporting a client configuration.
+| Symbol | Signature | Purpose |
+|---|---|---|
+| `GenerateOptions` | `type GenerateOptions struct { ProjectDir string; OutputDir string; JpathDirs []string; PeerFilter []string; DryRun bool; FullReset bool }` | Configures the generate pipeline: project/output dirs, Jsonnet `jpath`, optional peer filter, dry-run, and credential reset. |
+| `GenerateResult` | `type GenerateResult struct { ServerPeer string; Files []FileOutput; ClientPeers []string; Findings []Finding }` | Output of a generate run: server peer name, all file outputs, client peer names, and any findings. |
+| `FileOutput` | `type FileOutput struct { RelPath string; Content []byte }` | A single generated file: path relative to the output dir and its byte content. |
+| `Generate` | `func Generate(manifest Manifest, opts GenerateOptions) (GenerateResult, error)` | Orchestrates the full pipeline: resolve obfuscation, load/reuse credentials, build server + client configs, and write them unless `DryRun` or `OutputDir == ""`. |
+
+### Options detail
+
+| Field | Type | Effect |
+|---|---|---|
+| `ProjectDir` | `string` | Project root (informational; the manifest is loaded separately via `LoadManifest`). |
+| `OutputDir` | `string` | Where configs are written as `<OutputDir>/<peer>/awg0.conf`. Empty → nothing is written (in-memory only). |
+| `JpathDirs` | `[]string` | Jsonnet library search paths; forwarded to manifest loading. |
+| `PeerFilter` | `[]string` | When non-empty, only the named client peers are built and written; the server is always built. |
+| `DryRun` | `bool` | When `true`, configs are computed and returned in `result.Files` but never written. |
+| `FullReset` | `bool` | When `true`, persisted keys are discarded and fresh credentials are generated for every peer. |
+
+### End-to-end example
 
 ```go
 package main
 
 import (
-    "bytes"
     "fmt"
     "log"
 
@@ -45,676 +60,210 @@ import (
 )
 
 func main() {
-    mgr := amnezigo.NewManager("awg0.conf")
-
-    peer, err := mgr.AddPeer("laptop", "")
+    // 1. Load the manifest (".amnezigo.jsonnet" wins over "amnezigo.json").
+    manifest, err := amnezigo.LoadManifest("./my-project", nil)
     if err != nil {
-        log.Fatal(err)
+        log.Fatalf("load manifest: %v", err)
     }
-    fmt.Printf("Added peer %s with IP %s\n", peer.Name, peer.AllowedIPs)
 
-    clientCfg, err := mgr.ExportPeer("laptop", "quic", "1.2.3.4:51820")
+    // 2. Generate configs. With DryRun we inspect the result without writing.
+    result, err := amnezigo.Generate(manifest, amnezigo.GenerateOptions{
+        OutputDir: "./my-project/output",
+        DryRun:    true,
+    })
     if err != nil {
-        log.Fatal(err)
+        log.Fatalf("generate: %v", err)
     }
 
-    var buf bytes.Buffer
-    if err := amnezigo.WriteClientConfig(&buf, clientCfg); err != nil {
-        log.Fatal(err)
+    fmt.Println("server peer:", result.ServerPeer)
+    for _, f := range result.Files {
+        fmt.Printf("  %s (%d bytes)\n", f.RelPath, len(f.Content))
     }
-    fmt.Println(buf.String())
+
+    // 3. Generate only selected client peers and write them to disk.
+    result, err = amnezigo.Generate(manifest, amnezigo.GenerateOptions{
+        OutputDir:  "./my-project/output",
+        PeerFilter: []string{"phone", "laptop"},
+    })
+    if err != nil {
+        log.Fatalf("generate: %v", err)
+    }
+    fmt.Println("clients written:", result.ClientPeers)
 }
 ```
 
-> **Note:** Before adding peers, you need a server configuration file. Use the `amnezigo init` CLI command or build a `ServerConfig` struct manually and save it with `amnezigo.SaveServerConfig`.
-
----
-
-## Manager API
-
-The `Manager` struct provides high-level CRUD operations for server configurations and peers. It wraps config file I/O and peer management into a single interface.
-
-```go
-mgr := amnezigo.NewManager("awg0.conf")
-```
-
-### NewManager
-
-```go
-func NewManager(configPath string) *Manager
-```
-
-Creates a new Manager bound to a config file path. No file is read at this point.
-
-### Load
-
-```go
-func (m *Manager) Load() (ServerConfig, error)
-```
-
-Reads and parses the server configuration from disk.
-
-### Save
-
-```go
-func (m *Manager) Save(cfg ServerConfig) error
-```
-
-Writes the server configuration to disk using atomic writes (write to `.tmp`, then rename).
-
-### AddPeer
-
-```go
-func (m *Manager) AddPeer(name, ip string) (PeerConfig, error)
-```
-
-Creates a new peer with generated keys. If `ip` is empty, the next available IP in the server's subnet is auto-assigned. Returns the created `PeerConfig`.
-
-Errors: `"peer with name '<name>' already exists"`, `"failed to load server config: ..."`, `"failed to assign IP address: ..."`
-
-```go
-peer, err := mgr.AddPeer("phone", "")
-peer, err := mgr.AddPeer("desktop", "10.8.0.50")
-```
-
-### RemovePeer
-
-```go
-func (m *Manager) RemovePeer(name string) error
-```
-
-Removes a peer by name.
-
-Error: `"peer '<name>' not found"`
-
-### FindPeer
-
-```go
-func (m *Manager) FindPeer(name string) (*PeerConfig, error)
-```
-
-Returns a pointer to the peer with the given name.
-
-> **Warning:** The returned pointer points into the loaded config. Modifying it does **not** persist changes — you must call `Save` afterward.
-
-Error: `"peer '<name>' not found"`
-
-### ListPeers
-
-```go
-func (m *Manager) ListPeers() []PeerConfig
-```
-
-Returns all peers.
-
-> **Warning:** Returns `nil` on load error instead of returning an error. Always check for `nil`.
-
-```go
-peers := mgr.ListPeers()
-if peers == nil {
-    // load error occurred
-    return
-}
-for _, p := range peers {
-    fmt.Println(p.Name, p.AllowedIPs)
-}
-```
-
-### ExportPeer
-
-```go
-func (m *Manager) ExportPeer(name, protocol, endpoint string) (ClientConfig, error)
-```
-
-Generates a full client configuration for the named peer. The `protocol` parameter determines the I1-I5 CPS strings: `"quic"`, `"dns"`, `"dtls"`, `"stun"`, or `"random"`. The `endpoint` is the server address (e.g., `"1.2.3.4:51820"`).
-
-The exported client config always uses `AllowedIPs = 0.0.0.0/0, ::/0` (routes all traffic). If the server's DNS is empty, it defaults to `"1.1.1.1, 8.8.8.8"`. If `PersistentKeepalive` is 0, it defaults to 25.
-
-Error: `"peer '<name>' not found"`
-
-### BuildPeerConfig
-
-```go
-func (m *Manager) BuildPeerConfig(peer PeerConfig, protocol, endpoint string) (ClientConfig, error)
-```
-
-Constructs a `ClientConfig` from an existing `PeerConfig`, protocol, and endpoint. Use this when you already have a `PeerConfig` and don't need to look it up by name.
-
----
-
-## Config Parsing & Writing
-
-Low-level I/O functions that work with any `io.Reader`/`io.Writer`.
-
-### ParseServerConfig
-
-```go
-func ParseServerConfig(r io.Reader) (ServerConfig, error)
-```
-
-Parses an INI-format server config from any reader. See [configuration.md](configuration.md) for the full config format.
-
-### WriteServerConfig
-
-```go
-func WriteServerConfig(w io.Writer, cfg ServerConfig) error
-```
-
-Writes a server config in INI format to any writer.
-
-### WriteClientConfig
-
-```go
-func WriteClientConfig(w io.Writer, cfg ClientConfig) error
-```
-
-Writes a client config in INI format to any writer.
-
-### LoadServerConfig / SaveServerConfig
-
-```go
-func LoadServerConfig(path string) (ServerConfig, error)
-func SaveServerConfig(path string, cfg ServerConfig) error
-```
-
-Convenience wrappers that open files and delegate to `ParseServerConfig` / `WriteServerConfig`. `SaveServerConfig` uses atomic writes.
-
-```go
-cfg, err := amnezigo.LoadServerConfig("awg0.conf")
-if err != nil {
-    log.Fatal(err)
-}
-err = amnezigo.SaveServerConfig("awg0.conf", cfg)
-```
-
-> **Tip:** Use `strings.NewReader` and `bytes.Buffer` in tests instead of real files.
-
----
-
-## Key Generation
-
-Functions for generating WireGuard X25519 key pairs and preshared keys.
-
-> **Danger:** `GenerateKeyPair`, `DerivePublicKey`, and `GeneratePSK` **panic** on error instead of returning errors. Only use these when failure is unrecoverable (e.g., in `main()` or during initialization).
-
-### GenerateKeyPair
-
-```go
-func GenerateKeyPair() (string, string)
-```
-
-Returns `(privateKey, publicKey)` as base64 strings (44 chars each). Uses WireGuard key clamping: `priv[0] &= 248; priv[31] &= 127; priv[31] |= 64`.
-
-```go
-privateKey, publicKey := amnezigo.GenerateKeyPair()
-```
-
-### DerivePublicKey
-
-```go
-func DerivePublicKey(privateKey string) string
-```
-
-Derives a public key from a base64-encoded private key. Panics on invalid base64 or wrong key length.
-
-```go
-pubKey := amnezigo.DerivePublicKey(privateKey)
-```
-
-### GeneratePSK
-
-```go
-func GeneratePSK() string
-```
-
-Generates a 256-bit preshared key as a 44-character base64 string.
-
-```go
-psk := amnezigo.GeneratePSK()
-```
-
----
-
-## Obfuscation
-
-Functions for generating AmneziaWG obfuscation parameters. See [obfuscation.md](obfuscation.md) for detailed explanations of what these parameters mean.
-
-### GenerateConfig
-
-```go
-func GenerateConfig(protocol string, mtu, s1, jc int) ClientObfuscationConfig
-```
-
-Generates all client obfuscation parameters: Jc/Jmin/Jmax, S1-S4, H1-H4, and I1-I5 CPS strings.
-
-```go
-obf := amnezigo.GenerateConfig("quic", 1280, 15, 3)
-```
-
-### GenerateServerConfig
-
-```go
-func GenerateServerConfig(_, s1, jc int) ServerObfuscationConfig
-```
-
-Generates server obfuscation parameters (Jc/Jmin/Jmax, S1-S4, H1-H4). Does not include I1-I5.
-
-> **Note:** The first argument (`_`) is **ignored**. Only `s1` and `jc` are used.
-
-```go
-serverObf := amnezigo.GenerateServerConfig("quic", 15, 3)
-```
-
-### GenerateSPrefixes
-
-```go
-func GenerateSPrefixes() SPrefixes
-```
-
-Generates S1-S4 size prefixes. S1-S3 range from 0-64, S4 from 0-32. Enforces the constraint `S1+56 != S2` to avoid Init/Response size collisions.
-
-### GenerateJunkParams
-
-```go
-func GenerateJunkParams() JunkParams
-```
-
-Generates junk packet parameters: Jc (0-10), Jmin and Jmax (64-1024, with Jmin < Jmax).
-
-### GenerateCPS
-
-```go
-func GenerateCPS(protocol string, mtu, s1, _ int) (string, string, string, string, string)
-```
-
-Generates I1-I5 custom packet strings. The `protocol` parameter accepts `"random"`, `"quic"`, `"dns"`, `"dtls"`, or `"stun"`. The 4th argument is unused.
-
-```go
-i1, i2, i3, i4, i5 := amnezigo.GenerateCPS("quic", 1280, 15, 0)
-```
-
-### GenerateHeaderRanges
-
-```go
-func GenerateHeaderRanges() [4]HeaderRange
-```
-
-Generates 4 non-overlapping header ranges (H1-H4).
-
-> **Danger:** Panics if non-overlapping ranges cannot be generated after 1000 attempts. Extremely unlikely in practice.
-
----
-
-## CPS Construction
-
-Low-level functions for building Custom Packet String tags and combining them.
-
-### BuildCPSTag
-
-```go
-func BuildCPSTag(tagType, value string) string
-```
-
-Creates a single CPS tag. Supported types:
-
-| Type | Description | Example | Output |
-|------|-------------|---------|--------|
-| `"b"` | Fixed bytes (hex) | `BuildCPSTag("b", "0xc0ff")` | `<b 0xc0ff>` |
-| `"r"` | Random bytes | `BuildCPSTag("r", "8")` | `<r 8>` |
-| `"rc"` | Random characters | `BuildCPSTag("rc", "7")` | `<rc 7>` |
-| `"rd"` | Random digits | `BuildCPSTag("rd", "2")` | `<rd 2>` |
-| `"t"` | Timestamp | `BuildCPSTag("t", "")` | `<t>` |
-
-Returns an empty string for unknown tag types.
-
-### BuildCPS
-
-```go
-func BuildCPS(tags []string) string
-```
-
-Concatenates CPS tags into a single CPS string.
-
-```go
-cps := amnezigo.BuildCPS([]string{
-    amnezigo.BuildCPSTag("b", "0xc0ff"),
-    amnezigo.BuildCPSTag("b", "0x01"),
-    amnezigo.BuildCPSTag("r", "8"),
-    amnezigo.BuildCPSTag("t"),
-})
-// cps: "<b 0xc0ff><b 0x01><r 8><t>"
-```
-
----
-
-## Protocol Templates
-
-Protocol templates define the I1-I5 tag structure that mimics real protocol packets. Each returns an `I1I5Template` containing `[]TagSpec` slices for each interval.
-
-### Available Templates
-
-| Function | Protocol | Intervals |
-|----------|----------|-----------|
-| `QUICTemplate()` | QUIC Initial packets | I1-I4 (I5 empty) |
-| `DNSTemplate()` | DNS Query packets | I1-I4 (I5 empty) |
-| `DTLSTemplate()` | DTLS 1.2 ClientHello | I1-I4 (I5 empty) |
-| `STUNTemplate()` | STUN Binding Request | I1-I4 (I5 empty) |
-
-```go
-tmpl := amnezigo.QUICTemplate()
-for _, tag := range tmpl.I1 {
-    fmt.Printf("Type: %s, Value: %s\n", tag.Type, tag.Value)
-}
-```
-
-> **Note:** I5 is always empty for all named protocol templates. It is only populated in random/simple CPS mode.
-
----
-
-## Network Helpers
-
-Utility functions for IP address handling, port generation, and interface detection.
-
-### IsValidIPAddr
-
-```go
-func IsValidIPAddr(ipaddr string) bool
-```
-
-Checks if a string is a valid IP address in CIDR notation.
-
-```go
-amnezigo.IsValidIPAddr("10.8.0.1/24")  // true
-amnezigo.IsValidIPAddr("not-an-ip")     // false
-```
-
-### ExtractSubnet
-
-```go
-func ExtractSubnet(ipaddr string) string
-```
-
-Extracts the subnet from a CIDR address (e.g., `"10.8.0.1/24"` → `"10.8.0.0/24"`).
-
-> **Note:** Returns the original string on parse error instead of returning an error.
-
-### GenerateRandomPort
-
-```go
-func GenerateRandomPort() (int, error)
-```
-
-Generates a random port in the range [10000, 65535].
-
-### DetectMainInterface
-
-```go
-func DetectMainInterface() string
-```
-
-Returns the first non-loopback, up interface that has addresses.
-
-> **Note:** Returns an empty string on failure. No error is returned.
-
-### FindNextAvailableIP
-
-```go
-func FindNextAvailableIP(serverAddress string, existingIPs []string) (string, error)
-```
-
-Finds the next available IP in the subnet, iterating from `.2` to `.254`. IPv4 only.
-
-Errors: `"not an IPv4 address"`, `"invalid CIDR"`
-
-> **Warning:** Returns an empty string and `nil` error if all IPs are exhausted. Check for empty string.
-
-```go
-ip, err := amnezigo.FindNextAvailableIP("10.8.0.1/24", []string{"10.8.0.2", "10.8.0.3"})
-// ip: "10.8.0.4"
-```
-
----
-
-## iptables Rules
-
-Functions for generating iptables NAT and forwarding rules for WireGuard interfaces.
-
-### GeneratePostUp
-
-```go
-func GeneratePostUp(tunName, mainIface, subnet string, clientToClient bool) string
-```
-
-Generates iptables rules for the `PostUp` hook. Rules are joined with `; `. Returns 6 rules by default, or 7 when `clientToClient` is `true`.
-
-### GeneratePostDown
-
-```go
-func GeneratePostDown(tunName, mainIface, subnet string, clientToClient bool) string
-```
-
-Same as `GeneratePostUp` but uses `-D` (delete) instead of `-A` (append), suitable for cleanup.
-
-```go
-postUp := amnezigo.GeneratePostUp("awg0", "eth0", "10.8.0.0/24", false)
-postDown := amnezigo.GeneratePostDown("awg0", "eth0", "10.8.0.0/24", false)
-```
-
----
-
-## Type Reference
-
-### Core Config Types
-
-#### ServerConfig
-
-Top-level server configuration containing the interface, obfuscation settings, and peers.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `Interface` | `InterfaceConfig` | WireGuard interface settings |
-| `Obfuscation` | `ServerObfuscationConfig` | Server obfuscation parameters |
-| `Peers` | `[]PeerConfig` | Registered peers |
-
-#### InterfaceConfig
-
-WireGuard interface configuration.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `TunName` | `string` | Tunnel interface name (e.g., `awg0`) |
-| `PrivateKey` | `string` | Server private key (base64) |
-| `PublicKey` | `string` | Server public key (base64) |
-| `Address` | `string` | Server address in CIDR notation |
-| `ListenPort` | `int` | Listening port |
-| `MTU` | `int` | Maximum transmission unit |
-| `DNS` | `string` | DNS servers (comma-separated) |
-| `PostUp` | `string` | PostUp iptables commands |
-| `PostDown` | `string` | PostDown iptables commands |
-| `MainIface` | `string` | Main network interface for NAT |
-| `EndpointV4` | `string` | IPv4 endpoint address |
-| `EndpointV6` | `string` | IPv6 endpoint address |
-| `PersistentKeepalive` | `int` | Keepalive interval in seconds |
-| `ClientToClient` | `bool` | Allow peer-to-peer traffic |
-
-#### PeerConfig
-
-A single peer registered on the server.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `Name` | `string` | Peer display name |
-| `PrivateKey` | `string` | Peer private key (base64) |
-| `PublicKey` | `string` | Peer public key (base64) |
-| `PresharedKey` | `string` | Preshared key (base64) |
-| `AllowedIPs` | `string` | Peer allowed IPs (CIDR) |
-| `CreatedAt` | `time.Time` | Creation timestamp |
-| `ClientObfuscation` | `*ClientObfuscationConfig` | Client obfuscation params (nil until export) |
-
-### Client Config Types
-
-#### ClientConfig
-
-Top-level client configuration.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `Interface` | `ClientInterfaceConfig` | Client interface settings |
-| `Peer` | `ClientPeerConfig` | Server peer settings |
-
-#### ClientInterfaceConfig
-
-Client-side WireGuard interface configuration.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `PrivateKey` | `string` | Client private key (base64) |
-| `Address` | `string` | Client address (CIDR) |
-| `DNS` | `string` | DNS servers |
-| `MTU` | `int` | Maximum transmission unit |
-| `Obfuscation` | `ClientObfuscationConfig` | Client obfuscation parameters |
-
-#### ClientPeerConfig
-
-Client-side server peer configuration.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `PublicKey` | `string` | Server public key (base64) |
-| `PresharedKey` | `string` | Preshared key (base64) |
-| `Endpoint` | `string` | Server endpoint address |
-| `AllowedIPs` | `string` | Routes through VPN (always `0.0.0.0/0, ::/0`) |
-| `PersistentKeepalive` | `int` | Keepalive interval |
-
-### Obfuscation Types
-
-#### ServerObfuscationConfig
-
-Server-side obfuscation parameters.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `Jc` | `int` | Junk count |
-| `Jmin` | `int` | Minimum junk size |
-| `Jmax` | `int` | Maximum junk size |
-| `S1` - `S4` | `int` | Size prefixes |
-| `H1` - `H4` | `HeaderRange` | Header value ranges |
-
-#### ClientObfuscationConfig
-
-Client-side obfuscation parameters. Embeds all `ServerObfuscationConfig` fields plus I1-I5.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| *(embedded)* | `ServerObfuscationConfig` | Jc, Jmin, Jmax, S1-S4, H1-H4 |
-| `I1` - `I5` | `string` | Custom Packet Strings |
-
-#### HeaderRange
-
-A range of header values stored as min-max.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `Min` | `uint32` | Minimum header value |
-| `Max` | `uint32` | Maximum header value |
-
-#### SPrefixes
-
-Size prefix parameters.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `S1` - `S4` | `int` | Size prefix values |
-
-#### JunkParams
-
-Junk packet parameters.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `Jc` | `int` | Junk count (0-10) |
-| `Jmin` | `int` | Minimum junk size (64-1024) |
-| `Jmax` | `int` | Maximum junk size (64-1024) |
-
-#### TagSpec
-
-A single CPS tag specification.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `Type` | `string` | Tag type (`b`, `r`, `rc`, `rd`, `c`, `t`) |
-| `Value` | `string` | Tag value (hex for `b`, size for `r`/`rc`/`rd`) |
-
-#### I1I5Template
-
-A protocol template defining CPS tag structure for intervals I1-I5.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `I1` - `I5` | `[]TagSpec` | Tag specifications for each interval |
-
-#### Manager
-
-High-level config manager.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `ConfigPath` | `string` | Path to the server config file |
-
----
-
-## Gotchas & Important Notes
-
-### Panicking Functions
-
-`GenerateKeyPair`, `DerivePublicKey`, `GeneratePSK`, and `GenerateHeaderRanges` all **panic** on error instead of returning errors. Only use these when failure is unrecoverable, or wrap them in `recover()`.
-
-### ListPeers Returns Nil on Error
-
-`Manager.ListPeers()` returns `nil` on load error — it does not return an error. Always check for `nil`:
-
-```go
-peers := mgr.ListPeers()
-if peers == nil {
-    // config load failed
-}
-```
-
-### FindPeer Returns a Mutable Pointer
-
-`Manager.FindPeer()` returns `*PeerConfig` pointing into the loaded config struct. Modifying the returned object does **not** persist changes. You must call `Save` to write changes.
-
-### IPv4 Only for IP Allocation
-
-`FindNextAvailableIP` only supports IPv4 addresses. Passing an IPv6 CIDR returns the error `"not an IPv4 address"`.
-
-### Silent IP Exhaustion
-
-`FindNextAvailableIP` returns an empty string and `nil` error when all IPs (.2 through .254) are exhausted. Check for an empty return value.
-
-### GenerateServerConfig Ignores Protocol
-
-The first argument to `GenerateServerConfig` (the protocol string) is **completely ignored**. Only `s1` and `jc` are used.
-
-### Unused Argument in GenerateCPS
-
-The 4th argument to `GenerateCPS` is unused (named `_` in the function signature).
-
-### Silent Fallbacks
-
-Several helper functions return fallback values instead of errors:
-- `ExtractSubnet` — returns the original string on parse error
-- `DetectMainInterface` — returns empty string on failure
-- `BuildCPSTag` — returns empty string for unknown tag types
-
-### I1-I5 Are Client-Only
-
-I1-I5 fields are not present in server config files. They are generated at export time and only appear in client configurations.
-
-### Peer Private Keys in Server Config
-
-Peer private keys are stored in the server config as `#_PrivateKey` metadata comments. This is required for the export workflow.
-
-### Atomic Writes
-
-`SaveServerConfig` and `Manager.Save` use atomic writes: the config is first written to a `.tmp` file, then renamed to the target path. The `.tmp` file is cleaned up on error.
+## Manifest loading
+
+| Symbol | Signature | Purpose |
+|---|---|---|
+| `LoadManifest` | `func LoadManifest(dir string, jpathDirs []string) (Manifest, error)` | Discovers a manifest in `dir`: `.amnezigo.jsonnet` takes precedence, then `amnezigo.json`. Returns an error if neither exists. |
+| `LoadManifestFromFile` | `func LoadManifestFromFile(path string, jpathDirs []string) (Manifest, error)` | Loads a manifest from an explicit path; `.jsonnet` extension evaluates via the Jsonnet VM, otherwise plain JSON. |
+
+### Discovery & evaluation rules
+
+| Concern | Behavior |
+|---|---|
+| Precedence | `.amnezigo.jsonnet` is checked **before** `amnezigo.json`; if both exist, the Jsonnet file wins. |
+| `jpathDirs == nil` | Defaults to `[dir/lib]` for `LoadManifest`, `[parentDir/lib]` for `LoadManifestFromFile`. |
+| `.jsonnet` evaluation | Jsonnet → JSON string → parsed as `Manifest`; the `version` field is still required. |
+| Version check | Both paths reject any `version` other than `1` (missing or zero is also an error). See [Jsonnet](./jsonnet.md). |
+
+## Manifest types & methods
+
+| Symbol | Signature | Purpose |
+|---|---|---|
+| `Manifest` | `type Manifest struct { Peers map[string]PeerManifest; Obfuscation ObfuscationManifest; Network NetworkConfig; Version int }` | Top-level declarative config. `Version` must be `1`; peer names are the map keys. |
+| `NetworkConfig` | `type NetworkConfig struct { DNS []string; MTU int }` | Network-level settings shared by all peers (MTU is per-interface; DNS applies to clients). |
+| `ObfuscationManifest` | `type ObfuscationManifest struct { S1, S2, S3, S4 *int; H1, H2, H3, H4 *HeaderRange; Jc, Jmin, Jmax *int; Protocol string }` | Obfuscation profile. Pointer fields distinguish "set to 0" from "unset" (`nil` → random fallback). |
+| `PeerManifest` | `type PeerManifest struct { Keepalive *int; Address string; TunName string; MainIface string; Endpoint string; Protocol string; ListenPort int }` | One peer; its name is the `Manifest.Peers` map key. |
+| `HeaderRange` | `type HeaderRange struct { Min uint32; Max uint32 }` | Inclusive min-max range for an obfuscation header (H1–H4). |
+| `(*ObfuscationManifest).HasAnyValue` | `func (o *ObfuscationManifest) HasAnyValue() bool` | Reports whether any S/H/J field is non-nil (`false` ⇒ fully random generation). |
+| `(*ObfuscationManifest).ToSharedObfuscation` | `func (o *ObfuscationManifest) ToSharedObfuscation() ServerObfuscationConfig` | Copies non-nil values into a `ServerObfuscationConfig`; nil fields stay zero (signal for random generation). |
+| `(*PeerManifest).IsServer` | `func (p *PeerManifest) IsServer() bool` | `true` when `Endpoint != ""` **and** `ListenPort != 0`. |
+| `(*Manifest).ServerPeer` | `func (m *Manifest) ServerPeer() (string, int)` | Returns the server peer name and count. A valid manifest has `count == 1`. |
+| `(*Manifest).ServerPeerName` | `func (m *Manifest) ServerPeerName() string` | Returns the sole server peer name. **Panics** if count ≠ 1 — call only after validation. |
+| `(*Manifest).PeerNames` | `func (m *Manifest) PeerNames() []string` | All peer names sorted alphabetically (deterministic iteration). |
+
+> **Server-peer detection rule:** a peer is a server peer iff `Endpoint != ""` **and** `ListenPort != 0`. At most one server peer is valid per manifest. `Generate` returns an error (not a panic) when the count is not exactly 1; `ServerPeerName` panics. See [Manifest Reference](./manifest-reference.md).
+
+## Crypto / keys
+
+| Symbol | Signature | Purpose |
+|---|---|---|
+| `GenerateKeyPair` | `func GenerateKeyPair() (string, string)` | Generates an X25519 key pair with WireGuard clamping; returns `(privateKey, publicKey)` as 44-char base64. |
+| `DerivePublicKey` | `func DerivePublicKey(privateKey string) string` | Derives the 44-char base64 public key from a base64 private key (applies clamping). |
+| `GeneratePSK` | `func GeneratePSK() string` | Generates a 32-byte preshared key as a 44-char base64 string. |
+
+### Key behavior & gotchas
+
+| Concern | Behavior |
+|---|---|
+| Panic conditions | `GenerateKeyPair`/`GeneratePSK` panic **only** on `crypto/rand` failure. `DerivePublicKey` panics on invalid base64 or non-32-byte input. |
+| WireGuard clamping | Applied before scalar multiplication in both `GenerateKeyPair` and `DerivePublicKey`: `priv[0] &= 248; priv[31] &= 127; priv[31] |= 64`. A key read back from disk is re-clamped on derivation. |
+| Encoding | All keys and PSKs are 44-character standard base64 (32 bytes + padding). |
+| Untrusted input | Callers passing untrusted material to `DerivePublicKey` must validate first or `recover` (the unexported `tryDerivePublicKey` helper does the latter, returning `""` on any panic). |
+
+## Validation
+
+> Full rule descriptions and CLI exit-code semantics live in [Validation & Analysis](./validation.md).
+
+| Symbol | Signature | Purpose |
+|---|---|---|
+| `ValidatePacketSizes` | `func ValidatePacketSizes(s1, s2, s3, s4 int, iPacketSizes []int, jmin, jmax int) error` | Enforces AWG 2.0 size invariants: four S-padded handshake sizes pairwise distinct, no I-packet equals a padded size, junk range excludes all padded + raw WG sizes. |
+| `ValidateHeaderRange` | `func ValidateHeaderRange(r HeaderRange) error` | Rejects `Max < Min` or any inclusive range overlapping WG message type-ids `[1..4]`. |
+| `ValidateServerConfig` | `func ValidateServerConfig(cfg *ServerConfig) []Finding` | Runs every rule (required fields, S-prefixes, junk range, header ranges); empty slice = clean. Never returns an error. |
+| `Finding` | `type Finding struct { Message string; Detail string; Code string; Severity Severity; Location Location }` | One validation/analysis observation (JSON-tagged; reused by `analyze`). |
+| `Finding.OneLine` | `func (f Finding) OneLine() string` | Canonical text form `[<SEVERITY> <CODE>] <file>:<line> (key=<key>): <message>` (line/key omitted when empty). |
+| `Severity` | `type Severity string` | Finding impact class. |
+| `Severity` constants | `SeverityError`, `SeverityWarning`, `SeverityInfo` (`"error"` / `"warning"` / `"info"`) | The three severity levels. |
+| `Location` | `type Location struct { File string; Key string; Line int }` | Where a finding originates within a config file. |
+| `PacketSizeCollisionError` | `type PacketSizeCollisionError struct { Kind string; Pair string; Size int }` | One `ValidatePacketSizes` collision; `Kind` ∈ `{"s-pair", "i-packet", "junk-range"}`. |
+| `(*PacketSizeCollisionError).Error` | `func (e *PacketSizeCollisionError) Error() string` | Formats as `packet size collision (<kind>): <pair> at <size> bytes`. |
+| `ErrEmptyJunkRange` | `var ErrEmptyJunkRange = errors.New("junk range is empty (jmin > jmax)")` | Sentinel returned by `ValidatePacketSizes` when `jmin > jmax`. |
+
+### `ValidatePacketSizes` return contract
+
+| Outcome | Return value | How to detect |
+|---|---|---|
+| All invariants hold | `nil` | direct check |
+| `jmin > jmax` | `ErrEmptyJunkRange` | `errors.Is(err, amnezigo.ErrEmptyJunkRange)` |
+| First collision (S-pairs → I-packets → junk range) | `*PacketSizeCollisionError` | `var c *amnezigo.PacketSizeCollisionError; errors.As(err, &c)` |
+
+## Analysis
+
+`Analyze` is informational: it profiles a server config and emits only `warning`/`info` findings (never `error`), so the CLI `analyze` command always exits 0. See [Validation & Analysis](./validation.md).
+
+| Symbol | Signature | Purpose |
+|---|---|---|
+| `Analyze` | `func Analyze(cfg ServerConfig, opts AnalyzeOptions) AnalysisReport` | Produces an `AnalysisReport`; I-packets are freshly generated from the config (not read from disk). Never returns an error. |
+| `AnalyzeOptions` | `type AnalyzeOptions struct { Rand io.Reader; Protocol string; PeerName string; Samples int }` | Configures analysis: randomness source (`nil` ⇒ `crypto/rand`), protocol template, peer filter (empty ⇒ all), sample count. |
+| `AnalysisReport` | `type AnalysisReport struct { Peers []PeerProfile; Findings []Finding; Ordering OrderingDesc; SampleNote string; Config ConfigInfo; Handshake HandshakeProfile; Headers HeaderProfile; Junk JunkProfile }` | Top-level output: config metadata, handshake/junk/header profiles, per-peer I-packet analysis, wire ordering, and heuristic findings. |
+| `FormatText` | `func FormatText(report AnalysisReport) string` | Renders a report as human-readable multi-section text. |
+| `FormatJSON` | `func FormatJSON(report AnalysisReport) (string, error)` | Renders a report as indented JSON (two spaces); wraps marshal errors with `%w`. |
+
+### `AnalyzeOptions` fields
+
+| Field | Default / behavior |
+|---|---|
+| `Rand` | `nil` ⇒ `crypto/rand`. Supply a deterministic reader for reproducible I-packets. |
+| `Protocol` | Empty ⇒ `"random"`. Accepted values: `random`, `quic`, `dns`, `dtls`, `stun`, `sip`, `rtp`. |
+| `PeerName` | Empty ⇒ analyze all peers. |
+| `Samples` | `0` ⇒ snapshot-only (one `PeerSnapshot` per peer). `> 0` ⇒ distribution mode with `Stats` over N samples. |
+
+### Heuristic finding codes
+
+`Analyze` populates `Finding.Code` with the following string values. **They are string codes, not exported Go constants** — match them by string value.
+
+| Code | Severity | Meaning |
+|---|---|---|
+| `RISK001` | warning | Junk range contains a raw WG size. |
+| `RISK002` | warning | A peer's I-packet cluster spans < 20 B. |
+| `RISK003` | warning | `S4 < 8`. |
+| `RISK004` | warning | Two padded sizes differ by < 5 B. |
+| `RISK005` | info | A padded size is within ±4 B of a raw WG size. |
+| `RISK006` | warning | Junk range width < 32 B. |
+| `RISK007` | warning | An H-range width < 1,000,000. |
+| `RISK008` | info | No peers defined. |
+| `RISK009` | warning | All S-prefixes and junk params are zero (vanilla-WG shape). |
+
+### Report sub-types
+
+| Type | Purpose |
+|---|---|
+| `ConfigInfo` | Basic config metadata (`Protocol`, `MTU`, `ListenPort`, `PeerCount`). |
+| `HandshakeProfile` | The four S-padded handshake sizes (`Init`, `Response`, `Cookie`, `Transport`). |
+| `PaddedSize` | One padded size: `SPrefix`, `RawSize`, `Padded`. |
+| `JunkProfile` | `Jc`, `Jmin`, `Jmax`, range `Width`. |
+| `HeaderProfile` | The four H-ranges (`H1`–`H4`). |
+| `HeaderRangeInfo` | `Min`, `Max`, `Width` for one header range. |
+| `PeerProfile` | Per-peer I-packet analysis: `Name`, `Snapshot`, and `Distribution` (when `Samples > 0`). |
+| `PeerSnapshot` | One generation of the five I-packet sizes (`I1`–`I5`). |
+| `PeerDistrib` | `Stats` over N samples for `I1`–`I5` plus `Samples`. |
+| `Stats` | `Mean`, `Min`, `Max`, `Median`. |
+| `OrderingDesc` | `Steps` describing packet ordering on the wire per handshake. |
+
+## Presets
+
+> Preset values and selection guidance live in [Presets](./presets.md).
+
+| Symbol | Signature | Purpose |
+|---|---|---|
+| `Preset` | `type Preset struct { Name string; Description string; DefaultProtocol string; H1, H2, H3, H4 HeaderRange; MTU int; S1, S2, S3, S4 int; Jc, Jmin, Jmax int }` | A named bundle of obfuscation parameters; each yields a config that passes `ValidatePacketSizes`. |
+| `Preset.ToServerObfuscation` | `func (p Preset) ToServerObfuscation() ServerObfuscationConfig` | Converts a preset to a `ServerObfuscationConfig`. Carries `Jc`/`Jmin`/`Jmax`, `S1`–`S4`, `H1`–`H4` only — **not** `MTU`, `Description`, or `DefaultProtocol`. |
+| `GetPreset` | `func GetPreset(name string) (Preset, error)` | Returns the named preset; on unknown names returns an error listing every available preset. |
+| `ListPresets` | `func ListPresets() []Preset` | Returns a defensive copy of all seven built-in presets. |
+
+The seven built-in presets: `lan-conservative`, `home-balanced`, `mobile-aggressive`, `stealth-paranoid`, `standard-1420`, `low-overhead`, `test-minimal`. There is no `preset` field in `Manifest`; to use a preset, copy its values into `ObfuscationManifest` (or evaluate it at the Jsonnet layer).
+
+## Credentials
+
+> Key-reuse model and recovery sources are documented in [Credentials & Key Reuse](./credentials.md).
+
+| Symbol | Signature | Purpose |
+|---|---|---|
+| `PeerCredentials` | `type PeerCredentials struct { PrivateKey string; PublicKey string; PresharedKey string }` | Cryptographic material for one peer: base64 X25519 private key, derived public key, and a per-connection PSK. |
+| `PersistedCredentials` | `type PersistedCredentials struct { Peers map[string]PeerCredentials; Server PeerCredentials }` | All credentials extracted from existing output configs; reused by `Generate` across runs. |
+| `EmptyCredentials` | `func EmptyCredentials() *PersistedCredentials` | Returns a `PersistedCredentials` with an initialized `Peers` map and zero-value server credentials (first-run / `FullReset` path). |
+| `LoadCredentials` | `func LoadCredentials(outputDir, serverPeerName string) (*PersistedCredentials, error)` | Reads existing output configs from `outputDir` and extracts persisted credentials. |
+
+### `LoadCredentials` behavior
+
+| Situation | Return |
+|---|---|
+| Output dir or server config absent (first run) | `EmptyCredentials()`, `nil` — **not** an error. |
+| Real I/O or parse failure of a present file | `nil`, wrapped error. |
+| Server config present | Server keypair from its `[Interface]`; each peer's `PublicKey`/`PresharedKey`/`Name` from its `[Peer]`; each peer's `PrivateKey` recovered from its own `outputDir/<peer>/awg0.conf` (a client secret). |
+
+## Library gotchas
+
+| Concern | Behavior |
+|---|---|
+| Non-atomic writes | `Generate` builds every config in memory first (all-or-nothing compute), but the disk-write pass uses `os.WriteFile` per file (mode `0600`) — a crash mid-pass can leave partially-written output. See [Gotchas](./gotchas.md). |
+| Sorted peer iteration | Client peers are iterated alphabetically; when `PeerFilter` is set, only the named peers are built. Output ordering is deterministic. |
+| Pointer nil ⇒ random | `ObfuscationManifest` uses `*int` / `*HeaderRange` so "set to 0" ≠ "unset". `nil` triggers random generation in `resolveObfuscation`. |
+| `ServerPeerName` panics | Returns the sole server peer name but **panics** when count ≠ 1. Use `ServerPeer()` first, or call only on validated manifests. |
+| Error wrapping | Failures are wrapped with `fmt.Errorf("<context>: %w", err)` (e.g. `resolve obfuscation: %w`, `load credentials: %w`, `build server config: %w`, `write file %s: %w`) — unwrap with `errors.Is` / `errors.As`. |
+| `tryDerivePublicKey` | Unexported helper that `recover`s a `DerivePublicKey` panic and returns `""`; used when reloading persisted keys of unknown validity. |
+| Version enforced | `LoadManifest` / `LoadManifestFromFile` reject any `version` other than `1`. |
+| Protocol literal strings | `quic`, `dns`, `dtls`, `stun`, `sip`, `rtp`, `random` are the public contract for `AnalyzeOptions.Protocol` and `PeerManifest.Protocol`, but the matching constants in `protocols.go` are **unexported** — pass the literal strings. See [Obfuscation](./obfuscation.md). |
+| Output layout | Configs are written as `<OutputDir>/<peer>/awg0.conf`; the INI/metadata structure is documented in [Output Format](./output-format.md). |

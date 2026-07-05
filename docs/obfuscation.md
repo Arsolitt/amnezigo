@@ -1,256 +1,218 @@
-> **⚠ STALE — kept for history only.** This standalone guide documents the removed imperative CLI (`init`/`add`/`export`) and contains factual drift (e.g. it claims `<t>` is 8 bytes; the correct value is **4 bytes**, see `cps.go:cpsTimestampSize`). The authoritative, current obfuscation reference — including parameter-selection principles, sizing tables, and all seven built-in presets — lives in [`docs/llms-full.txt`](llms-full.txt) under the `/obfuscation` and `/presets` pages. Use that file instead.
+# Obfuscation
 
-# Obfuscation Parameters
-
-> How AmneziaWG traffic obfuscation works and what each parameter controls.
+> AmneziaWG 2.0 obfuscation parameters, size-classification invariants, the CPS
+> tag grammar, and the six protocol templates (`quic`, `dns`, `dtls`, `stun`,
+> `sip`, `rtp`) plus `random`.
 
 ## Table of Contents
 
-- [Overview](#overview)
-- [Junk Packet Parameters](#junk-packet-parameters)
-- [Size Prefixes](#size-prefixes)
-- [Header Ranges](#header-ranges)
-- [Custom Packet Strings](#custom-packet-strings)
-- [CPS Tag Syntax](#cps-tag-syntax)
-- [Protocol Templates](#protocol-templates)
-- [Server vs Client Obfuscation](#server-vs-client-obfuscation)
-- [MTU Considerations](#mtu-considerations)
+- [Obfuscation parameters overview](#obfuscation-parameters-overview)
+- [Server-shared vs per-client](#server-shared-vs-per-client)
+- [Random vs explicit values](#random-vs-explicit-values)
+- [AWG 2.0 size invariants](#awg-20-size-invariants)
+- [CPS tag grammar](#cps-tag-grammar)
+- [Protocol templates](#protocol-templates)
+- [Choosing values](#choosing-values)
+- [Related](#related)
 
 ---
 
-## Overview
+## Obfuscation parameters overview
 
-AmneziaWG wraps WireGuard traffic in an obfuscation layer to make it resemble legitimate protocol traffic. This defeats deep packet inspection (DPI) by disguising the VPN tunnel as QUIC, DNS, DTLS, STUN, SIP, or other supported traffic shapes.
+All values live under the manifest's top-level `obfuscation` object (see
+[./manifest-reference.md](./manifest-reference.md)). Pointer types (`*int`,
+`*HeaderRange`) distinguish "user set to 0" from "user did not set this field";
+`nil` triggers random generation (see [Random vs explicit values](#random-vs-explicit-values)).
 
-Obfuscation has two layers:
+| Param | Type | Range / units | Role |
+|---|---|---|---|
+| `s1`–`s3` | `*int` | `0`–`64` (random: `rand.Int(.., 65)`) | Handshake size markers added to raw WG message sizes (`148`, `92`, `64`, `32`). Drive the four AWG-padded handshake sizes `S1+148`, `S2+92`, `S3+64`. |
+| `s4` | `*int` | `0`–`32` (random: `rand.Int(.., 33)`) | Marker for the transport message size `S4+32`. Smaller range because the transport payload is the smallest WG message. |
+| `h1`–`h4` | `*HeaderRange` | `uint32`, `Min` ∈ `[5, 2147483647]`, span `Max−Min ≥ 10000000` (`headerMinRange`) | Init-packet header byte ranges. Serialized `min-max` (inclusive). Must exclude WG type-ids `[1..4]` and be pairwise non-overlapping. |
+| `jc` | `*int` | `0`–`10` (random: `rand.Int(.., 11)`) | Junk-packet count emitted per handshake window. |
+| `jmin` | `*int` | `64`–`1024` | Inclusive lower bound of the junk-packet size range. |
+| `jmax` | `*int` | `64`–`1024`, `jmin < jmax` enforced | Inclusive upper bound of the junk-packet size range. `jmin > jmax` is a structural error (`ErrEmptyJunkRange`). |
+| `protocol` | `string` | `quic` \| `dns` \| `dtls` \| `stun` \| `sip` \| `rtp` | **Top-level field is NOT consumed by `generate`** (see [Protocol templates](#protocol-templates)). Kept for documentation only. |
 
-1. **Server-side parameters** — generated once at `init` and stored in the server config (`Jc`, `Jmin`, `Jmax`, `S1`–`S4`, `H1`–`H4`)
-2. **Client-side CPS strings** — generated per-peer at export time (`I1`–`I5`)
-
-See the [configuration](configuration.md) page for where these parameters appear in config files, or the [library-usage](library-usage.md) page for the programmatic API.
-
----
-
-## Junk Packet Parameters
-
-Junk packets are injected between real WireGuard packets to add noise and disrupt traffic analysis.
-
-| Parameter | Range | Description |
-|-----------|-------|-------------|
-| `Jc` | 0–10 | Number of junk packets to send after each real packet |
-| `Jmin` | 64–1024 | Minimum junk packet size in bytes |
-| `Jmax` | 64–1024 | Maximum junk packet size in bytes |
-
-`Jmin` must be less than `Jmax`. The generator ensures this by swapping the values if needed, or incrementing `Jmax` by 1 if they end up equal.
-
-Setting `Jc` to `0` disables junk packet injection entirely.
+> **Source:** `generator.go` (`s4RangeMax=33`, `sPrefixRangeMax=65`, `jcRangeMax=11`,
+> `junkMinValue=64`, `headerMinValue=5`, `headerMaxValue=2147483647`,
+> `headerMinRange=10000000`), `manifest.go` (`ObfuscationManifest`).
 
 ---
 
-## Size Prefixes
+## Server-shared vs per-client
 
-Size prefixes (`S1`–`S4`) modify packet sizes to prevent size-based fingerprinting.
+The obfuscation profile splits into a **network-wide shared layer** (resolved
+once from `obfuscation.*`, identical for every peer) and a **per-client CPS
+layer** (the I1–I5 strings, generated independently for each client peer every
+run).
 
-| Parameter | Range | Description |
-|-----------|-------|-------------|
-| `S1` | 0–64 | Size prefix 1 |
-| `S2` | 0–64 | Size prefix 2 |
-| `S3` | 0–64 | Size prefix 3 |
-| `S4` | 0–32 | Size prefix 4 |
+| Layer | Fields | Scope | Lifecycle |
+|---|---|---|---|
+| Server-shared | `s1`–`s4`, `h1`–`h4`, `jc`, `jmin`, `jmax` | All peers in the manifest | Resolved once per `generate`; written into the server config and mirrored into every client config. |
+| Per-client | `i1`–`i5` (CPS strings) | One set per client peer | Regenerated **every run** for each client; never stored in the server config. |
 
-> **Note:** There is a hidden constraint: `S1 + 56` must **not** equal `S2`. This avoids an Init/Response size collision in the AmneziaWG protocol. The generator retries until this constraint is satisfied — you don't need to worry about it when using the built-in generation functions.
+Consequences:
 
----
+- The server `[Interface]` block carries `S_*`, `H_*`, `Jc/Jmin/Jmax` but **no
+  I-strings**. Each client's `awg0.conf` carries its own I1–I5 plus the shared
+  S/H/J values.
+- Re-running `amnezigo generate` produces fresh I1–I5 for every client while
+  reusing the persisted shared values (unless `--full-reset`). See
+  [./credentials.md](./credentials.md) and [./output-format.md](./output-format.md).
+- The per-peer `peers[].protocol` field selects which protocol template shapes
+  that client's I1–I5 (see [Protocol templates](#protocol-templates)).
 
-## Header Ranges
-
-Header ranges (`H1`–`H4`) define the range of valid header values that obfuscated packets can use.
-
-### Structure
-
-Each header range is a `HeaderRange` with two fields:
-
-| Field | Type | Range | Description |
-|-------|------|-------|-------------|
-| `Min` | `uint32` | 5–2147483647 | Lower bound of the range |
-| `Max` | `uint32` | 5–2147483647 | Upper bound of the range |
-
-### Constraints
-
-- `Min` must be less than `Max`
-- Each range must span at least 10,000,000 values (`Max - Min >= 10,000,000`)
-- All four ranges must be non-overlapping
-- Ranges are sorted by `Min` value after generation
-
-> **Warning:** `GenerateHeaderRanges` panics if it cannot generate 4 non-overlapping ranges after 1000 attempts. In practice this is extremely unlikely given the valid range (5 to 2,147,483,647).
+> **Source:** `pipeline.go` (`GenerateCPS` called once per client peer),
+> `types.go` (`ServerObfuscationConfig` has no I-fields; `ClientObfuscationConfig`
+> embeds it and adds `I1`–`I5`).
 
 ---
 
-## Custom Packet Strings
+## Random vs explicit values
 
-Custom Packet Strings (CPS) are the core of protocol mimicry. They define what the obfuscated packet payloads look like.
+Every S/H/J field uses a pointer. `nil` means "generate randomly"; a non-nil
+value is used as-is. `ObfuscationManifest.HasAnyValue()` is the fast-path check
+before per-field fallback.
 
-There are five CPS intervals: `I1` through `I5`. Each interval is a string of CPS tags that construct a fake protocol payload:
+| Field state | Resolution | Where |
+|---|---|---|
+| All S/H/J pointers `nil` | Fully random profile: `GenerateSPrefixes`, `GenerateHeaderRanges`, `GenerateJunkParamsWithForbidden` | `HasAnyValue() == false` → random path |
+| Some pointers set, others `nil` | Set fields used as-is; `nil` fields fall back to random generation for that field only | per-field fallback in `resolveObfuscation` |
+| `s1` set, `s2`–`s4` `nil` | `GenerateSPrefixesWithS1(fixedS1)` derives `s2`–`s4` so the six padded-size pairs stay distinct | `generator.go` |
+| `h1`–`h4` set | Used verbatim; must already be valid (`ValidateHeaderRange`) and non-overlapping | `validation.go` |
+| `peers[].protocol` empty | Defaults to `quic` | `pipeline.go` (`if protocol == "" { protocol = protocolQUIC }`) |
 
-| Interval | Description |
-|----------|-------------|
-| `I1` | Interval 1 — largest payload, used for initial handshake |
-| `I2` | Interval 2 — medium-large payload |
-| `I3` | Interval 3 — medium payload |
-| `I4` | Interval 4 — smallest payload |
-| `I5` | Interval 5 — always empty for named protocol templates |
+For the full field-by-field pointer/nil semantics, see
+[./manifest-reference.md](./manifest-reference.md).
 
-> **Note:** I1–I5 are **client-only** fields. They are not stored in the server config — they are generated fresh for each peer at export time. See [configuration](configuration.md) for details on what appears in each config type.
-
----
-
-## CPS Tag Syntax
-
-CPS strings are composed of tags enclosed in angle brackets. Each tag produces a specific type of payload data.
-
-### Tag Types
-
-| Tag | CPS Type | Description | Size |
-|-----|----------|-------------|------|
-| `<b 0xNN>` | `bytes` | Fixed byte sequence (hex) | `len(NN)/2` bytes |
-| `<r N>` | `random` | N random bytes | N bytes |
-| `<rc N>` | `random_chars` | N random ASCII characters | N bytes |
-| `<rd N>` | `random_digits` | N random digit characters | N bytes |
-| `<t>` | `timestamp` | Timestamp value | 8 bytes |
-| `<d>` | `data` | Reuse a value from an earlier I-packet at runtime | 0 bytes (passthrough) |
-
-### Examples
-
-```text
-<b 0xc0ff>          — Two fixed bytes: 0xC0, 0xFF
-<r 8>               — Eight random bytes
-<rc 7>              — Seven random ASCII characters (e.g., "aB3xK9p")
-<rd 2>              — Two random digits (e.g., "47")
-<t>                 — 8-byte timestamp
-<d>                 — Runtime passthrough: reuse a value from an earlier I-packet
-                       (only meaningful inside templates with multi-interval chaining)
-```
-
-A complete chained template might look like:
-
-```text
-I1: <b 0xc0ff><b 0x08><r 8><t>          — fresh DCID + timestamp
-I2: <b 0xc0ff><b 0x08><d><b 0x01>       — same DCID via <d>, then packet number
-```
-
-A complete CPS interval might look like:
-
-```text
-<b 0xc0ff><b 0x00000001><b 0x08><r 8><t><r 40>
-```
-
-This produces: 2 fixed bytes + 4 fixed bytes + 1 fixed byte + 8 random bytes + 8 timestamp bytes + 40 random bytes = 63 bytes total.
-
-> **Warning:** `BuildCPSTag` returns an empty string for unknown tag types without raising an error. If a CPS string ends up shorter than expected, check for typos in tag types.
-
-> **Note:** When generating random CPS tags, value ranges are: `<b 0xNN>` produces 4–16 bytes of hex, `<r N>`, `<rc N>`, and `<rd N>` use 5–40 as the range for `N`.
-
-> **Note:** `<d>` requires AmneziaWG 2.0 userspace (Go reference, AmneziaVPN mobile and desktop clients). The legacy `amneziawg-linux-kernel-module` does not recognise it and will reject configs containing `<d>` with "unknown tag". Kernel-module-only deployments must use `--protocol random` (which never emits `<d>`) or omit `<d>` from custom templates.
+> **Source:** `manifest.go` (`ObfuscationManifest` doc, `HasAnyValue`),
+> `generator.go` (`GenerateSPrefixesWithS1`), `pipeline.go`.
 
 ---
 
-## Protocol Templates
+## AWG 2.0 size invariants
 
-Protocol templates define the tag structure for each `I1`–`I4` interval. When you export a peer with `--protocol quic`, the corresponding template is used to generate the CPS strings.
+`ValidatePacketSizes` enforces the AWG 2.0 size-classification invariant. The
+generator (`GenerateConfig`, `GenerateJunkParamsWithForbidden`) produces values
+that already satisfy it; `amnezigo validate` re-checks parsed configs. Check
+order: S-pairs → I-packets → junk range.
 
-### Available Protocols
+| # | Invariant | Collision kind | Error |
+|---|---|---|---|
+| 1 | The four AWG-padded sizes `S1+148`, `S2+92`, `S3+64`, `S4+32` are pairwise distinct (6 pairs). | `s-pair` | `*PacketSizeCollisionError` |
+| 2 | No I-packet length equals any of the four padded sizes. | `i-packet` | `*PacketSizeCollisionError` |
+| 3 | The junk range `[jmin..jmax]` contains none of the four padded sizes. | `junk-range` | `*PacketSizeCollisionError` |
+| 4 | The junk range `[jmin..jmax]` contains none of the four raw WG sizes (`148`, `92`, `64`, `32`). | `junk-range` | `*PacketSizeCollisionError` |
+| 5 | `jmin <= jmax` (else the range is empty). | structural | `ErrEmptyJunkRange` |
+| 6 | Each `H1`–`H4` range excludes WG message type-ids `[1..4]` and has `Max >= Min`. | header | `ValidateHeaderRange` error |
+| 7 | `H1`–`H4` are pairwise non-overlapping (generator sorts by `Min` and requires `Max_i < Min_{i+1}`). | header | generator retry / `validateHeaderRanges` |
 
-| Protocol | What It Mimics | Key Characteristics |
-|----------|---------------|---------------------|
-| `quic` | QUIC Version 1 | Long Header form `0xC0FF`, version `0x00000001` |
-| `dns` | DNS A record query | Query type `0x0001`, class IN `0x0001` |
-| `dtls` | DTLS 1.2 ClientHello | Version `0xFEFD`, specific cipher suites |
-| `stun` | STUN Binding Request | Magic cookie `0x2112A442`, message type `0x0001` |
-| `sip` | SIP OPTIONS request | Method literal `OPTIONS `, ASCII line-delimited headers, no timestamp |
-| `random` | None (random tags) | 3–6 random tags per interval, at most one `<t>` per interval |
+> **Note:** invariant #1 is stated on **padded** sizes, not raw `S` values —
+> e.g. `S1+148 == S2+92` is a collision even though `S1 != S2`.
 
-### Template Structure
-
-All named protocol templates share these properties:
-
-- `I1` is the largest interval (most tags)
-- `I4` is the smallest interval (fewest tags)
-- `I5` is always empty
-
-> **Note:** While `I1` is typically the largest interval and `I4` the smallest, the exact ordering of `I2` and `I3` relative to `I1` varies by protocol. For example, the STUN template has `I2` larger than `I1`.
-
-### The "random" Protocol
-
-There are two distinct code paths for random behavior:
-
-1. **`--protocol random`** in `GenerateCPS` — generates simple random CPS with 3–6 random tags per interval. This is a distinct "random" mode.
-2. **Unknown protocol string** in `getTemplate()` — silently falls back to a randomly selected named protocol template (QUIC, DNS, DTLS, STUN, or SIP). This is **not** the same as simple random CPS.
-
-Use the `export --protocol` option to select a protocol. See [cli-reference](cli-reference.md) for details.
+> **Source:** `validation.go` (`ValidatePacketSizes`, `ValidateHeaderRange`,
+> `paddedSizes`), `generator.go` (`junkRangeOK`, `headerRangesValid`). See
+> [./validation.md](./validation.md) for the `validate` command and finding
+> codes.
 
 ---
 
-## Server vs Client Obfuscation
+## CPS tag grammar
 
-The obfuscation system splits parameters between server and client configs:
+Custom Packet Strings (I1–I5) are built from tags defined in `cps.go`. The
+generator emits the tag **literals**; the AmneziaWG receiver expands them at
+packet-emit time.
 
-### Server Config
+| Tag | Meaning | Length (bytes) | Notes |
+|---|---|---|---|
+| `<b 0xNN>` | Literal hex bytes | `len(NN) / 2` | Constant protocol headers (e.g. QUIC `c0ff`, STUN magic cookie `2112a442`). |
+| `<r N>` | `N` cryptographically random bytes | `N` | Binary fields (DCIDs, transaction IDs, payloads). |
+| `<rc N>` | `N` chars from `[a-zA-Z]` (52 letters, lowercase first) | `N` | Text-looking fields (DNS labels, SIP tokens). Alphabet source: `amneziawg-go device/obf_randchars.go`. |
+| `<rd N>` | `N` random ASCII digits | `N` | Numeric-looking fields; also the collision-perturbation suffix. |
+| `<t>` | Unix timestamp, `uint32` big-endian | **4** | Source: `amneziawg-go device/obf_timestamp.go` (`binary.BigEndian.PutUint32`). |
+| `<d>` | Data passthrough — reuses a value from an earlier I-packet position | 0 (at generation) | **Requires AWG 2.0 userspace.** The legacy Linux kernel module rejects `<d>` with "unknown tag". |
 
-The server config contains the shared obfuscation parameters, generated once at `init`:
+Rules and corrections:
 
-- `Jc`, `Jmin`, `Jmax` — junk packet settings
-- `S1`–`S4` — size prefix values
-- `H1`–`H4` — header ranges (stored as `"min-max"` string format, e.g., `"10000000-20000000"`)
+- **`<t>` is 4 bytes**, not 8. (The old `docs/obfuscation.md` claimed 8 bytes —
+  that was wrong.)
+- **`<c>` (counter) does NOT exist.** It was kernel-module-only and is rejected
+  by `amneziawg-go` and every AmneziaVPN client; `BuildCPSTag("c", …)` returns
+  the empty-string sentinel.
+- **At most one `<t>` per interval.** Random mode enforces this via the
+  `usedUniqueTag` flag in `generateRandomTags`; named templates that use
+  timestamps carry exactly one `<t>` per interval.
+- The smallest legal CPS is **4 bytes** (a bare `<t>`); the MTU bound is strict
+  (`calculateCPSLength(cps) < maxISize`).
+- `<d>` is excluded from random mode — it only makes sense in templated
+  multi-interval flows where an earlier interval produces the reused value
+  (e.g. QUIC I2 reuses I1's DCID).
 
-These are written to the `[Interface]` section of the server config.
-
-### Client Config
-
-The client config embeds all server parameters **plus** the CPS strings:
-
-- `I1`–`I5` — Custom Packet Strings (generated per-peer at export)
-- All server-side parameters are copied to the client
-
-> **Tip:** Since `I1`–`I5` are generated at export time, each peer can have different CPS strings even if they use the same protocol. This means every client's traffic looks unique to observers.
-
-### Key Difference: Header Ranges
-
-On the **server**, `H1`–`H4` are stored as **ranges** (min–max pairs). The server accepts any header value within those ranges. On the **client**, `H1`–`H4` are stored as **point values** (min equals max) — a single value picked within the server's range. This ensures the client sends headers the server will accept.
-
-> **Note:** The conversion from server ranges to client point values happens in `GenerateConfig()`, which is called during export. The server config itself only stores ranges.
+> **Source:** `cps.go` (`BuildCPSTag`, `mapTagType`, `calculateCPSLength`,
+> `generateRandomTags`, constants `cpsTimestampSize=4`, `cpsRcAlphabet`).
 
 ---
 
-## MTU Considerations
+## Protocol templates
 
-CPS strings have a maximum length determined by the MTU. If the generated CPS is too long, tags are progressively removed until it fits.
+Each client peer's I1–I5 are shaped by a protocol template chosen via the
+**per-peer** `peers[].protocol` field. The top-level `obfuscation.protocol` is
+**not consumed by `generate`**.
 
-### The Formula
+| Protocol | Leading bytes / mimicry | Source file | Notes |
+|---|---|---|---|
+| `quic` *(default)* | QUIC Long Header: `c0ff` + version `00000001`, 8-byte DCID | `quic.go` | I2 reuses I1's DCID via `<d>` (session continuity). |
+| `dns` | DNS query: 2-byte txn ID + flags `0100`, `<rc>` labels | `dns.go` | Standard query, recursion desired. |
+| `dtls` | DTLS 1.2 ClientHello: `16` (Handshake) + `fefd` | `dtls.go` | Timestamp seeded into the ClientHello random field. |
+| `stun` | STUN Binding Request: `0001` + magic cookie `2112a442` | `stun.go` | 12-byte transaction ID via `<r 12>`. |
+| `sip` | ASCII SIP OPTIONS request (`OPTIONS sip:` …) | `sip.go` | Text protocol; heavy use of `<rc>`. |
+| `rtp` | RTP fixed header: `8000` (V=2, P=0, X=0, CC=0, M=0, PT=0 PCMU) | `rtp.go` | RFC 3550; per-packet timestamp via `<t>`, payload sizes mimic G.711 frames. |
+| `random` | No fixed header; mixed `<b>`/`<r>`/`<rc>`/`<rd>`/`<t>` tags | `cps.go` (`generateRandomTags`) | Default only for `analyze`; `generate` defaults empty `protocol` to `quic`. |
 
-```
-maxISize = MTU - 49 - 149 - S1
-```
+Selection rules:
 
-Where:
-- **49** — protocol overhead reserve
-- **149** — handshake size
-- **S1** — size prefix 1 (larger S1 means less room for CPS)
+- `peers[].protocol` empty → `quic` (`pipeline.go`).
+- `peers[].protocol` = one of the six names → that template via `getTemplate`.
+- `analyze --protocol` accepts exactly `random,quic,dns,dtls,stun,sip,rtp`; the
+  `random` selector picks one of the six named templates uniformly at random.
+  See [./cli-reference.md](./cli-reference.md).
+- All six named templates leave **I5 empty** by convention; `random` mode
+  generates all five intervals.
+- Named templates that use timestamps carry **exactly one `<t>` per interval**.
 
-### Examples
+> **Source:** `protocols.go` (`getTemplate`, protocol constants), `quic.go`,
+> `dns.go`, `dtls.go`, `stun.go`, `sip.go`, `rtp.go`, `pipeline.go`,
+> `internal/cli/analyze.go`.
 
-| MTU | S1 | maxISize | Formula |
-|-----|----|----|---------|
-| 1280 | 32 | 1050 | 1280 − 49 − 149 − 32 = 1050 |
-| 1420 | 64 | 1158 | 1420 − 49 − 149 − 64 = 1158 |
+---
 
-### Fallback Behavior
+## Choosing values
 
-When a protocol template's CPS exceeds `maxISize`:
+There is no `preset` manifest field. To use a curated bundle, copy its values
+into `obfuscation.*` (see [./presets.md](./presets.md) for all seven bundles).
 
-1. Tags are removed one at a time from the **end** of the interval
-2. If still too large, more tags are removed
-3. The ultimate fallback is a single `<t>` tag (8 bytes), which always fits
+| Concern | Rule | Source |
+|---|---|---|
+| I-packet upper bound | `maxISize = MTU − 49 − 149 − S1` (`reserve=49`, `handshakeSize=149`); strict `<`. Default MTU `1280`. | `cps.go` (`calculateMaxISize`) |
+| I-packet lower bound | Smallest legal CPS is 4 bytes (bare `<t>`). | `cps.go` (`cpsAcceptable`) |
+| Collision avoidance | The generator's `buildAndValidateCPS` shrinks then perturbs (`<t><rd N>`, `N ∈ [1..8]`) to avoid the four padded sizes. | `cps.go` |
+| Named-template byte budgets | Descending `I1 ≥ I2 ≥ I3 ≥ I4`, `I5` empty — mimics a real protocol's packet-size distribution (e.g. RTP 92/52/36/20 B). Convention, not a validated invariant. | `rtp.go`, `quic.go` |
+| S/H/J defaults | Prefer a preset over hand-picking; random generation is collision-safe via `GenerateConfig`. | `presets.go`, `generator.go` |
 
-This means even with a very low MTU or large S1 value, obfuscation will still work — just with less realistic protocol mimicry.
+For ready-made S/H/J combinations, see [./presets.md](./presets.md).
 
-> **Tip:** If you need full protocol mimicry, ensure your MTU is large enough. The default WireGuard MTU of 1420 works well for all protocol templates.
+---
+
+## Related
+
+- [./presets.md](./presets.md) — the seven named value bundles (`lan-conservative`,
+  `home-balanced`, `mobile-aggressive`, `stealth-paranoid`, `standard-1420`,
+  `low-overhead`, `test-minimal`).
+- [./manifest-reference.md](./manifest-reference.md) — `obfuscation.*` field
+  reference and pointer/nil semantics.
+- [./validation.md](./validation.md) — `validate` rules, finding codes, and the
+  `analyze` heuristics.
+- [./output-format.md](./output-format.md) — how S/H/J and I1–I5 serialize into
+  `awg0.conf` (`#_`-prefixed metadata, `HeaderRange` as `min-max`).
+- [./cli-reference.md](./cli-reference.md) — `analyze --protocol` flag values.
