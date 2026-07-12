@@ -18,6 +18,7 @@ func NewGenerateCommand() *cobra.Command {
 		outputDir  string
 		fullReset  bool
 		dryRun     bool
+		vpnLinks   bool
 		peers      []string
 		jpathDirs  []string
 	)
@@ -32,7 +33,7 @@ By default, credentials are reused from a previous run. Use --full-reset to
 regenerate all keys. Use --dry-run to compute configs without writing files.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runGenerate(cmd, projectDir, outputDir, fullReset, dryRun, peers, jpathDirs)
+			return runGenerate(cmd, projectDir, outputDir, fullReset, dryRun, vpnLinks, peers, jpathDirs)
 		},
 	}
 
@@ -42,6 +43,10 @@ regenerate all keys. Use --dry-run to compute configs without writing files.`,
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "compute configs without writing files")
 	cmd.Flags().StringSliceVar(&peers, "peer", nil, "generate only for specific peers (can be repeated)")
 	cmd.Flags().StringSliceVar(&jpathDirs, "jpath", nil, "jsonnet library search paths")
+	cmd.Flags().BoolVar(
+		&vpnLinks, "vpn-links", false,
+		"generate AmneziaVPN vpn:// import links for each client peer",
+	)
 
 	return cmd
 }
@@ -49,7 +54,7 @@ regenerate all keys. Use --dry-run to compute configs without writing files.`,
 func runGenerate(
 	cmd *cobra.Command,
 	projectDir, outputDir string,
-	fullReset, dryRun bool,
+	fullReset, dryRun, vpnLinks bool,
 	peers, jpathDirs []string,
 ) error {
 	if projectDir == "" {
@@ -76,6 +81,7 @@ func runGenerate(
 		DryRun:     dryRun,
 		PeerFilter: peers,
 		JpathDirs:  jpathDirs,
+		VPNLinks:   vpnLinks,
 	}
 
 	result, err := amnezigo.Generate(manifest, opts)

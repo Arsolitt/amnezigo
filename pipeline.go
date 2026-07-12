@@ -17,6 +17,7 @@ type GenerateOptions struct {
 	PeerFilter []string
 	DryRun     bool
 	FullReset  bool
+	VPNLinks   bool // generate AmneziaVPN vpn:// import links per client
 }
 
 // GenerateResult holds the output of a generate run.
@@ -501,6 +502,9 @@ func Generate(manifest Manifest, opts GenerateOptions) (GenerateResult, error) {
 			RelPath: peerName + "/" + outputConfigName,
 			Content: clientBytes,
 		})
+		if opts.VPNLinks {
+			appendVPNLink(&result, peerName, clientBytes, manifest, serverName)
+		}
 	}
 
 	// Populate ClientPeers
