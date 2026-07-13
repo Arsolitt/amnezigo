@@ -24,7 +24,7 @@ amnezigo is a **configuration generator** for [AmneziaWG](https://github.com/amn
 | Go version | 1.26+ |
 | License | GPL-3.0 |
 | Commands | `generate`, `validate`, `analyze` |
-| Output artifact | INI `awg0.conf` per peer (AmneziaWG v2.0) |
+| Output artifact | INI `awg0.conf` per peer; optional `amnezigo.vpn` import link per client (`--vpn-links`) |
 | Library entry point | `amnezigo.Generate` |
 
 ## The Declarative Manifest Concept
@@ -63,8 +63,11 @@ output/
 ├── server/            # the server peer (Endpoint + ListenPort set)
 │   └── awg0.conf      # [Interface] + one [Peer] per client
 └── phone/             # a client peer
-    └── awg0.conf      # [Interface] + single [Peer] → server
+    ├── awg0.conf      # [Interface] + single [Peer] → server
+    └── amnezigo.vpn   # optional: AmneziaVPN import link (--vpn-links)
 ```
+
+With `--vpn-links`, each client peer also gets an `amnezigo.vpn` file containing a `vpn://` import link for the AmneziaVPN app (see [VPN Import Links](./vpn-links.md)).
 
 Generation is **two-pass atomic**: every config is built in memory first; if any build fails, no files are written to disk.
 

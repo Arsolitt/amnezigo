@@ -96,6 +96,8 @@ output/
 
 Each `awg0.conf` is an INI file (`[Interface]` / `[Peer]`) carrying `#_`-prefixed metadata lines. See [./output-format.md](./output-format.md).
 
+> **Tip:** Add `--vpn-links` to also generate AmneziaVPN-app import links (`amnezigo.vpn`) for each client peer. See [VPN Import Links](./vpn-links.md).
+
 ---
 
 ## Validate & Analyze
@@ -133,3 +135,4 @@ Risk-code meanings: [./validation.md](./validation.md).
 - [./output-format.md](./output-format.md) — INI structure and `#_` metadata lines.
 - [./credentials.md](./credentials.md) — how keys are reused across runs unless `--full-reset`.
 - [./cli-reference.md](./cli-reference.md) — full flag tables for `generate`, `validate`, `analyze`.
+- [./vpn-links.md](./vpn-links.md) — generate AmneziaVPN-app `vpn://` import links for each client peer.

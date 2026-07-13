@@ -51,6 +51,7 @@ writes one `awg0.conf` per peer (server + clients) to the output directory. See
 | `--dry-run` | bool | `false` | Compute configs without writing files. Prints `Dry run — no files written` first. |
 | `--peer` | stringSlice (repeatable) | none | Generate only the named client peer(s). The server config is **always** generated regardless of this filter; unknown peer names are silently ignored. |
 | `--jpath` | stringSlice | none | Jsonnet library search paths (passed to the manifest loader). See [Jsonnet](./jsonnet.md). |
+| `--vpn-links` | bool | `false` | Generate AmneziaVPN `vpn://` import links for each client peer. Emits an additional `amnezigo.vpn` file per client. See [VPN Import Links](./vpn-links.md). |
 
 > **Note:** `--peer` filters only *client* peers. The server config is always
 > emitted. A name not present in the manifest is silently skipped.
@@ -85,6 +86,9 @@ $ amnezigo generate --dry-run
 
 # Use a Jsonnet manifest with a custom library path
 $ amnezigo generate --jpath ./lib
+
+# Generate configs + AmneziaVPN import links
+$ amnezigo generate --vpn-links
 ```
 
 ---

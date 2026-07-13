@@ -31,10 +31,11 @@ The root package `amnezigo` exposes every business-logic entry point: manifest l
 
 | Symbol | Signature | Purpose |
 |---|---|---|
-| `GenerateOptions` | `type GenerateOptions struct { ProjectDir string; OutputDir string; JpathDirs []string; PeerFilter []string; DryRun bool; FullReset bool }` | Configures the generate pipeline: project/output dirs, Jsonnet `jpath`, optional peer filter, dry-run, and credential reset. |
+| `GenerateOptions` | `type GenerateOptions struct { ProjectDir string; OutputDir string; JpathDirs []string; PeerFilter []string; DryRun bool; FullReset bool; VPNLinks bool }` | Configures the generate pipeline: project/output dirs, Jsonnet `jpath`, optional peer filter, dry-run, credential reset, and vpn:// import-link generation. |
 | `GenerateResult` | `type GenerateResult struct { ServerPeer string; Files []FileOutput; ClientPeers []string; Findings []Finding }` | Output of a generate run: server peer name, all file outputs, client peer names, and any findings. |
 | `FileOutput` | `type FileOutput struct { RelPath string; Content []byte }` | A single generated file: path relative to the output dir and its byte content. |
 | `Generate` | `func Generate(manifest Manifest, opts GenerateOptions) (GenerateResult, error)` | Orchestrates the full pipeline: resolve obfuscation, load/reuse credentials, build server + client configs, and write them unless `DryRun` or `OutputDir == ""`. |
+| `EncodeVPNLink` | `func EncodeVPNLink(clientINI []byte, endpoint string, listenPort int, dns []string) string` | Wraps a client AWG INI config into an AmneziaVPN-app-importable vpn:// link. Returns a `vpn://` URL string (scheme + base64url-encoded payload). See [VPN Import Links](./vpn-links.md). |
 
 ### Options detail
 
@@ -46,6 +47,7 @@ The root package `amnezigo` exposes every business-logic entry point: manifest l
 | `PeerFilter` | `[]string` | When non-empty, only the named client peers are built and written; the server is always built. |
 | `DryRun` | `bool` | When `true`, configs are computed and returned in `result.Files` but never written. |
 | `FullReset` | `bool` | When `true`, persisted keys are discarded and fresh credentials are generated for every peer. |
+| `VPNLinks` | `bool` | When `true`, generates an additional `amnezigo.vpn` import-link file per client peer. See [VPN Import Links](./vpn-links.md). |
 
 ### End-to-end example
 
@@ -160,6 +162,7 @@ func main() {
 | `PacketSizeCollisionError` | `type PacketSizeCollisionError struct { Kind string; Pair string; Size int }` | One `ValidatePacketSizes` collision; `Kind` ∈ `{"s-pair", "i-packet", "junk-range"}`. |
 | `(*PacketSizeCollisionError).Error` | `func (e *PacketSizeCollisionError) Error() string` | Formats as `packet size collision (<kind>): <pair> at <size> bytes`. |
 | `ErrEmptyJunkRange` | `var ErrEmptyJunkRange = errors.New("junk range is empty (jmin > jmax)")` | Sentinel returned by `ValidatePacketSizes` when `jmin > jmax`. |
+| WG message sizes | `WGInitiationSize`=148, `WGResponseSize`=92, `WGCookieReplySize`=64, `WGTransportSize`=32 | Canonical WireGuard message sizes (bytes), before AWG S-padding. Sourced from amneziawg-go's `device/noise-protocol.go`; used by validation to ensure junk ranges avoid real WG traffic. |
 
 ### `ValidatePacketSizes` return contract
 
@@ -180,15 +183,30 @@ func main() {
 | `AnalysisReport` | `type AnalysisReport struct { Peers []PeerProfile; Findings []Finding; Ordering OrderingDesc; SampleNote string; Config ConfigInfo; Handshake HandshakeProfile; Headers HeaderProfile; Junk JunkProfile }` | Top-level output: config metadata, handshake/junk/header profiles, per-peer I-packet analysis, wire ordering, and heuristic findings. |
 | `FormatText` | `func FormatText(report AnalysisReport) string` | Renders a report as human-readable multi-section text. |
 | `FormatJSON` | `func FormatJSON(report AnalysisReport) (string, error)` | Renders a report as indented JSON (two spaces); wraps marshal errors with `%w`. |
+| `ListProtocols` | `func ListProtocols() []string` | Returns alphabetically-sorted protocol template names (`dns`, `dtls`, `quic`, `random`, `rtp`, `sip`, `stun`). Use to validate user-supplied protocol names or enumerate available templates. |
 
 ### `AnalyzeOptions` fields
 
 | Field | Default / behavior |
 |---|---|
 | `Rand` | `nil` ⇒ `crypto/rand`. Supply a deterministic reader for reproducible I-packets. |
-| `Protocol` | Empty ⇒ `"random"`. Accepted values: `random`, `quic`, `dns`, `dtls`, `stun`, `sip`, `rtp`. |
+| `Protocol` | Empty ⇒ `"random"` (`ProtocolRandom`). Accepted values: `random`, `quic`, `dns`, `dtls`, `stun`, `sip`, `rtp` — see [Protocol constants](#protocol-constants) below. |
 | `PeerName` | Empty ⇒ analyze all peers. |
 | `Samples` | `0` ⇒ snapshot-only (one `PeerSnapshot` per peer). `> 0` ⇒ distribution mode with `Stats` over N samples. |
+
+### Protocol constants
+
+The protocol template names are available as exported constants. Prefer these over bare string literals when setting `AnalyzeOptions.Protocol` or `PeerManifest.Protocol`.
+
+| Constant | Value |
+|---|---|
+| `ProtocolQUIC` | `"quic"` |
+| `ProtocolDNS` | `"dns"` |
+| `ProtocolDTLS` | `"dtls"` |
+| `ProtocolSTUN` | `"stun"` |
+| `ProtocolSIP` | `"sip"` |
+| `ProtocolRTP` | `"rtp"` |
+| `ProtocolRandom` | `"random"` |
 
 ### Heuristic finding codes
 
@@ -265,5 +283,5 @@ The seven built-in presets: `lan-conservative`, `home-balanced`, `mobile-aggress
 | Error wrapping | Failures are wrapped with `fmt.Errorf("<context>: %w", err)` (e.g. `resolve obfuscation: %w`, `load credentials: %w`, `build server config: %w`, `write file %s: %w`) — unwrap with `errors.Is` / `errors.As`. |
 | `tryDerivePublicKey` | Unexported helper that `recover`s a `DerivePublicKey` panic and returns `""`; used when reloading persisted keys of unknown validity. |
 | Version enforced | `LoadManifest` / `LoadManifestFromFile` reject any `version` other than `1`. |
-| Protocol literal strings | `quic`, `dns`, `dtls`, `stun`, `sip`, `rtp`, `random` are the public contract for `AnalyzeOptions.Protocol` and `PeerManifest.Protocol`, but the matching constants in `protocols.go` are **unexported** — pass the literal strings. See [Obfuscation](./obfuscation.md). |
+| Protocol constants | `ProtocolQUIC`, `ProtocolDNS`, `ProtocolDTLS`, `ProtocolSTUN`, `ProtocolSIP`, `ProtocolRTP`, `ProtocolRandom` are the exported constants for `AnalyzeOptions.Protocol` and `PeerManifest.Protocol`. Prefer `amnezigo.ProtocolQUIC` etc. over bare string literals; use `ListProtocols()` to enumerate all valid values. See [Obfuscation](./obfuscation.md). |
 | Output layout | Configs are written as `<OutputDir>/<peer>/awg0.conf`; the INI/metadata structure is documented in [Output Format](./output-format.md). |

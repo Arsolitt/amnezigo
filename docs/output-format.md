@@ -23,7 +23,9 @@ in the manifest, each holding a single file named `awg0.conf`
 output/
 ├── <server>/awg0.conf      # [Interface] + one [Peer] block per client
 ├── <client-1>/awg0.conf    # client [Interface] (with I1–I5) + server [Peer]
+│              └── amnezigo.vpn  # optional: AmneziaVPN import link (--vpn-links)
 └── <client-2>/awg0.conf    # client [Interface] (with I1–I5) + server [Peer]
+               └── amnezigo.vpn  # optional: AmneziaVPN import link (--vpn-links)
 ```
 
 | Property | Value | Source |
@@ -31,14 +33,22 @@ output/
 | File name | `awg0.conf` (constant `outputConfigName`) | `credentials.go:11` |
 | Server path | `<OutputDir>/<serverName>/awg0.conf` | `pipeline.go:489-492` |
 | Client path | `<OutputDir>/<peerName>/awg0.conf` | `pipeline.go:500-503` |
+| VPN link path | `<OutputDir>/<peerName>/amnezigo.vpn` (client peers only) | `pipeline.go:500-502`; `vpnlink.go:226` |
 | Directory mode | `0750` (created with `os.MkdirAll`) | `pipeline.go:516` |
 | File mode | `0600` (written with `os.WriteFile`) | `pipeline.go:521` |
 | Server config | Always written, even under `--peer` filter | `pipeline.go:489-492` |
 | `--peer <name>` | Writes only the listed clients + the server | `pipeline.go:494-503` |
 | `--dry-run` | Configs computed in memory; nothing written | `pipeline.go:510` |
+| `--vpn-links` | Emits `amnezigo.vpn` per client peer alongside `awg0.conf` | `pipeline.go:500-502` |
 
 The server peer's directory name is its manifest key (commonly `server`), not a
 hardcoded literal — any valid manifest key is allowed.
+
+The `amnezigo.vpn` file is emitted **only** when `--vpn-links` (or
+`GenerateOptions.VPNLinks: true`) is set, and **only for client peers** — the
+server directory never contains one. The file holds a single `vpn://` URL string
+that the AmneziaVPN app can import directly. See
+[VPN Import Links](./vpn-links.md).
 
 ---
 
@@ -269,5 +279,7 @@ Two write paths exist in the codebase. **`generate` uses the non-atomic one.**
   `ParseServerConfigWithOptions` and reports findings.
 - [Obfuscation](./obfuscation.md) — meaning and ranges of `Jc`/`Jmin`/`Jmax`,
   `S1`–`S4`, `H1`–`H4`, and the `I1`–`I5` CPS grammar.
+- [VPN Import Links](./vpn-links.md) — the `vpn://` import link format and the
+  `--vpn-links` flag that emits `amnezigo.vpn` per client peer.
 - [Gotchas](./gotchas.md) — non-atomic `generate` writes, hardcoded client
   `AllowedIPs`, unconditional `PersistentKeepalive`, and more.

@@ -23,6 +23,7 @@ documentation remains at [llms-full.txt](./llms-full.txt).
 | [CLI Reference](./cli-reference.md) | All commands and flags with exact behavior and exit codes |
 | [Library Usage](./library-usage.md) | The importable Go API: `Generate`, `LoadManifest`, keys, validation, analysis |
 | [Output Format](./output-format.md) | The `awg0.conf` INI layout and `#_` metadata |
+| [VPN Import Links](./vpn-links.md) | The `vpn://` import link format and the `--vpn-links` flag |
 | [Obfuscation](./obfuscation.md) | S/H/J parameters, size invariants, CPS grammar, protocol templates |
 | [Presets](./presets.md) | The 7 named obfuscation bundles and their exact values |
 
