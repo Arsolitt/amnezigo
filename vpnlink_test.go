@@ -399,3 +399,152 @@ func TestGenerate_VPNLinks(t *testing.T) {
 		}
 	}
 }
+
+// TestEncodeVPNLink_StructuredLastConfig verifies that last_config contains
+// the structured JSON fields the AmneziaVPN connect path reads via
+// configWireguard() — not just the raw INI in "config". Without these fields,
+// the app throws JSONException on getString("client_priv_key") → error 1000.
+func TestEncodeVPNLink_StructuredLastConfig(t *testing.T) {
+	link := EncodeVPNLink(
+		[]byte(sampleClientINI),
+		"vpn.example.com:51820",
+		51820,
+		nil,
+	)
+
+	lc := lastConfigMap(t, envelopeMap(t, link))
+
+	// Required structured fields — configWireguard reads these via getString/getInt.
+	requiredFields := []struct {
+		key string
+		val string
+	}{
+		{"client_priv_key", "oN+f...exampleKey...="},
+		{"client_ip", "10.0.0.2/32"},
+		{"server_pub_key", "SERVER_PUB_KEY_EXAMPLE"},
+		{"hostName", "vpn.example.com"},
+	}
+	for _, f := range requiredFields {
+		got, ok := lc[f.key].(string)
+		if !ok {
+			t.Errorf("last_config.%s is not a string, got %T", f.key, lc[f.key])
+			continue
+		}
+		if got != f.val {
+			t.Errorf("last_config.%s = %q, want %q", f.key, got, f.val)
+		}
+	}
+
+	// Port must be a JSON number (int), not a string.
+	if port, ok := lc["port"].(float64); !ok || port != 51820 {
+		t.Errorf("last_config.port = %v, want 51820 (number)", lc["port"])
+	}
+
+	// allowed_ips must be a JSON array, not a comma-separated string.
+	allowedIPs, ok := lc["allowed_ips"].([]any)
+	if !ok {
+		t.Fatalf("last_config.allowed_ips is not a JSON array, got %T", lc["allowed_ips"])
+	}
+	if len(allowedIPs) == 0 {
+		t.Fatal("last_config.allowed_ips is empty")
+	}
+	if allowedIPs[0] != "0.0.0.0/0" {
+		t.Errorf("last_config.allowed_ips[0] = %v, want 0.0.0.0/0", allowedIPs[0])
+	}
+
+	// isObfuscationEnabled must be true for AWG configs.
+	if obf, ok := lc["isObfuscationEnabled"].(bool); !ok || !obf {
+		t.Errorf("last_config.isObfuscationEnabled = %v, want true", lc["isObfuscationEnabled"])
+	}
+
+	// AWG obfuscation fields must be present as strings.
+	obfFields := []string{"Jc", "Jmin", "Jmax", "S1", "S2", "S3", "S4", "H1", "H2", "H3", "H4"}
+	for _, f := range obfFields {
+		if _, ok := lc[f].(string); !ok {
+			t.Errorf("last_config.%s is not a string, got %T", f, lc[f])
+		}
+	}
+
+	// H1 range format must be preserved.
+	if h1, _ := lc["H1"].(string); h1 != "100-200" {
+		t.Errorf("last_config.H1 = %q, want 100-200", h1)
+	}
+
+	// MTU must be present (JSON key is lowercase "mtu", matching Android's configData.optStringOrNull("mtu")).
+	if mtu := lc["mtu"]; mtu == nil {
+		t.Error("last_config.mtu is missing")
+	} else if mtu.(string) != "1280" {
+		t.Errorf("last_config.mtu = %v, want 1280", mtu)
+	}
+
+	// PSK must be present.
+	if psk, _ := lc["psk_key"].(string); psk != "PSK_EXAMPLE_VALUE_HERE" {
+		t.Errorf("last_config.psk_key = %q, want PSK_EXAMPLE_VALUE_HERE", psk)
+	}
+
+	// PersistentKeepalive must be present.
+	if ka, _ := lc["persistent_keep_alive"].(string); ka != "25" {
+		t.Errorf("last_config.persistent_keep_alive = %q, want 25", ka)
+	}
+}
+
+// TestEncodeVPNLink_I1I5CPSStringsPreserved verifies that I1-I5 values in
+// last_config carry the original CPS tag strings verbatim (not expanded to
+// hex). The amneziawg-go UAPI handler fully parses CPS tags at connect time,
+// so expansion would freeze random bytes and reduce obfuscation quality.
+func TestEncodeVPNLink_I1I5CPSStringsPreserved(t *testing.T) {
+	link := EncodeVPNLink(
+		[]byte(sampleClientINI),
+		"vpn.example.com:51820",
+		51820,
+		nil,
+	)
+
+	lc := lastConfigMap(t, envelopeMap(t, link))
+
+	// I1-I4 must contain CPS tag notation (starting with "<").
+	for _, key := range []string{"I1", "I2", "I3", "I4"} {
+		val, ok := lc[key].(string)
+		if !ok {
+			t.Errorf("last_config.%s is not a string, got %T", key, lc[key])
+			continue
+		}
+		if !strings.HasPrefix(val, "<") {
+			t.Errorf("last_config.%s = %q, want CPS tag string starting with '<'", key, val)
+		}
+		if !strings.Contains(val, "<b 0x") {
+			t.Errorf("last_config.%s = %q, missing <b 0x...> tag", key, val)
+		}
+	}
+
+	// I5 should be absent (empty in sampleClientINI — omitted via omitempty tag).
+	if _, ok := lc["I5"]; ok {
+		t.Error("last_config.I5 should be absent (empty in sample INI)")
+	}
+}
+
+// TestEncodeVPNLink_AllowedIPsJSONArray verifies that allowed_ips is a JSON
+// array even when the INI has multiple comma-separated values. The app's
+// configWireguard reads it via getJSONArray — a string would throw JSONException.
+func TestEncodeVPNLink_AllowedIPsJSONArray(t *testing.T) {
+	// Config with multiple AllowedIPs entries.
+	multiIPINI := strings.Replace(sampleClientINI, "AllowedIPs = 0.0.0.0/0",
+		"AllowedIPs = 0.0.0.0/0, ::/0", 1)
+
+	link := EncodeVPNLink([]byte(multiIPINI), "vpn.example.com:51820", 51820, nil)
+	lc := lastConfigMap(t, envelopeMap(t, link))
+
+	allowedIPs, ok := lc["allowed_ips"].([]any)
+	if !ok {
+		t.Fatalf("last_config.allowed_ips is not a JSON array, got %T", lc["allowed_ips"])
+	}
+	if len(allowedIPs) != 2 {
+		t.Fatalf("last_config.allowed_ips has %d entries, want 2", len(allowedIPs))
+	}
+	if allowedIPs[0] != "0.0.0.0/0" {
+		t.Errorf("allowed_ips[0] = %v, want 0.0.0.0/0", allowedIPs[0])
+	}
+	if allowedIPs[1] != "::/0" {
+		t.Errorf("allowed_ips[1] = %v, want ::/0", allowedIPs[1])
+	}
+}
