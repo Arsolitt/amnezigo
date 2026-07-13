@@ -67,7 +67,7 @@ var presetRegistry = []Preset{
 		H2:              HeaderRange{Min: 2000000, Max: 100000000},
 		H3:              HeaderRange{Min: 200000000, Max: 500000000},
 		H4:              HeaderRange{Min: 700000000, Max: 2000000000},
-		DefaultProtocol: protocolRandom,
+		DefaultProtocol: ProtocolRandom,
 	},
 	{
 		Name:            "home-balanced",
@@ -84,7 +84,7 @@ var presetRegistry = []Preset{
 		H2:              HeaderRange{Min: 10000000, Max: 200000000},
 		H3:              HeaderRange{Min: 400000000, Max: 800000000},
 		H4:              HeaderRange{Min: 1000000000, Max: 2100000000},
-		DefaultProtocol: protocolQUIC,
+		DefaultProtocol: ProtocolQUIC,
 	},
 	{
 		Name:            "mobile-aggressive",
@@ -101,7 +101,7 @@ var presetRegistry = []Preset{
 		H2:              HeaderRange{Min: 50000000, Max: 500000000},
 		H3:              HeaderRange{Min: 700000000, Max: 1200000000},
 		H4:              HeaderRange{Min: 1500000000, Max: 2147000000},
-		DefaultProtocol: protocolDNS,
+		DefaultProtocol: ProtocolDNS,
 	},
 	{
 		Name: "stealth-paranoid",
@@ -120,7 +120,7 @@ var presetRegistry = []Preset{
 		H2:              HeaderRange{Min: 100000000, Max: 600000000},
 		H3:              HeaderRange{Min: 700000000, Max: 1300000000},
 		H4:              HeaderRange{Min: 1500000000, Max: 2147000000},
-		DefaultProtocol: protocolQUIC,
+		DefaultProtocol: ProtocolQUIC,
 	},
 	{
 		Name: "standard-1420",
@@ -140,7 +140,7 @@ var presetRegistry = []Preset{
 		H2:              HeaderRange{Min: 10000000, Max: 200000000},
 		H3:              HeaderRange{Min: 400000000, Max: 800000000},
 		H4:              HeaderRange{Min: 1000000000, Max: 2100000000},
-		DefaultProtocol: protocolQUIC,
+		DefaultProtocol: ProtocolQUIC,
 	},
 	{
 		Name: "low-overhead",
@@ -159,7 +159,7 @@ var presetRegistry = []Preset{
 		H2:              HeaderRange{Min: 100000000, Max: 400000000},
 		H3:              HeaderRange{Min: 500000000, Max: 900000000},
 		H4:              HeaderRange{Min: 1100000000, Max: 2100000000},
-		DefaultProtocol: protocolDNS,
+		DefaultProtocol: ProtocolDNS,
 	},
 	{
 		Name:            "test-minimal",
@@ -176,7 +176,7 @@ var presetRegistry = []Preset{
 		H2:              HeaderRange{Min: 20000, Max: 50000},
 		H3:              HeaderRange{Min: 100000, Max: 500000},
 		H4:              HeaderRange{Min: 1000000, Max: 5000000},
-		DefaultProtocol: protocolRandom,
+		DefaultProtocol: ProtocolRandom,
 	},
 }
 

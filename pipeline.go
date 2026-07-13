@@ -105,12 +105,7 @@ func fillMissingJunk(obf ObfuscationManifest, cfg ServerObfuscationConfig) (Serv
 		cfg.Jmax = *obf.Jmax
 		return cfg, nil
 	}
-	forbidden := [4]int{
-		cfg.S1 + 148, // wgInitiationSize
-		cfg.S2 + 92,  // wgResponseSize
-		cfg.S3 + 64,  // wgCookieReplySize
-		cfg.S4 + 32,  // wgTransportSize
-	}
+	forbidden := PaddedSizes(cfg.S1, cfg.S2, cfg.S3, cfg.S4)
 	jc := resolveInt(obf.Jc)
 	jmin := resolveInt(obf.Jmin)
 	jmax := resolveInt(obf.Jmax)
@@ -292,7 +287,7 @@ func buildServerConfig(
 		// Determine protocol (default to "quic")
 		protocol := peer.Protocol
 		if protocol == "" {
-			protocol = protocolQUIC
+			protocol = ProtocolQUIC
 		}
 
 		// Generate I-packets for this client
@@ -356,7 +351,7 @@ func buildClientConfig(
 	// Determine protocol (default to "quic")
 	protocol := clientPeer.Protocol
 	if protocol == "" {
-		protocol = protocolQUIC
+		protocol = ProtocolQUIC
 	}
 
 	// Generate I-packets for this client

@@ -285,7 +285,7 @@ func TestValidatePacketSizes_DTagDoesNotMaskCollisions(t *testing.T) {
 	// Construct a config where I3 collides with S1+148 — but I2 is "<d>"
 	// (size 0). The validator must still flag the I3 collision, not skip it.
 	s1, s2, s3, s4 := 32, 64, 128, 200
-	padded := s1 + wgInitiationSize // 180
+	padded := s1 + WGInitiationSize // 180
 	// I1=10, I2=0 (the <d>-only interval), I3=collision, I4=20, I5=30.
 	iPacketSizes := []int{10, 0, padded, 20, 30}
 	err := ValidatePacketSizes(s1, s2, s3, s4, iPacketSizes, 500, 900) // safe junk range

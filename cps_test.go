@@ -471,7 +471,7 @@ func TestGenerateCPSConfig_Random(t *testing.T) {
 }
 
 func TestGenerateCPSConfig_Protocol(t *testing.T) {
-	for _, protocol := range []string{protocolQUIC, protocolDNS, protocolDTLS, protocolSTUN, protocolSIP, protocolRTP} {
+	for _, protocol := range []string{ProtocolQUIC, ProtocolDNS, ProtocolDTLS, ProtocolSTUN, ProtocolSIP, ProtocolRTP} {
 		t.Run(protocol, func(t *testing.T) {
 			cps := generateCPSConfig(protocol, 1280, 32, [4]int{})
 			maxI := calculateMaxISize(1280, 32)

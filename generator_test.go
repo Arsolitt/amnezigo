@@ -59,7 +59,7 @@ func TestGenerateSPrefixes_SixPairsDistinct(t *testing.T) {
 	const iterations = 1000
 	for i := range iterations {
 		s := GenerateSPrefixes()
-		padded := [4]int{s.S1 + 148, s.S2 + 92, s.S3 + 64, s.S4 + 32}
+		padded := PaddedSizes(s.S1, s.S2, s.S3, s.S4)
 		labels := [4]string{"S1+148", "S2+92", "S3+64", "S4+32"}
 		for a := range 4 {
 			for b := a + 1; b < 4; b++ {
@@ -83,7 +83,7 @@ func TestGenerateSPrefixesWithS1_RespectsFixedS1(t *testing.T) {
 			if s.S1 != fixedS1 {
 				t.Fatalf("S1 must equal fixed value: want %d, got %d", fixedS1, s.S1)
 			}
-			padded := [4]int{s.S1 + 148, s.S2 + 92, s.S3 + 64, s.S4 + 32}
+			padded := PaddedSizes(s.S1, s.S2, s.S3, s.S4)
 			for a := range 4 {
 				for b := a + 1; b < 4; b++ {
 					if padded[a] == padded[b] {
@@ -103,13 +103,13 @@ func TestGenerateJunkParamsWithForbidden_ExcludesPaddedAndRawWGSizes(t *testing.
 	const iterations = 1000
 	for i := range iterations {
 		s := GenerateSPrefixes()
-		forbidden := [4]int{s.S1 + 148, s.S2 + 92, s.S3 + 64, s.S4 + 32}
+		forbidden := PaddedSizes(s.S1, s.S2, s.S3, s.S4)
 		j, err := GenerateJunkParamsWithForbidden(forbidden)
 		if err != nil {
 			t.Fatalf("iter %d: forbidden=%v: %v", i, forbidden, err)
 		}
 		all := append([]int{}, forbidden[:]...)
-		all = append(all, 148, 92, 64, 32)
+		all = append(all, WGInitiationSize, WGResponseSize, WGCookieReplySize, WGTransportSize)
 		for _, f := range all {
 			if f >= j.Jmin && f <= j.Jmax {
 				t.Errorf("iter %d: [Jmin=%d..Jmax=%d] contains forbidden %d (S=%v)",

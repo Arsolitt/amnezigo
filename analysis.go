@@ -12,7 +12,7 @@ import (
 // Analysis heuristic thresholds.
 const (
 	// defaultAnalysisProtocol is the default protocol used when none is specified.
-	defaultAnalysisProtocol = protocolRandom
+	defaultAnalysisProtocol = ProtocolRandom
 
 	// iPacketClusterMinWidth is the minimum acceptable spread of I-packet sizes.
 	iPacketClusterMinWidth = 20
@@ -191,23 +191,23 @@ func buildHandshakeProfile(obf ServerObfuscationConfig) HandshakeProfile {
 	return HandshakeProfile{
 		Init: PaddedSize{
 			SPrefix: obf.S1,
-			RawSize: wgInitiationSize,
-			Padded:  obf.S1 + wgInitiationSize,
+			RawSize: WGInitiationSize,
+			Padded:  obf.S1 + WGInitiationSize,
 		},
 		Response: PaddedSize{
 			SPrefix: obf.S2,
-			RawSize: wgResponseSize,
-			Padded:  obf.S2 + wgResponseSize,
+			RawSize: WGResponseSize,
+			Padded:  obf.S2 + WGResponseSize,
 		},
 		Cookie: PaddedSize{
 			SPrefix: obf.S3,
-			RawSize: wgCookieReplySize,
-			Padded:  obf.S3 + wgCookieReplySize,
+			RawSize: WGCookieReplySize,
+			Padded:  obf.S3 + WGCookieReplySize,
 		},
 		Transport: PaddedSize{
 			SPrefix: obf.S4,
-			RawSize: wgTransportSize,
-			Padded:  obf.S4 + wgTransportSize,
+			RawSize: WGTransportSize,
+			Padded:  obf.S4 + WGTransportSize,
 		},
 	}
 }
@@ -350,7 +350,7 @@ func medianOf(sorted []int) int {
 func runHeuristics(obf ServerObfuscationConfig, report AnalysisReport) []Finding {
 	var findings []Finding
 
-	padded := paddedSizes(obf.S1, obf.S2, obf.S3, obf.S4)
+	padded := PaddedSizes(obf.S1, obf.S2, obf.S3, obf.S4)
 
 	findings = checkRISK001(findings, obf)
 	findings = checkRISK002(findings, report)
@@ -367,7 +367,7 @@ func runHeuristics(obf ServerObfuscationConfig, report AnalysisReport) []Finding
 
 // checkRISK001 checks if junk range contains raw WG sizes.
 func checkRISK001(findings []Finding, obf ServerObfuscationConfig) []Finding {
-	rawWG := [4]int{wgInitiationSize, wgResponseSize, wgCookieReplySize, wgTransportSize}
+	rawWG := [4]int{WGInitiationSize, WGResponseSize, WGCookieReplySize, WGTransportSize}
 	for _, wgSize := range rawWG {
 		if wgSize >= obf.Jmin && wgSize <= obf.Jmax {
 			findings = append(findings, Finding{
@@ -450,7 +450,7 @@ func checkRISK004(findings []Finding, padded [4]int) []Finding {
 
 // checkRISK005 checks if padded sizes land near raw WG sizes.
 func checkRISK005(findings []Finding, padded [4]int) []Finding {
-	rawWG := [4]int{wgInitiationSize, wgResponseSize, wgCookieReplySize, wgTransportSize}
+	rawWG := [4]int{WGInitiationSize, WGResponseSize, WGCookieReplySize, WGTransportSize}
 	pairLabels := [4]string{"Init", "Response", "Cookie", "Transport"}
 	for i, p := range padded {
 		for _, raw := range rawWG {

@@ -14,7 +14,7 @@ func TestPresetsValidate(t *testing.T) {
 
 	for _, p := range presets {
 		t.Run(p.Name, func(t *testing.T) {
-			padded := paddedSizes(p.S1, p.S2, p.S3, p.S4)
+			padded := PaddedSizes(p.S1, p.S2, p.S3, p.S4)
 			// Use empty I-packet sizes — presets define server-side params only;
 			// I-packets are generated per-peer at export time.
 			err := ValidatePacketSizes(p.S1, p.S2, p.S3, p.S4, nil, p.Jmin, p.Jmax)
@@ -155,13 +155,13 @@ func TestPresetMTU(t *testing.T) {
 // TestPresetDefaultProtocol verifies each preset has a valid default protocol.
 func TestPresetDefaultProtocol(t *testing.T) {
 	validProtocols := map[string]bool{
-		protocolRandom: true,
-		protocolQUIC:   true,
-		protocolDNS:    true,
-		protocolDTLS:   true,
-		protocolSTUN:   true,
-		protocolSIP:    true,
-		protocolRTP:    true,
+		ProtocolRandom: true,
+		ProtocolQUIC:   true,
+		ProtocolDNS:    true,
+		ProtocolDTLS:   true,
+		ProtocolSTUN:   true,
+		ProtocolSIP:    true,
+		ProtocolRTP:    true,
 	}
 	presets := ListPresets()
 	for _, p := range presets {

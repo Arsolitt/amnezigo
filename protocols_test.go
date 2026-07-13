@@ -2,6 +2,7 @@ package amnezigo
 
 import (
 	"bytes"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -11,12 +12,12 @@ func TestGetTemplate_NamedProtocols(t *testing.T) {
 		protocol string
 		wantNil  bool
 	}{
-		{protocolQUIC, false},
-		{protocolDNS, false},
-		{protocolDTLS, false},
-		{protocolSTUN, false},
-		{protocolSIP, false},
-		{protocolRTP, false},
+		{ProtocolQUIC, false},
+		{ProtocolDNS, false},
+		{ProtocolDTLS, false},
+		{ProtocolSTUN, false},
+		{ProtocolSIP, false},
+		{ProtocolRTP, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.protocol, func(t *testing.T) {
@@ -51,6 +52,43 @@ func TestGetTemplate_UnknownFallsBackToRandom(t *testing.T) {
 	tmpl := getTemplate("unknown_protocol")
 	if tmpl.I1 == nil {
 		t.Error("unknown protocol should fall back to random selection, got nil I1")
+	}
+}
+
+func TestListProtocols(t *testing.T) {
+	protocols := ListProtocols()
+
+	// Exactly 7 entries: 6 named protocols + ProtocolRandom.
+	if len(protocols) != 7 {
+		t.Fatalf("ListProtocols returned %d entries, want 7: %v", len(protocols), protocols)
+	}
+
+	// Contains all named protocols + ProtocolRandom.
+	want := map[string]bool{
+		ProtocolDNS:    true,
+		ProtocolDTLS:   true,
+		ProtocolQUIC:   true,
+		ProtocolRandom: true,
+		ProtocolRTP:    true,
+		ProtocolSIP:    true,
+		ProtocolSTUN:   true,
+	}
+	for _, p := range protocols {
+		if !want[p] {
+			t.Errorf("unexpected protocol %q in ListProtocols result", p)
+		}
+	}
+
+	// Each name resolves to a non-empty I1 template via getTemplate().
+	for _, p := range protocols {
+		if len(getTemplate(p).I1) == 0 {
+			t.Errorf("protocol %q: getTemplate returned empty I1", p)
+		}
+	}
+
+	// Slice is sorted alphabetically.
+	if !slices.IsSorted(protocols) {
+		t.Errorf("ListProtocols returned unsorted slice: %v", protocols)
 	}
 }
 

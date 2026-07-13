@@ -165,7 +165,7 @@ func TestRISK004_ClosePaddedSizes(t *testing.T) {
 		// S1+148 = 148, S2+92 = 150 => diff=2 < 5.
 		S1: 0, S2: 58, S3: 30, S4: 10,
 	}
-	padded := paddedSizes(obf.S1, obf.S2, obf.S3, obf.S4)
+	padded := PaddedSizes(obf.S1, obf.S2, obf.S3, obf.S4)
 	findings := checkRISK004(nil, padded)
 	assertFindingPresent(t, findings, "RISK004")
 }
@@ -174,7 +174,7 @@ func TestRISK004_FarApart_NoFinding(t *testing.T) {
 	obf := ServerObfuscationConfig{
 		S1: 10, S2: 20, S3: 30, S4: 8,
 	}
-	padded := paddedSizes(obf.S1, obf.S2, obf.S3, obf.S4)
+	padded := PaddedSizes(obf.S1, obf.S2, obf.S3, obf.S4)
 	findings := checkRISK004(nil, padded)
 	assertFindingAbsent(t, findings, "RISK004")
 }
@@ -185,7 +185,7 @@ func TestRISK005_PaddedNearRawWG(t *testing.T) {
 	obf := ServerObfuscationConfig{
 		S1: 10, S2: 20, S3: 2, S4: 8,
 	}
-	padded := paddedSizes(obf.S1, obf.S2, obf.S3, obf.S4)
+	padded := PaddedSizes(obf.S1, obf.S2, obf.S3, obf.S4)
 	findings := checkRISK005(nil, padded)
 	assertFindingPresent(t, findings, "RISK005")
 }
@@ -194,7 +194,7 @@ func TestRISK005_FarFromRawWG_NoFinding(t *testing.T) {
 	obf := ServerObfuscationConfig{
 		S1: 20, S2: 30, S3: 40, S4: 10,
 	}
-	padded := paddedSizes(obf.S1, obf.S2, obf.S3, obf.S4)
+	padded := PaddedSizes(obf.S1, obf.S2, obf.S3, obf.S4)
 	findings := checkRISK005(nil, padded)
 	assertFindingAbsent(t, findings, "RISK005")
 }
@@ -387,17 +387,17 @@ func TestBuildHandshakeProfile(t *testing.T) {
 	obf := ServerObfuscationConfig{S1: 10, S2: 20, S3: 30, S4: 5}
 	hp := buildHandshakeProfile(obf)
 
-	if hp.Init.Padded != 10+wgInitiationSize {
-		t.Errorf("Init.Padded = %d, want %d", hp.Init.Padded, 10+wgInitiationSize)
+	if hp.Init.Padded != 10+WGInitiationSize {
+		t.Errorf("Init.Padded = %d, want %d", hp.Init.Padded, 10+WGInitiationSize)
 	}
-	if hp.Response.Padded != 20+wgResponseSize {
-		t.Errorf("Response.Padded = %d, want %d", hp.Response.Padded, 20+wgResponseSize)
+	if hp.Response.Padded != 20+WGResponseSize {
+		t.Errorf("Response.Padded = %d, want %d", hp.Response.Padded, 20+WGResponseSize)
 	}
-	if hp.Cookie.Padded != 30+wgCookieReplySize {
-		t.Errorf("Cookie.Padded = %d, want %d", hp.Cookie.Padded, 30+wgCookieReplySize)
+	if hp.Cookie.Padded != 30+WGCookieReplySize {
+		t.Errorf("Cookie.Padded = %d, want %d", hp.Cookie.Padded, 30+WGCookieReplySize)
 	}
-	if hp.Transport.Padded != 5+wgTransportSize {
-		t.Errorf("Transport.Padded = %d, want %d", hp.Transport.Padded, 5+wgTransportSize)
+	if hp.Transport.Padded != 5+WGTransportSize {
+		t.Errorf("Transport.Padded = %d, want %d", hp.Transport.Padded, 5+WGTransportSize)
 	}
 }
 

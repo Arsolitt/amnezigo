@@ -9,10 +9,10 @@ import (
 // WireGuard message size constants from amneziawg-go device/noise-protocol.go.
 // These are the on-the-wire sizes BEFORE AWG S-padding is applied.
 const (
-	wgInitiationSize  = 148
-	wgResponseSize    = 92
-	wgCookieReplySize = 64
-	wgTransportSize   = 32
+	WGInitiationSize  = 148
+	WGResponseSize    = 92
+	WGCookieReplySize = 64
+	WGTransportSize   = 32
 )
 
 // wgMessageTypeMin and wgMessageTypeMax bound the standard WireGuard
@@ -52,14 +52,14 @@ func (e *PacketSizeCollisionError) Error() string {
 // this as a structural error in the input, not a collision.
 var ErrEmptyJunkRange = errors.New("junk range is empty (jmin > jmax)")
 
-// paddedSizes returns the four AWG-padded packet sizes.
+// PaddedSizes returns the four AWG-padded packet sizes.
 // Order: init, response, cookie, transport.
-func paddedSizes(s1, s2, s3, s4 int) [4]int {
+func PaddedSizes(s1, s2, s3, s4 int) [4]int {
 	return [4]int{
-		s1 + wgInitiationSize,
-		s2 + wgResponseSize,
-		s3 + wgCookieReplySize,
-		s4 + wgTransportSize,
+		s1 + WGInitiationSize,
+		s2 + WGResponseSize,
+		s3 + WGCookieReplySize,
+		s4 + WGTransportSize,
 	}
 }
 
@@ -78,7 +78,7 @@ func ValidatePacketSizes(s1, s2, s3, s4 int, iPacketSizes []int, jmin, jmax int)
 	if jmin > jmax {
 		return ErrEmptyJunkRange
 	}
-	padded := paddedSizes(s1, s2, s3, s4)
+	padded := PaddedSizes(s1, s2, s3, s4)
 	pairLabels := [4]string{"S1+148", "S2+92", "S3+64", "S4+32"}
 
 	// 1. Six pairwise S-padding checks.
@@ -111,7 +111,7 @@ func ValidatePacketSizes(s1, s2, s3, s4 int, iPacketSizes []int, jmin, jmax int)
 	// integers; any inside [jmin..jmax] (inclusive) is a collision.
 	forbidden := [...]int{
 		padded[0], padded[1], padded[2], padded[3],
-		wgInitiationSize, wgResponseSize, wgCookieReplySize, wgTransportSize,
+		WGInitiationSize, WGResponseSize, WGCookieReplySize, WGTransportSize,
 	}
 	for _, f := range forbidden {
 		if f >= jmin && f <= jmax {

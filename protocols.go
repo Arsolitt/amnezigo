@@ -6,30 +6,46 @@ import (
 )
 
 const (
-	protocolQUIC   = "quic"
-	protocolDNS    = "dns"
-	protocolDTLS   = "dtls"
-	protocolSTUN   = "stun"
-	protocolSIP    = "sip"
-	protocolRTP    = "rtp"
-	protocolRandom = "random"
+	ProtocolQUIC   = "quic"
+	ProtocolDNS    = "dns"
+	ProtocolDTLS   = "dtls"
+	ProtocolSTUN   = "stun"
+	ProtocolSIP    = "sip"
+	ProtocolRTP    = "rtp"
+	ProtocolRandom = "random"
 )
+
+// ListProtocols returns the names of all supported protocol templates,
+// including ProtocolRandom. The slice is sorted alphabetically for
+// deterministic iteration. Use it to validate user-supplied protocol
+// names or to enumerate available templates.
+func ListProtocols() []string {
+	return []string{
+		ProtocolDNS,
+		ProtocolDTLS,
+		ProtocolQUIC,
+		ProtocolRandom,
+		ProtocolRTP,
+		ProtocolSIP,
+		ProtocolSTUN,
+	}
+}
 
 // getTemplate returns the I1I5Template for the specified protocol.
 // Valid protocols: "quic", "dns", "dtls", "stun", "sip", "rtp", "random" (default).
 func getTemplate(protocol string) I1I5Template {
 	switch protocol {
-	case protocolQUIC:
+	case ProtocolQUIC:
 		return QUICTemplate()
-	case protocolDNS:
+	case ProtocolDNS:
 		return DNSTemplate()
-	case protocolDTLS:
+	case ProtocolDTLS:
 		return DTLSTemplate()
-	case protocolSTUN:
+	case ProtocolSTUN:
 		return STUNTemplate()
-	case protocolSIP:
+	case ProtocolSIP:
 		return SIPTemplate()
-	case protocolRTP:
+	case ProtocolRTP:
 		return RTPTemplate()
 	default:
 		protocols := []func() I1I5Template{

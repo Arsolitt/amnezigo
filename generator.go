@@ -66,7 +66,7 @@ func GenerateSPrefixesWithS1(fixedS1 int) SPrefixes {
 
 // pairsDistinct returns true iff the four AWG-padded sizes are pairwise distinct.
 func pairsDistinct(s SPrefixes) bool {
-	padded := paddedSizes(s.S1, s.S2, s.S3, s.S4)
+	padded := PaddedSizes(s.S1, s.S2, s.S3, s.S4)
 	for i := range 4 {
 		for j := i + 1; j < 4; j++ {
 			if padded[i] == padded[j] {
@@ -142,7 +142,7 @@ func GenerateJunkParamsWithForbidden(forbiddenSizes [4]int) (JunkParams, error) 
 // forbiddenSizes are treated as unset (the junk range starts at 64, so 0
 // never matters in practice).
 func junkRangeOK(forbiddenSizes [4]int, jmin, jmax int) bool {
-	rawWG := [...]int{wgInitiationSize, wgResponseSize, wgCookieReplySize, wgTransportSize}
+	rawWG := [...]int{WGInitiationSize, WGResponseSize, WGCookieReplySize, WGTransportSize}
 	for _, f := range forbiddenSizes {
 		if f == 0 {
 			continue
@@ -174,7 +174,7 @@ func GenerateCPS(protocol string, mtu, s1, _ int) (string, string, string, strin
 func GenerateConfig(protocol string, mtu, s1, jc int) ClientObfuscationConfig {
 	h := GenerateHeaderRanges()
 	s := GenerateSPrefixesWithS1(s1)
-	forbidden := paddedSizes(s.S1, s.S2, s.S3, s.S4)
+	forbidden := PaddedSizes(s.S1, s.S2, s.S3, s.S4)
 	j, err := GenerateJunkParamsWithForbidden(forbidden)
 	if err != nil {
 		panic(fmt.Sprintf("GenerateConfig: junk-range generation failed: %v", err))
@@ -286,7 +286,7 @@ func headerRangesValid(sortedRanges []HeaderRange) bool {
 func GenerateServerConfig(_, s1, jc int) ServerObfuscationConfig {
 	h := GenerateHeaderRanges()
 	s := GenerateSPrefixesWithS1(s1)
-	forbidden := paddedSizes(s.S1, s.S2, s.S3, s.S4)
+	forbidden := PaddedSizes(s.S1, s.S2, s.S3, s.S4)
 	j, err := GenerateJunkParamsWithForbidden(forbidden)
 	if err != nil {
 		panic(fmt.Sprintf("GenerateServerConfig: junk-range generation failed: %v", err))
