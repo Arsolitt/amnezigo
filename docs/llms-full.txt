@@ -21,9 +21,9 @@ The binary exposes exactly three commands:
 | `amnezigo validate` | Check an existing config for obfuscation problems |
 | `amnezigo analyze` | Probe a config's runtime obfuscation characteristics |
 
-::: tip
+:::: tip
 Only those three commands exist. If an old blog post or fork's README mentions `amnezigo init`, `add`, `edit`, `remove`, `export`, or `list`, it is describing a version that no longer exists — those commands were removed during the refactor to the declarative manifest. The `go install` one-liner is still valid; everything else around it is stale.
-:::
+::::
 
 This tour focuses on `generate`, because that is the command you will reach for ninety percent of the time. `validate` and `analyze` are covered in [Validation](/validation) and the [CLI Reference](/cli-reference).
 
@@ -67,9 +67,9 @@ Three things to notice right away, because they surprise people who expect a mor
 2. **`peers` is a map, not a list.** The map key (`"vpn-server"`, `"phone"`, `"laptop"`) *is* the peer's name — there is no separate `name` field. That name becomes the output directory, so pick something filesystem-safe.
 3. **Most obfuscation values are optional.** Omit a numeric field and Amnezigo generates a random value for you. Set it to a number — even `0` — and Amnezigo pins it exactly.
 
-::: warning Omitting a key is not the same as setting it to zero
+:::: warning Omitting a key is not the same as setting it to zero
 For the nullable numeric fields (`s1`–`s4`, `h1`–`h4`, `jc`, `jmin`, `jmax`), omitting the key means *"pick a random value at generate time"*, while writing `"s1": 0` means *"pin S1 to exactly zero"*. These are genuinely different inputs and produce different output. This distinction runs through the whole tool, so it is worth internalising now.
-:::
+::::
 
 You do not need to memorise the full field list to finish this tour — the [Manifest Reference](/manifest-reference) catalogues every field, and [Manifest Examples](/manifest-examples) has copy-paste topologies. The important idea is the **flow**: you write the manifest once, then run `generate` to materialise it.
 
@@ -88,24 +88,40 @@ from the directory containing your manifest, Amnezigo performs four steps:
 3. **Generate or reuse credentials** — keypairs for every peer, plus a unique PresharedKey for each client.
 4. **Build every config in memory first, then write them all to disk at once.**
 
-::: tip The write is atomic
+:::: tip The write is atomic
 All configs are computed in memory before a single file is written. If any one config fails to build, Amnezigo writes *nothing*. You never end up with a half-updated output directory.
-:::
+::::
 
 The result is **one directory per peer, each containing an `awg0.conf`**:
 
-```
+```text
 output/
 ├── vpn-server/awg0.conf   ← server config (contains a [Peer] block for every client)
 ├── phone/awg0.conf        ← client config for "phone"
 └── laptop/awg0.conf       ← client config for "laptop"
 ```
 
-That is the entire output model: **one `awg0.conf` per peer**, in a directory named after the peer's map key. Copy the server's file to your server, and each client's file to its machine.
+That is the core output model: **one `awg0.conf` per peer**, in a directory named after the peer's map key. Copy the server's file to your server, and each client's file to its machine.
 
-::: tip Keys are reused by default
+Pass `--vpn-links` to also generate an **AmneziaVPN import link** for each client peer. With that flag, every client directory gains an `amnezigo.vpn` file alongside its `awg0.conf`:
+
+```text
+output/
+├── vpn-server/
+│   └── awg0.conf          ← server never gets a .vpn file
+├── phone/
+│   ├── awg0.conf
+│   └── amnezigo.vpn       ← vpn:// import link (--vpn-links only)
+└── laptop/
+    ├── awg0.conf
+    └── amnezigo.vpn       ← vpn:// import link (--vpn-links only)
+```
+
+Each `amnezigo.vpn` file contains a single `vpn://` URL that encodes the client's full config. The link is importable directly by the **AmneziaVPN app** (mobile or desktop) — you scan a QR code or paste the URL and the app configures the tunnel for you. This is distinct from the `awg0.conf` INI file, which targets the standalone AmneziaWG client or kernel module. The server peer never gets a `.vpn` file; only clients do. See [VPN Import Links](/vpn-links) for the full envelope format and usage details.
+
+:::: tip Keys are reused by default
 The first `generate` creates fresh keys for every peer and bakes them into the configs. On the next run, Amnezigo reads those keys back out of the output files and reuses them — so re-generating after editing a peer's address does **not** silently rotate everyone's keys. Pass `--full-reset` when you genuinely want all-new material.
-:::
+::::
 
 A generated client config is standard AmneziaWG INI: a `[Interface]` block carrying the client's address, keys, DNS, MTU, the shared obfuscation parameters, and per-client "CPS" magic (defined below), followed by a single `[Peer]` pointing at the server:
 
@@ -158,9 +174,9 @@ Amnezigo has **no `role` field**. Instead, it *infers* each peer's role from two
 
 In the manifest above, `vpn-server` has both an endpoint and a listen port, so it is the server; `phone` and `laptop` have neither, so they are clients.
 
-::: warning Both markers are required
+:::: warning Both markers are required
 A peer with *only* an `endpoint`, or *only* a `listen_port`, is **not** a server — it is a client. Both fields must be set for server detection to fire. And a manifest with zero servers, or with two or more servers, is rejected outright: there must be exactly **one** server peer.
-:::
+::::
 
 The role determines what gets generated for that peer:
 
@@ -177,9 +193,9 @@ AmneziaWG defeats deep-packet inspection by adding "junk" to the WireGuard hands
 
 These are **network-wide**: the server and every client *must* use identical S/H/J values, or the handshake simply fails. That is why they live in one top-level `obfuscation` object in the manifest rather than being scattered per-peer. Amnezigo takes that single profile and stamps it into every generated config, guaranteeing consistency by construction — there is no way for a client to drift out of sync with its server.
 
-::: tip Pin what you care about, randomise the rest
+:::: tip Pin what you care about, randomise the rest
 Because every S/H/J field is nullable, you can pin just the values you care about (say, a preferred set of `s1`–`s4`) and let Amnezigo fill the rest with random numbers. The filled-in values are written back into every generated `awg0.conf`, so you can read the resolved values out of the output afterwards and record them.
-:::
+::::
 
 For the full field-by-field breakdown — including why `h1`–`h4` cannot overlap the WireGuard message type-ids `1`–`4` — see [Obfuscation](/obfuscation).
 
@@ -189,13 +205,13 @@ The obfuscation profile above is *shared*, but each client **also** gets its own
 
 Each client's CPS shape is chosen by a **protocol**: `quic`, `dns`, `dtls`, `stun`, `sip`, or `rtp`. The protocol is set per-peer (`"protocol": "dns"` on a client). CPS strings are written in a small tag mini-language — for example `<b 0xc0>` emits a fixed byte, `<r 12>` emits twelve random bytes, `<t>` emits a four-byte timestamp, and `<d>` is a runtime passthrough expanded by the AWG 2.0 userspace. Different protocols compose these tags differently, so one client's handshake can mimic QUIC while another's mimics DNS.
 
-::: warning Not every tag works everywhere
+:::: warning Not every tag works everywhere
 The `<c>` counter tag does **not** exist — it was removed and is rejected by amneziawg-go and all AmneziaVPN clients ("unknown tag"). The `<d>` tag requires the AWG **2.0** userspace; the legacy kernel module rejects it. Stick to `<b>`, `<r>`, `<rc>`, `<rd>`, `<t>`, and `<d>`.
-:::
+::::
 
-::: tip The protocol on the *peer* is the one that counts
+:::: tip The protocol on the *peer* is the one that counts
 There is a top-level `obfuscation.protocol` field, but `generate` does **not** read it — it is effectively decorative. The protocol that actually drives a client's CPS is the per-peer `protocol` field, which defaults to `quic` when left empty.
-:::
+::::
 
 ## Where To Go Next
 
@@ -236,9 +252,9 @@ Amnezigo is a **declarative** generator: you describe the topology you want in a
 
 - **AmneziaWG 2.0 userspace** (the runtime, not installed by Amnezigo). The generated configs target `amneziawg-go`; the legacy kernel module rejects some emitted tags. You only need the runtime when you actually bring a tunnel up — generating configs needs nothing but the `amnezigo` binary.
 
-::: tip Only three commands exist
+:::: tip Only three commands exist
 Amnezigo has exactly three subcommands: `generate`, `validate`, and `analyze`. This guide uses `generate`. If you see references to `init`, `add`, `edit`, `remove`, `export`, or `list` anywhere, those commands were removed — they do not exist.
-:::
+::::
 
 ## Write a Minimal Manifest
 
@@ -330,9 +346,9 @@ Reference for the fields that matter most in a minimal manifest:
 > `peers.<name>.endpoint`: string — `host:port`; together with a non-zero `listen_port` marks a **server** peer.
 > `peers.<name>.listen_port`: int — non-zero; together with `endpoint` marks a **server** peer.
 
-::: warning What makes a peer the server
+:::: warning What makes a peer the server
 A peer is the server **only when both** `endpoint` is non-empty **and** `listen_port` is non-zero. A peer with just one of the two is a client. A valid manifest has **exactly one** server peer — zero or more than one is a hard error (`exactly one server peer required, found N`).
-:::
+::::
 
 ## Run `amnezigo generate`
 
@@ -341,6 +357,16 @@ From the directory containing `amnezigo.json`:
 ```shell
 amnezigo generate
 ```
+
+:::: tip Generate AmneziaVPN import links
+Add `--vpn-links` to also emit a `vpn://` import link (`amnezigo.vpn`) for each client peer, ready to paste into the AmneziaVPN app:
+
+```shell
+amnezigo generate --vpn-links
+```
+
+The server peer never gets a `.vpn` file — only clients do. See [VPN Import Links](/vpn-links) for the full envelope format and app import walkthrough.
+::::
 
 Amnezigo loads the manifest, generates a full set of configs in memory, then writes them. It prints one summary line per file:
 
@@ -362,10 +388,11 @@ The number of config files equals the number of peers. Each line shows the path 
 | `--dry-run` | `false` | no | compute configs without writing files; prints `Dry run — no files written` |
 | `--peer` | (none) | no | generate only specific client peers (repeatable; server is always generated) |
 | `--jpath` | (none) | no | extra Jsonnet library search paths |
+| `--vpn-links` | `false` | no | generate AmneziaVPN `vpn://` import links for each client peer |
 
-::: tip Try a dry run first
+:::: tip Try a dry run first
 `amnezigo generate --dry-run` validates the manifest and shows the exact file list without touching disk — handy before a destructive `--full-reset`.
-:::
+::::
 
 ## Understand the Output
 
@@ -382,6 +409,19 @@ your-project/
 ```
 
 One directory per peer, each named after the manifest map key, each holding a single `awg0.conf`. The **server** config carries the server's `[Interface]` and a `[Peer]` section for every client. Each **client** config carries the client's own `[Interface]` (with its unique I1–I5 obfuscation strings) and a single `[Peer]` pointing at the server.
+
+When you run with `--vpn-links`, each client peer directory also contains an `amnezigo.vpn` file — a `vpn://` import link for the AmneziaVPN app. The server directory is unaffected:
+
+```
+your-project/
+├── amnezigo.json
+└── output/
+    ├── server/
+    │   └── awg0.conf
+    └── phone/
+        ├── awg0.conf
+        └── amnezigo.vpn   # vpn:// import link for the AmneziaVPN app
+```
 
 Here is the generated `output/server/awg0.conf` (key material shown is real output from a first run — yours will differ because keys are randomly generated):
 
@@ -419,9 +459,21 @@ A few things to notice:
 - `#_`-prefixed lines are **metadata comments** — Amnezigo's own bookkeeping (tunnel name, peer name, etc.). WireGuard ignores them; Amnezigo reads them on the next run.
 - The client's `AllowedIPs` in the server config is the client's own `/32` address (`10.0.0.2/32`).
 
-::: tip The client config is the fuller one
+:::: tip The client config is the fuller one
 The client's `phone/awg0.conf` additionally contains the I1–I5 custom packet strings (client-only) and a `[Peer]` block with the server's `Endpoint` and an `AllowedIPs = 0.0.0.0/0, ::/0` full-tunnel route. Those I-values are unique per client and per protocol.
-:::
+::::
+
+### Using the `vpn://` import link
+
+When you generate with `--vpn-links`, each client directory contains an `amnezigo.vpn` file with a single `vpn://` URL. This link encodes the full client config — keys, endpoint, obfuscation params, and CPS tags — in a compressed base64url envelope that the **AmneziaVPN app** can import directly:
+
+1. Open the `amnezigo.vpn` file and copy the entire `vpn://...` line.
+2. In the AmneziaVPN app, add a new configuration and paste the link.
+3. The app decodes the envelope and configures the tunnel automatically.
+
+:::: warning vpn:// links are for the AmneziaVPN app, not standalone AmneziaWG
+The `vpn://` envelope uses an AmneziaVPN-specific format. The standalone AmneziaWG client and kernel module cannot import these links — for those, use `awg0.conf` directly. See [VPN Import Links](/vpn-links).
+::::
 
 ## Add Another Peer
 
@@ -483,9 +535,9 @@ You can verify this directly — the phone private key is byte-identical across 
 grep '^PrivateKey' output/phone/awg0.conf   # same value before and after adding laptop
 ```
 
-::: warning Want everything fresh? Use --full-reset
+:::: warning Want everything fresh? Use --full-reset
 `amnezigo generate --full-reset` ignores all persisted credentials and regenerates keys and PSKs for every peer. Use it deliberately — every client config changes and must be redistributed.
-:::
+::::
 
 ## Next Steps
 
@@ -496,6 +548,7 @@ You now have a generated network. Where to go from here:
 - **Drop the `--dry-run` habit into a pre-commit hook** so a bad manifest never reaches `generate`.
 - **Switch to Jsonnet** — save the same content as `.amnezigo.jsonnet` to gain comments, variables, and preset reuse. See the Jsonnet guide.
 - **Tune obfuscation** with a named preset (lan-conservative, home-balanced, mobile-aggressive, test-minimal) by copying its S/H/J values into `obfuscation.*`, then regenerate.
+- **Generate `vpn://` import links** — run `amnezigo generate --vpn-links` to emit `amnezigo.vpn` files for each client, ready to paste into the AmneziaVPN app. See [VPN Import Links](/vpn-links).
 
 The manifest is the source of truth: change it, re-run `amnezigo generate`, and the `output/` tree reflects your new topology.
 ---
@@ -836,7 +889,7 @@ becomes the output directory name (`output/<name>/awg0.conf`).
 | `keepalive` | *int | no | `PersistentKeepalive` seconds, written to the client's `[Peer]` section. `nil`/`0` = off. |
 | `tun_name` | string | no | Server tunnel interface name, written as the `#_TunName` metadata line. Default `awg0` when empty. |
 | `main_iface` | string | no | Server's egress interface (e.g. `eth0`). When set, `PostUp`/`PostDown` iptables rules are generated. |
-| `protocol` | string | no | Per-peer obfuscation protocol driving I1–I5 generation: `quic`, `dns`, `dtls`, `stun`, `sip`, or `random`. Default `quic` when empty. |
+| `protocol` | string | no | Per-peer obfuscation protocol driving I1–I5 generation: `quic`, `dns`, `dtls`, `stun`, `sip`, `rtp`, or `random`. Default `quic` when empty. |
 
 ::: tip
 `peers.<name>.address` is the only required field on a peer. A minimal client is just
@@ -892,7 +945,7 @@ Both exist, but they are not equal:
 
 - `peers.<name>.protocol` is the **active** protocol selector. It defaults to `quic` when
   empty and drives I1–I5 generation for that peer. Allowed values: `quic`, `dns`, `dtls`,
-  `stun`, `sip`, `random`.
+  `stun`, `sip`, `rtp`, `random`.
 - `obfuscation.protocol` (top-level) is **decorative** — kept in the schema but ignored
   by the generate pipeline. Do not rely on it.
 
@@ -926,7 +979,7 @@ A single flat index of every manifest field, for quick lookup.
 | `peers.<name>.keepalive` | *int | no | Client `PersistentKeepalive` seconds. `nil`/`0` = off. |
 | `peers.<name>.tun_name` | string | no | Server interface name. Default `awg0`. |
 | `peers.<name>.main_iface` | string | no | Server egress interface. Enables iptables rules. |
-| `peers.<name>.protocol` | string | no | Per-peer protocol `quic\|dns\|dtls\|stun\|sip\|random`. Default `quic`. |
+| `peers.<name>.protocol` | string | no | Per-peer protocol `quic\|dns\|dtls\|stun\|sip\|rtp\|random`. Default `quic`. |
 ---
 url: /manifest-examples
 ---
@@ -1156,9 +1209,11 @@ output/
 ├── <serverPeerName>/
 │   └── awg0.conf          # server config (contains a [Peer] block per client)
 ├── <clientA>/
-│   └── awg0.conf          # client A config
+│   ├── awg0.conf          # client A config
+│   └── amnezigo.vpn       # only with --vpn-links
 └── <clientB>/
-    └── awg0.conf          # client B config
+    ├── awg0.conf          # client B config
+    └── amnezigo.vpn       # only with --vpn-links
 ```
 
 Layout rules (from `pipeline.go` / `credentials.go`):
@@ -1170,9 +1225,9 @@ Layout rules (from `pipeline.go` / `credentials.go`):
 - With `--peer <name>` (repeatable), only the listed clients' files are produced; the server `awg0.conf` is **always** written.
 - The server file embeds a `[Peer]` section for every client (sorted alphabetically by peer name), even when a `--peer` filter is in effect.
 
-::: tip
+:::: tip
 The output directory doubles as the credential store. On the next run, `generate` reloads private keys and pre-shared keys from these same `awg0.conf` files (the server file for server keys, each client file for that client's key) so re-running `generate` without `--full-reset` keeps keys stable.
-:::
+::::
 
 ## Server Config Structure
 
@@ -1202,9 +1257,9 @@ After the obfuscation block the writer emits human-readable, parser-readable met
 - `#_TunName = …` *(only if non-empty; defaults to `awg0`)*
 - `#_MainIface = …` *(only if non-empty — set when the server peer declares `main_iface`)*
 
-::: warning
+:::: warning
 The generate pipeline does **not** populate `EndpointV4`/`EndpointV6`, and `ClientToClient` is hardcoded to `false` (client-to-client routing is not yet implemented). So a freshly generated server file will contain `#_ClientToClient = false` and no `#_EndpointV4` / `#_EndpointV6` lines. These fields are reserved for round-tripping hand-edited configs through `validate`/reload.
-:::
+::::
 
 ### Per-client `[Peer]` sections
 
@@ -1218,9 +1273,9 @@ Each client becomes a `[Peer]` block, emitted in alphabetical order by peer name
 6. `AllowedIPs` *(equals the client peer's `address`)*
 7. `#_GenKeyTime = <RFC3339 timestamp>` *(only if the credential was freshly generated)*
 
-::: warning
+:::: warning
 `#_PrivateKey` in a server `[Peer]` block is a **stale server-side copy**. The credential-reload path deliberately ignores it and reads the client's own `awg0.conf` instead, so editing it has no effect on the next `generate`.
-:::
+::::
 
 ### Realistic server example
 
@@ -1291,17 +1346,17 @@ The single `[Peer]` section (server side):
 
 Two behaviors are hardcoded and worth memorizing:
 
-::: warning
+:::: warning
 Client `[Peer].AllowedIPs` is hardcoded to `0.0.0.0/0, ::/0` (full tunnel) and is **not** configurable from the manifest. Split-tunneling requires hand-editing the generated file.
-:::
+::::
 
-::: warning
+:::: warning
 `PersistentKeepalive` is written **unconditionally**. If the client peer does not set `keepalive`, the line reads `PersistentKeepalive = 0` (the writer does not skip zero). Set the peer's `keepalive` field to a non-zero seconds value to get a real keepalive.
-:::
+::::
 
 ### I1–I5 per-client CPS
 
-`I1`–`I5` are computed **per client** from the resolved obfuscation, MTU, and the client's protocol (default `quic`; also `dns`, `dtls`, `stun`, `sip`). Each value is a CPS (Custom Packet String) — a concatenation of tags with no separator:
+`I1`–`I5` are computed **per client** from the resolved obfuscation, MTU, and the client's protocol (default `quic`; also `dns`, `dtls`, `stun`, `sip`, `rtp`). Each value is a CPS (Custom Packet String) — a concatenation of tags with no separator:
 
 - `<b 0x..>` — literal junk bytes (hex)
 - `<r N>` — N random bytes
@@ -1312,9 +1367,9 @@ Client `[Peer].AllowedIPs` is hardcoded to `0.0.0.0/0, ::/0` (full tunnel) and i
 
 Because they depend on MTU/S1/Jc and a random component, `I1`–`I5` differ between clients even when they share a protocol, and will change on every `--full-reset` run. They are **redrawn on every `generate` run** — I-packets are not reused across runs (only keys and PSKs are). `--full-reset` affects credentials only.
 
-::: tip
+:::: tip
 Server `awg0.conf` never contains `I1`–`I5`. Each client carries its own copy because the I-packets are client-specific.
-:::
+::::
 
 ### Realistic client example
 
@@ -1371,10 +1426,498 @@ Each PostUp/PostDown family emits, in order:
 5. *(only if client-to-client)* forward tunnel-to-tunnel
 6. NAT masquerade from the subnet out the main interface
 
-::: tip
+:::: tip
 The `client-to-client` rule (step 5) is currently **dead code**: `ClientToClient` is hardcoded to `false` in the build pipeline, so that rule is never emitted regardless of the manifest. The remaining subnet/ruleset is what you will actually see.
-:::
+::::
 
+## VPN Import Links (amnezigo.vpn)
+
+When you pass `--vpn-links` (or set `GenerateOptions.VPNLinks: true` in the library API), `generate` emits an additional file named `amnezigo.vpn` in **each client peer's** output directory, alongside that client's `awg0.conf`.
+
+| Property | Value |
+|---|---|
+| File name | `amnezigo.vpn` (constant `outputVPNLinkName`) |
+| Path | `<OutputDir>/<clientPeerName>/amnezigo.vpn` |
+| Server peer | **Never** gets a `.vpn` file — only client peers do |
+| File content | A single raw `vpn://` URL string (one line, no wrapper, no trailing newline) |
+| Gated on | `--vpn-links` flag / `GenerateOptions.VPNLinks` |
+
+The `vpn://` URL is an AmneziaVPN-compatible import link — a qCompress+zlib+base64url-encoded JSON envelope (container type `amnezia-awg`) that the AmneziaVPN mobile/desktop app can import directly. It embeds the client's WireGuard/AWG configuration (private key, server public key, endpoint, obfuscation parameters, and I1–I5 CPS strings) in a structured `last_config` field.
+
+:::: warning
+`vpn://` links import into the **AmneziaVPN app**, not standalone AmneziaWG or the kernel module. For standalone AWG clients, use the `awg0.conf` file directly.
+::::
+
+:::: tip
+The `amnezigo.vpn` file is **not** used for credential reload — it is a one-way export for mobile import. The credential store remains the `awg0.conf` files.
+::::
+
+For the full `vpn://` link format, encoding details, and field mapping, see [VPN Import Links](/vpn-links).
+---
+url: /vpn-links
+---
+# vpn:// Import Links
+
+> AmneziaVPN-app-importable `vpn://` links — one URL per client peer that the app imports in a single tap.
+
+## What vpn:// Import Links Are
+
+The `--vpn-links` flag (library: `GenerateOptions.VPNLinks`) tells `amnezigo generate`
+to produce, in addition to the standard `awg0.conf` files, a **`vpn://` import link**
+for every **client** peer. Each link is a self-contained URL that the **AmneziaVPN
+app** (Android, iOS, desktop) can import in a single tap or click — no need to copy
+INI files, scan QR codes from a terminal, or manually enter server details.
+
+The link encodes the client's full AWG 2.0 configuration — keys, endpoint, DNS,
+obfuscation parameters, and CPS tags — into a compact, URL-safe string prefixed with
+`vpn://`. The AmneziaVPN app recognises this scheme, decodes the embedded JSON
+envelope, and configures the tunnel automatically.
+
+::: warning Key distinction
+`vpn://` links target the **AmneziaVPN app**, not the standalone AmneziaWG client or
+kernel module. The envelope format is AmneziaVPN-specific. See [Compatibility Caveat](#compatibility-caveat).
+::::
+
+### Why use vpn:// links?
+
+| Scenario | Without `--vpn-links` | With `--vpn-links` |
+|---|---|---|
+| Onboard a mobile user | Copy `awg0.conf` → transfer file → import manually | Share one `vpn://` URL → tap to import |
+| Provision a desktop client | Copy-paste INI into config editor | Paste `vpn://` link into AmneziaVPN app |
+| Audit what the app receives | Inspect `awg0.conf` (INI format) | Decode `vpn://` link (structured JSON envelope) |
+
+The `awg0.conf` file is always generated regardless; `--vpn-links` adds the
+`amnezigo.vpn` file alongside it. The two encode the same client configuration in
+different formats for different consumers.
+
+## The `amnezigo.vpn` Output File
+
+When `--vpn-links` (or `GenerateOptions.VPNLinks: true`) is set, `generate` emits
+an additional file named `amnezigo.vpn` in **each client peer's** output directory,
+alongside the existing `awg0.conf`.
+
+```text
+output/
+├── server/
+│   └── awg0.conf              # server config — NO .vpn file
+├── alice/
+│   ├── awg0.conf              # standard client INI (always present)
+│   └── amnezigo.vpn           # vpn:// link (only with --vpn-links)
+└── bob/
+    ├── awg0.conf
+    └── amnezigo.vpn
+```
+
+| Property | Value | Source |
+|---|---|---|
+| File name | `amnezigo.vpn` (constant `outputVPNLinkName`) | `vpnlink.go:16` |
+| Path | `<OutputDir>/<peerName>/amnezigo.vpn` | `vpnlink.go:217` (`appendVPNLink`) |
+| File content | The raw `vpn://` URL string (no wrapper, no formatting) | `vpnlink.go:217` |
+| Generated for | Client peers only | `pipeline.go:500-502` |
+| Server peer | **No** `.vpn` file — server configs are not importable links | `pipeline.go:500-502` |
+| Gated on | `--vpn-links` flag / `GenerateOptions.VPNLinks` | `pipeline.go:500` |
+
+The file content **is** the URL — a single line starting with `vpn://` followed by
+the base64url-encoded payload. No JSON wrapper, no trailing newline, no metadata.
+
+::: tip
+The server peer never gets a `.vpn` file. A server config represents the listening
+side of the tunnel, not a client connection that an app would import. See [Output Format](/output-format) for the full output layout.
+::::
+
+## Envelope Format
+
+The `vpn://` link encodes a JSON envelope through a multi-stage pipeline. The
+format is **AmneziaVPN-specific** — it was reverse-engineered from the app's
+`containersModel`/`importController` and `Wireguard.kt:parseConfigData()`. The
+standalone AmneziaWG client does not understand it.
+
+### Envelope structure
+
+The decoded payload is a JSON object with four nested levels:
+
+```text
+vpnEnvelope
+├── hostName           string         — server endpoint host
+├── defaultContainer   string         — always "amnezia-awg"
+├── dns1               string?        — first DNS server (omitempty)
+├── dns2               string?        — second DNS server (omitempty)
+└── containers[]       [1]vpnContainer
+    └── [0]
+        ├── container      string         — always "amnezia-awg"
+        └── awg            vpnAwgConfig
+            ├── last_config         string   — JSON-encoded vpnLastConfig (double-serialized!)
+            ├── port                string   — server port as decimal string (e.g. "51820")
+            ├── transport_proto     string   — always "udp"
+            └── isThirdPartyConfig  bool     — always true
+```
+
+The `containers` array always has exactly one element. The container type is
+always `amnezia-awg` — this is the AmneziaVPN internal identifier for an AWG 2.0
+container, distinct from plain WireGuard (`amnezia-wireguard`) or OpenVPN
+containers.
+
+::: tip No SSH credentials
+The envelope contains **no SSH credential fields** (`userName`, `password`).
+AmneziaVPN's `vpn://` format supports SSH-based containers with credentials, but
+amnezigo only emits `amnezia-awg` containers with no SSH data. This is by design —
+the link carries tunnel configuration, not server access credentials.
+::::
+
+### Constants
+
+| Constant | Value | Source |
+|---|---|---|
+| `outputVPNLinkName` | `"amnezigo.vpn"` | `vpnlink.go:16` |
+| `vpnLinkScheme` | `"vpn://"` | `vpnlink.go:17` |
+| `vpnContainerAWG` | `"amnezia-awg"` | `vpnlink.go:18` |
+| `qCompressHeaderSize` | `4` | `vpnlink.go:20` |
+
+## Encoding Pipeline
+
+The `vpn://` link is built through a 7-step pipeline. Each step transforms the
+data toward the final URL-safe string:
+
+```text
+Client INI ──► vpnLastConfig struct
+                    │
+                    ▼  json.Marshal (inner JSON)
+              lastCfgJSON bytes
+                    │
+                    ▼  embed as string in vpnAwgConfig.LastConfig
+              vpnEnvelope struct
+                    │
+                    ▼  json.Marshal (outer JSON)
+              envelopeJSON bytes
+                    │
+                    ▼  qCompress (4-byte BE length header + zlib)
+              compressed bytes
+                    │
+                    ▼  base64.RawURLEncoding (URL-safe, no padding)
+              encoded string
+                    │
+                    ▼  prepend "vpn://"
+              vpn://<payload>
+```
+
+| Step | Operation | Detail |
+|---|---|---|
+| 1 | Build `vpnLastConfig` | Structured fields parsed from client INI + verbatim INI in `Config` field |
+| 2 | Marshal `lastConfig` → JSON | `json.Marshal(lastCfg)` → inner JSON bytes |
+| 3 | Build `vpnEnvelope` | Envelope: `hostName`, `defaultContainer`, `dns1`/`dns2`, `containers[0].awg.last_config` |
+| 4 | Marshal envelope → JSON | `json.Marshal(envelope)` → outer JSON bytes |
+| 5 | `qCompress` | Prepend 4-byte big-endian uncompressed-length header, then zlib-compress |
+| 6 | Base64URL encode | `base64.RawURLEncoding` — URL-safe alphabet, **no padding** (`=` chars) |
+| 7 | Prepend scheme | `"vpn://" + encoded payload` |
+
+### Why qCompress?
+
+The `qCompress` function (`vpnlink.go:246`) replicates Qt's `qCompress` format: a
+4-byte big-endian length header followed by zlib-compressed data. AmneziaVPN is a
+Qt application — its decompressor (`QByteArray::qUncompress`) expects this format
+so it can pre-allocate the output buffer from the length header before inflating.
+
+### Double serialization of `last_config`
+
+The `last_config` field is serialized **twice**:
+
+1. The `vpnLastConfig` struct is marshaled to a JSON **string** (inner JSON).
+2. That string is embedded as a field value in `vpnAwgConfig.LastConfig`.
+3. The entire envelope (containing the string) is marshaled to JSON again (outer
+   JSON).
+
+When the app imports the link, it JSON-decodes the envelope, then JSON-decodes
+`last_config` **again** to recover the structured fields. This double encoding is
+required by AmneziaVPN's import path — `last_config` is typed as a JSON string in
+the envelope, not a nested object.
+
+::: warning Never hand-craft a vpn:// link
+The double serialization of `last_config` is easy to get wrong — omitting it causes
+`JSONException` → error 1000 in the app. Always use `EncodeVPNLink`.
+::::
+
+## The `last_config` Structured Fields
+
+The `vpnLastConfig` struct (`vpnlink.go:63-91`) carries the actual tunnel
+configuration. The app's connect path reads these structured fields via
+`configWireguard()` and `configExtensionParameters()` — the `config` field
+(verbatim INI) is for **display only**.
+
+| JSON key | Go field | Source (INI key) | Type | Notes |
+|---|---|---|---|---|
+| `config` | `Config` | (entire INI) | `string` | Verbatim client INI, display only |
+| `hostName` | `HostName` | server endpoint | `string` | Server host |
+| `client_priv_key` | `ClientPrivKey` | `PrivateKey` | `string` | Client private key |
+| `client_ip` | `ClientIP` | `Address` | `string` | Client tunnel IP |
+| `server_pub_key` | `ServerPubKey` | `PublicKey` | `string` | Server public key |
+| `psk_key` | `PSKKey` | `PresharedKey` | `string?` | omitempty |
+| `allowed_ips` | `AllowedIPs` | `AllowedIPs` | `[]string` | **JSON array**, split on comma |
+| `mtu` | `MTU` | `MTU` | `string?` | omitempty |
+| `persistent_keep_alive` | `PersistentKeepAlive` | `PersistentKeepalive` | `string?` | omitempty |
+| `Jc` | `Jc` | `Jc` | `string?` | AWG junk count |
+| `Jmin` | `Jmin` | `Jmin` | `string?` | |
+| `Jmax` | `Jmax` | `Jmax` | `string?` | |
+| `S1`–`S4` | `S1`–`S4` | `S1`–`S4` | `string?` | |
+| `H1`–`H4` | `H1`–`H4` | `H1`–`H4` | `string?` | |
+| `I1`–`I5` | `I1`–`I5` | `I1`–`I5` | `string?` | CPS tag strings, verbatim |
+| `port` | `Port` | server port | `int` | JSON number (not string) |
+| `isObfuscationEnabled` | `IsObfuscationEnabled` | derived | `bool` | `true` when `Jc` is present |
+
+### Critical field behaviors
+
+**`allowed_ips` is a JSON array, not a string.** The app reads it via
+`getJSONArray()`. `EncodeVPNLink` splits the INI `AllowedIPs` value on comma into
+`[]string`. For example, `AllowedIPs = 0.0.0.0/0, ::/0` becomes
+`["0.0.0.0/0","::/0"]` in the JSON.
+
+**`isObfuscationEnabled` gates AWG fields.** Set to `true` when `Jc` is present in
+the INI (`vpnlink.go:117`). When `true`, all AWG obfuscation fields (`Jc`, `Jmin`,
+`Jmax`, `S1`–`S4`, `H1`–`H4`, `I1`–`I5`) are included. When `false` (no `Jc`),
+they are omitted and the app treats the config as vanilla WireGuard.
+
+**I1–I5 CPS tags are preserved verbatim.** The CPS tag strings (e.g.
+`<b 0x12><r 16>`) are stored as-is, not expanded to hex bytes. The
+`amneziawg-go` UAPI handler fully parses CPS tags (`<r>`, `<rc>`, `<rd>`, `<b>`,
+`<t>`, `<d>`) at connect time. Expanding them in the link would freeze random
+bytes and reduce obfuscation quality.
+
+**All AWG fields are strings.** `Jc`, `Jmin`, `Jmax`, `S1`–`S4`, `H1`–`H4`,
+`I1`–`I5` are stored as strings (matching the INI key names), not numbers. The app
+reads them via `getString()`. The sole exception is `port`, which is a JSON number
+(`int`).
+
+## DNS Mapping
+
+DNS servers from the manifest's `Network.DNS` field feed into the envelope's
+`dns1` and `dns2` slots. The mapping is positional and limited to two entries.
+
+| Manifest field | Envelope field | Condition |
+|---|---|---|
+| `Network.DNS[0]` | `dns1` | Set when `DNS` has ≥ 1 entry |
+| `Network.DNS[1]` | `dns2` | Set when `DNS` has ≥ 2 entries |
+| `Network.DNS[2+]` | *(ignored)* | Only 2 DNS slots exist in the envelope |
+| *(empty slice)* | both omitted | `omitempty` on both fields |
+
+**Source:** `vpnlink.go:179-184`, manifest field `NetworkConfig.DNS` (`[]string`,
+json tag `"dns,omitempty"`) at `manifest.go:12`.
+
+### Example
+
+Given a manifest with:
+
+```json
+{
+  "network": {
+    "dns": ["1.1.1.1", "1.0.0.1"]
+  }
+}
+```
+
+The envelope will contain:
+
+```json
+{
+  "dns1": "1.1.1.1",
+  "dns2": "1.0.0.1"
+}
+```
+
+If `dns` is `["8.8.8.8"]` (one entry), only `dns1` is set and `dns2` is omitted.
+If `dns` is empty or absent, both fields are omitted from the JSON entirely.
+
+::: warning Two DNS slots maximum
+The AmneziaVPN envelope format only has two DNS slots. If your manifest configures
+three or more DNS servers, only the first two appear in the `vpn://` link.
+::::
+
+## Library API: `EncodeVPNLink`
+
+The `EncodeVPNLink` function is the public entry point for generating `vpn://`
+links programmatically. It is a pure function — no I/O, no manifest lookups. It
+takes raw client INI bytes and returns the complete `vpn://` URL string.
+
+### Signature
+
+```go
+func EncodeVPNLink(clientINI []byte, endpoint string, listenPort int, dns []string) string
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| `clientINI` | `[]byte` | Raw client AWG INI config bytes (the `awg0.conf` content) |
+| `endpoint` | `string` | Server endpoint. May be `host:port` or bare `host` |
+| `listenPort` | `int` | Fallback port when `endpoint` lacks a port suffix |
+| `dns` | `[]string` | DNS servers. `dns[0]` → `dns1`, `dns[1]` → `dns2`; beyond 2 ignored |
+
+**Returns:** A `vpn://` URL — the literal scheme `vpn://` followed by a
+base64url-encoded payload with no padding.
+
+### Example
+
+```go
+package main
+
+import (
+    "fmt"
+
+    "github.com/Arsolitt/amnezigo"
+)
+
+func main() {
+    // Client AWG config (typically read from awg0.conf or built by Generate)
+    clientINI := []byte(`[Interface]
+PrivateKey = wLw4m8fG6q3N7sBp1xVzYk2tR9dE5aC0oU+iJl7TmHk=
+Address = 10.0.0.2/32
+DNS = 1.1.1.1
+MTU = 1280
+Jc = 5
+Jmin = 250
+Jmax = 750
+S1 = 30
+S2 = 35
+S3 = 20
+S4 = 12
+H1 = 100-200
+H2 = 150-250
+H3 = 200-300
+H4 = 250-350
+I1 = <b 0x12><r 16>
+I2 = <b 0x34><r 16>
+I3 = <b 0x56><r 16>
+I4 = <b 0x78><r 16>
+
+[Peer]
+PublicKey = SERVER_PUB_KEY_EXAMPLE_VALUE_HERE=
+PresharedKey = PSK_EXAMPLE_VALUE_HERE=
+Endpoint = vpn.example.com:51820
+AllowedIPs = 0.0.0.0/0, ::/0
+PersistentKeepalive = 25`)
+
+    // Generate the vpn:// import link
+    link := amnezigo.EncodeVPNLink(
+        clientINI,                        // client config bytes
+        "vpn.example.com:51820",          // server endpoint
+        51820,                            // fallback listen port
+        []string{"1.1.1.1", "1.0.0.1"},   // DNS servers
+    )
+
+    fmt.Println(link)
+    // Output: vpn://eJx1kM1OwzAMhF9F9...  (base64url-encoded payload)
+}
+```
+
+### How endpoint resolution works
+
+The `endpoint` parameter may or may not include a port:
+
+- `"vpn.example.com:51820"` → host=`vpn.example.com`, port=`51820`
+- `"vpn.example.com"` → host=`vpn.example.com`, port=`listenPort` (fallback)
+
+When called from the generate pipeline (`appendVPNLink`), the endpoint and
+listen port come from the server peer's manifest fields (`Endpoint` and
+`ListenPort`).
+
+### Pipeline integration
+
+Inside the `Generate` pipeline, the internal `appendVPNLink` function
+(`vpnlink.go:217`) wraps `EncodeVPNLink` and appends the result as a
+`FileOutput` to `GenerateResult.Files`. It is called once per client peer when
+`opts.VPNLinks` is `true`:
+
+```go
+// Simplified from pipeline.go:500-502
+if opts.VPNLinks {
+    for _, clientName := range filteredClients {
+        appendVPNLink(result, clientName, clientBytes, manifest, serverName)
+    }
+}
+```
+
+For the full `Generate` API including `GenerateOptions.VPNLinks`, see
+[Library API](/library-api).
+
+## CLI Usage
+
+Enable `vpn://` link generation with the `--vpn-links` flag on the `generate`
+command:
+
+```shell
+amnezigo generate --vpn-links
+```
+
+This produces the standard output tree plus an `amnezigo.vpn` file in each client
+peer directory:
+
+```text
+output/
+├── server/
+│   └── awg0.conf
+├── alice/
+│   ├── awg0.conf
+│   └── amnezigo.vpn        ← new: vpn:// import link
+└── bob/
+    ├── awg0.conf
+    └── amnezigo.vpn        ← new: vpn:// import link
+```
+
+Combine with other flags as needed:
+
+```shell
+# Generate configs + vpn:// links for a specific peer only
+amnezigo generate --vpn-links --peer alice
+
+# Preview without writing files
+amnezigo generate --vpn-links --dry-run
+```
+
+### Reading a generated link
+
+The `amnezigo.vpn` file contains a single `vpn://` URL:
+
+```shell
+cat output/alice/amnezigo.vpn
+# vpn://eJx1kM1OwzAMhF9F9lG3qZ2N7sBp1xVzYk2tR9dE5aC0oU-iJl7TmHk...
+```
+
+Share this URL with the AmneziaVPN app user — they paste it into the app's import
+dialog or scan it as a QR code.
+
+### Flag reference
+
+| Flag | Type | Default | Required | Description |
+|---|---|---|---|---|
+| `--vpn-links` | `bool` | `false` | No | Generate AmneziaVPN `vpn://` import links for each client peer |
+
+**Source:** `internal/cli/generate.go:46-49`
+
+When set, `Generate` is called with `GenerateOptions.VPNLinks = true`. See
+[CLI Reference](/cli-reference) for the complete `generate` flag list.
+
+## Compatibility Caveat
+
+::: warning AmneziaVPN app only
+`vpn://` import links work **only** with the AmneziaVPN app (Android, iOS,
+desktop). They do **not** work with the standalone AmneziaWG client,
+`amneziawg-go`, or the kernel module.
+::::
+
+The envelope format — `vpnEnvelope`/`vpnContainer`/`vpnAwgConfig`/`vpnLastConfig`
+JSON, `qCompress` encoding, base64url — is AmneziaVPN-specific. It was
+reverse-engineered from the app's `containersModel`/`importController` and
+`Wireguard.kt:parseConfigData()`. No other client implements this import format.
+
+| Consumer | `vpn://` link | `awg0.conf` |
+|---|---|---|
+| AmneziaVPN app (mobile/desktop) | Import directly | Import via file |
+| Standalone AmneziaWG client | Does not work | Use directly |
+| `amneziawg-go` userspace | Does not work | Use directly |
+| Kernel module (`amnezia-wg-linux-kernel-module`) | Does not work | Use directly |
+
+**If you need standalone AmneziaWG or kernel module deployment**, use the
+generated `awg0.conf` file directly. See [Output Format](/output-format) for the
+INI layout.
+
+For more compatibility pitfalls, see [Gotchas](/gotchas).
 ---
 url: /cli-reference
 ---
@@ -1402,16 +1945,16 @@ amnezigo
 
 The root command defines **no global flags**. Any error returned by a subcommand is printed as `Error: <message>` to stderr and the process exits with code `1`.
 
-::: warning
+:::: warning
 Legacy commands mentioned in older docs (`init`, `add`, `edit`, `remove`, `export`, `list`) do **not** exist — they were removed. Only the three commands above are available.
-:::
+::::
 
 ## amnezigo generate
 
 Reads `amnezigo.json` or `.amnezigo.jsonnet` from the project directory and produces one AmneziaWG config per peer into the output directory.
 
 ```shell
-amnezigo generate [--project DIR] [--output DIR] [--full-reset] [--dry-run] [--peer NAME]... [--jpath DIR]...
+amnezigo generate [--project DIR] [--output DIR] [--full-reset] [--dry-run] [--peer NAME]... [--jpath DIR]... [--vpn-links]
 ```
 
 Arguments: none (`NoArgs`).
@@ -1426,6 +1969,7 @@ Arguments: none (`NoArgs`).
 | `--dry-run` | `false` | no | Compute configs without writing any files. |
 | `--peer` | none | no | Generate only specific peers; repeatable. The server peer is always included regardless of this filter. |
 | `--jpath` | `<dir>/lib` (jsonnet only) | no | Jsonnet library search paths (applies only to `.amnezigo.jsonnet` manifests). |
+| `--vpn-links` | `false` | no | Generate AmneziaVPN `vpn://` import links for each client peer. |
 
 ### Behavior
 
@@ -1444,9 +1988,9 @@ Server config is written to `output/<serverPeerName>/awg0.conf`; each client con
 | `0` | Manifest loaded and configs generated successfully. |
 | `1` | Manifest load error or generation error. |
 
-::: tip
+:::: tip
 `--peer` filters **clients only**. A peer name that is not present in the manifest is silently ignored — check spelling if a config you expected is missing.
-:::
+::::
 
 ### Examples
 
@@ -1457,6 +2001,7 @@ amnezigo generate --dry-run
 amnezigo generate --full-reset
 amnezigo generate --peer laptop --peer phone
 amnezigo generate --project ./myproj --jpath ./jsonnet-lib
+amnezigo generate --vpn-links
 ```
 
 ## amnezigo validate
@@ -1509,9 +2054,9 @@ The summary marker is `✓` when there are no errors, `✗` otherwise.
 | `0` | No errors, and no warnings unless `--strict` is set. |
 | `1` | At least one error, OR any warning when `--strict` is set. |
 
-::: warning
+:::: warning
 `--strict` does not change which findings are reported — it only changes the exit code so that warnings also fail the run. Info-level findings never affect the exit code.
-:::
+::::
 
 ### Examples
 
@@ -1527,7 +2072,7 @@ amnezigo validate output/myserver/awg0.conf --strict
 Runs heuristic analysis on a server config, reporting potential weaknesses (`RISK001`–`RISK009`) and profiling handshake sizes, junk parameters, header ranges, and I-packet distributions. Output is informational; the command never fails on findings.
 
 ```shell
-amnezigo analyze [--protocol random|quic|dns|dtls|stun] [--peer NAME] [--output text|json] [--samples N] [--seed N] [--config PATH]
+amnezigo analyze [--protocol random|quic|dns|dtls|stun|sip|rtp] [--peer NAME] [--output text|json] [--samples N] [--seed N] [--config PATH]
 ```
 
 Arguments: none (`NoArgs`).
@@ -1536,7 +2081,7 @@ Arguments: none (`NoArgs`).
 
 | Flag | Default | Required | Description |
 | --- | --- | --- | --- |
-| `--protocol` | `random` | no | Obfuscation protocol to profile: `random`, `quic`, `dns`, `dtls`, `stun`. |
+| `--protocol` | `random` | no | Obfuscation protocol to profile: `random`, `quic`, `dns`, `dtls`, `stun`, `sip`, `rtp`. |
 | `--peer` | `""` (all) | no | Analyze only this peer. |
 | `--output` | `text` | no | Output format: `text` or `json`. |
 | `--samples` | `0` | no | Number of samples for distribution analysis. `0` = snapshot only. |
@@ -1559,13 +2104,13 @@ I-packet generation is random by default. Pass a fixed `--seed N` (non-zero) to 
 | `0` | Success — even when findings are reported. |
 | `1` | Config load error or invalid `--output` value. |
 
-::: warning
+:::: warning
 `--config` defaults to `awg0.conf` **relative to the current working directory**, not to the generated `output/<server>/awg0.conf`. Either `cd` into the server directory, or pass the full path explicitly, e.g. `--config output/myserver/awg0.conf`.
-:::
+::::
 
-::: tip
-The helptext lists `random, quic, dns, dtls, stun`, but the underlying template pool also accepts `sip`. Prefer the listed protocols for documented behavior.
-:::
+:::: tip
+All seven accepted protocol values — `random`, `quic`, `dns`, `dtls`, `stun`, `sip`, `rtp` — are backed by named templates with distinct leading-byte signatures. `random` picks one at random; the others force a specific template.
+::::
 
 ### Examples
 
@@ -2077,7 +2622,7 @@ The generator draws `Jmin, Jmax ∈ [64, 1024]` (`junkMinValue = 64`, `junkRange
 
 The five custom packet strings (`I1`–`I5`) are templates for the five padding intervals AmneziaWG inserts around a handshake. They are generated **per client peer** and **never appear in the server config** — the server's `ServerObfuscationConfig` has no `I1`–`I5` fields.
 
-`I1`–`I4` are populated from the peer's `protocol` template (or random tags). `I5` is **empty for named templates** (`quic`/`dns`/`dtls`/`stun`/`sip`); `random` fills all five.
+`I1`–`I4` are populated from the peer's `protocol` template (or random tags). `I5` is **empty for named templates** (`quic`/`dns`/`dtls`/`stun`/`sip`/`rtp`); `random` fills all five.
 
 A CPS string is a concatenation of tags drawn from this fixed grammar:
 
@@ -2117,7 +2662,7 @@ I1 = <r 2><b 0x0100><b 0x0001><b 0x0000><b 0x0000><b 0x0000><b 0x03><rc 3><b 0x0
 
 ## Protocols
 
-The peer's `protocol` field selects the I1–I4 template. Empty `protocol` defaults to `quic`. `random` fills all five intervals with standalone random tags (it does **not** pick a named template). Any other **unrecognized** value picks one of the five named templates (`quic`/`dns`/`dtls`/`stun`/`sip`) uniformly at random. Each named template populates `I1`–`I4` and leaves `I5` empty.
+The peer's `protocol` field selects the I1–I4 template. Empty `protocol` defaults to `quic`. `random` fills all five intervals with standalone random tags (it does **not** pick a named template). Any other **unrecognized** value picks one of the six named templates (`quic`/`dns`/`dtls`/`stun`/`sip`/`rtp`) uniformly at random. Each named template populates `I1`–`I4` and leaves `I5` empty.
 
 The top-level `obfuscation.protocol` is **decorative** — `generate` does not read it. Only the per-peer `protocol` drives I-packet generation.
 
@@ -2502,7 +3047,7 @@ amnezigo validate output/<server-peer>/awg0.conf --strict
 ## amnezigo analyze
 
 ```shell
-amnezigo analyze [--config awg0.conf] [--protocol random|quic|dns|dtls|stun]
+amnezigo analyze [--config awg0.conf] [--protocol random|quic|dns|dtls|stun|sip|rtp]
                  [--peer <name>] [--samples <n>] [--seed <n>]
                  [--output text|json]
 ```
@@ -2514,7 +3059,7 @@ amnezigo analyze [--config awg0.conf] [--protocol random|quic|dns|dtls|stun]
 | Flag | Default | Required | Description |
 | --- | --- | --- | --- |
 | `--config` | `awg0.conf` | no | Server config file path (CWD-relative). Must be a server config. |
-| `--protocol` | `random` | no | Protocol used to generate I-packets for analysis: `random`, `quic`, `dns`, `dtls`, `stun`. Overrides the peer's own protocol. |
+| `--protocol` | `random` | no | Protocol used to generate I-packets for analysis: `random`, `quic`, `dns`, `dtls`, `stun`, `sip`, `rtp`. Overrides the peer's own protocol. |
 | `--peer` | _(empty)_ | no | Analyze only this peer (empty = all peers). |
 | `--samples` | `0` | no | Number of I-packet generations for distribution analysis. `0` = snapshot only. |
 | `--seed` | `0` | no | PRNG seed for reproducible I-packet generation. `0` = crypto/rand (non-deterministic). |
@@ -2616,6 +3161,393 @@ Profile QUIC-style I-packets regardless of peer settings:
 amnezigo analyze --config awg0.conf --protocol quic
 ```
 ---
+url: /library-api
+---
+# Library API Reference
+
+Go API reference for `github.com/Arsolitt/amnezigo` — the declarative config-generator library that powers the `amnezigo` CLI.
+
+## Import & overview
+
+```go
+import "github.com/Arsolitt/amnezigo"
+```
+
+The root package `amnezigo` exposes every business-logic entry point: manifest loading, the generate pipeline, validation, analysis, presets, credential reuse, and X25519 key utilities. The `amnezigo` binary (see [CLI Reference](/cli-reference)) is a thin wrapper over `LoadManifest` → `Generate` → `ValidateServerConfig` → `Analyze`; the same calls are available to any Go program. There is no `Manager` type and no `init`/`add`/`edit`/`remove`/`export`/`list` surface — generation is driven by a single declarative manifest (see [Manifest Reference](/manifest-reference)).
+
+## Generate pipeline
+
+`Generate` is the single orchestrator. It resolves obfuscation, loads or reuses credentials, builds one server config plus one client config per client peer, and writes them to disk unless `DryRun` is set or `OutputDir` is empty.
+
+| Symbol | Signature | Purpose |
+|---|---|---|
+| `Generate` | `func Generate(manifest Manifest, opts GenerateOptions) (GenerateResult, error)` | Orchestrates the full pipeline: resolve obfuscation, load/reuse credentials, build server + client configs, and write them unless `DryRun` or `OutputDir == ""`. |
+| `GenerateOptions` | `type GenerateOptions struct { ProjectDir string; OutputDir string; JpathDirs []string; PeerFilter []string; DryRun bool; FullReset bool; VPNLinks bool }` | Configures the generate pipeline: project/output dirs, Jsonnet `jpath`, optional peer filter, dry-run, credential reset, and vpn:// import-link generation. |
+| `GenerateResult` | `type GenerateResult struct { ServerPeer string; Files []FileOutput; ClientPeers []string; Findings []Finding }` | Output of a generate run: server peer name, all file outputs, client peer names, and any findings. |
+| `FileOutput` | `type FileOutput struct { RelPath string; Content []byte }` | A single generated file: path relative to the output dir and its byte content. |
+| `EncodeVPNLink` | `func EncodeVPNLink(clientINI []byte, endpoint string, listenPort int, dns []string) string` | Wraps a client AWG INI config into an AmneziaVPN-app-importable vpn:// link. Returns a `vpn://` URL string (scheme + base64url-encoded payload). See [VPN Import Links](/vpn-links). |
+
+### `Generate` pipeline steps
+
+1. Identify server peer (exactly 1 required, else error).
+2. Resolve obfuscation (merge explicit manifest values with random).
+3. Load or create credentials (from `OutputDir` or `EmptyCredentials`).
+4. Resolve peer credentials (generate fresh or reuse persisted).
+5. Build server config.
+6. Build client configs (sorted by name, filtered by `PeerFilter`).
+7. Collect all `FileOutput` (server + clients + optional vpn links).
+8. Write files to disk if `!DryRun && OutputDir != ""`.
+
+### `GenerateOptions` fields
+
+| Field | Type | Effect |
+|---|---|---|
+| `ProjectDir` | `string` | Project root (informational; the manifest is loaded separately via `LoadManifest`). |
+| `OutputDir` | `string` | Where configs are written as `<OutputDir>/<peer>/awg0.conf`. Empty → nothing is written (in-memory only). |
+| `JpathDirs` | `[]string` | Jsonnet library search paths; forwarded to manifest loading. |
+| `PeerFilter` | `[]string` | When non-empty, only the named client peers are built and written; the server is always built. |
+| `DryRun` | `bool` | When `true`, configs are computed and returned in `result.Files` but never written. |
+| `FullReset` | `bool` | When `true`, persisted keys are discarded and fresh credentials are generated for every peer. |
+| `VPNLinks` | `bool` | When `true`, generates an additional `amnezigo.vpn` import-link file per client peer. See [VPN Import Links](/vpn-links). |
+
+### `GenerateResult` fields
+
+| Field | Type | Description |
+|---|---|---|
+| `ServerPeer` | `string` | Name of the server peer. |
+| `Files` | `[]FileOutput` | All generated files (server config + client configs + optional vpn links). |
+| `ClientPeers` | `[]string` | Names of client peers that were generated (filtered, sorted). |
+| `Findings` | `[]Finding` | Validation findings (currently not populated by `Generate` itself). |
+
+### `FileOutput` fields
+
+| Field | Type | Description |
+|---|---|---|
+| `RelPath` | `string` | Relative path from `OutputDir` (e.g. `server/awg0.conf`, `phone/amnezigo.vpn`). |
+| `Content` | `[]byte` | File content bytes. |
+
+### End-to-end example
+
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+
+    "github.com/Arsolitt/amnezigo"
+)
+
+func main() {
+    // 1. Load the manifest (".amnezigo.jsonnet" wins over "amnezigo.json").
+    manifest, err := amnezigo.LoadManifest("./my-project", nil)
+    if err != nil {
+        log.Fatalf("load manifest: %v", err)
+    }
+
+    // 2. Generate configs. With DryRun we inspect the result without writing.
+    result, err := amnezigo.Generate(manifest, amnezigo.GenerateOptions{
+        OutputDir: "./my-project/output",
+        DryRun:    true,
+    })
+    if err != nil {
+        log.Fatalf("generate: %v", err)
+    }
+
+    fmt.Println("server peer:", result.ServerPeer)
+    for _, f := range result.Files {
+        fmt.Printf("  %s (%d bytes)\n", f.RelPath, len(f.Content))
+    }
+
+    // 3. Generate only selected client peers and write them to disk.
+    result, err = amnezigo.Generate(manifest, amnezigo.GenerateOptions{
+        OutputDir:  "./my-project/output",
+        PeerFilter: []string{"phone", "laptop"},
+    })
+    if err != nil {
+        log.Fatalf("generate: %v", err)
+    }
+    fmt.Println("clients written:", result.ClientPeers)
+}
+```
+
+## Manifest loading
+
+| Symbol | Signature | Purpose |
+|---|---|---|
+| `LoadManifest` | `func LoadManifest(dir string, jpathDirs []string) (Manifest, error)` | Discovers a manifest in `dir`: `.amnezigo.jsonnet` takes precedence, then `amnezigo.json`. Returns an error if neither exists. |
+| `LoadManifestFromFile` | `func LoadManifestFromFile(path string, jpathDirs []string) (Manifest, error)` | Loads a manifest from an explicit path; `.jsonnet` extension evaluates via the Jsonnet VM, otherwise plain JSON. |
+
+### Discovery & evaluation rules
+
+| Concern | Behavior |
+|---|---|
+| Precedence | `.amnezigo.jsonnet` is checked **before** `amnezigo.json`; if both exist, the Jsonnet file wins. |
+| `jpathDirs == nil` | Defaults to `[dir/lib]` for `LoadManifest`, `[parentDir/lib]` for `LoadManifestFromFile`. |
+| `.jsonnet` evaluation | Jsonnet → JSON string → parsed as `Manifest`; the `version` field is still required. |
+| Version check | Both paths reject any `version` other than `1` (missing or zero is also an error). See [Jsonnet](/jsonnet). |
+
+## Manifest types & methods
+
+| Symbol | Signature | Purpose |
+|---|---|---|
+| `Manifest` | `type Manifest struct { Peers map[string]PeerManifest; Obfuscation ObfuscationManifest; Network NetworkConfig; Version int }` | Top-level declarative config. `Version` must be `1`; peer names are the map keys. |
+| `NetworkConfig` | `type NetworkConfig struct { DNS []string; MTU int }` | Network-level settings shared by all peers (MTU is per-interface; DNS applies to clients). |
+| `ObfuscationManifest` | `type ObfuscationManifest struct { S1, S2, S3, S4 *int; H1, H2, H3, H4 *HeaderRange; Jc, Jmin, Jmax *int; Protocol string }` | Obfuscation profile. Pointer fields distinguish "set to 0" from "unset" (`nil` → random fallback). |
+| `PeerManifest` | `type PeerManifest struct { Keepalive *int; Address string; TunName string; MainIface string; Endpoint string; Protocol string; ListenPort int }` | One peer; its name is the `Manifest.Peers` map key. |
+| `HeaderRange` | `type HeaderRange struct { Min uint32; Max uint32 }` | Inclusive min-max range for an obfuscation header (H1–H4). |
+| `(*ObfuscationManifest).HasAnyValue` | `func (o *ObfuscationManifest) HasAnyValue() bool` | Reports whether any S/H/J field is non-nil (`false` ⇒ fully random generation). |
+| `(*ObfuscationManifest).ToSharedObfuscation` | `func (o *ObfuscationManifest) ToSharedObfuscation() ServerObfuscationConfig` | Copies non-nil values into a `ServerObfuscationConfig`; nil fields stay zero (signal for random generation). |
+| `(*PeerManifest).IsServer` | `func (p *PeerManifest) IsServer() bool` | `true` when `Endpoint != ""` **and** `ListenPort != 0`. |
+| `(*Manifest).ServerPeer` | `func (m *Manifest) ServerPeer() (string, int)` | Returns the server peer name and count. A valid manifest has `count == 1`. |
+| `(*Manifest).ServerPeerName` | `func (m *Manifest) ServerPeerName() string` | Returns the sole server peer name. **Panics** if count ≠ 1 — call only after validation. |
+| `(*Manifest).PeerNames` | `func (m *Manifest) PeerNames() []string` | All peer names sorted alphabetically (deterministic iteration). |
+
+### `Manifest` fields
+
+| Field | JSON key | Type | Required | Description |
+|---|---|---|---|---|
+| `Peers` | `peers` | `map[string]PeerManifest` | yes | Flat peer map. Map key is the peer name (used as output directory name). |
+| `Obfuscation` | `obfuscation` | `ObfuscationManifest` | no | Shared obfuscation profile; all S/H/J fields are nullable pointers. |
+| `Network` | `network` | `NetworkConfig` | no | Shared interface settings (MTU, DNS). |
+| `Version` | `version` | `int` | yes | Schema version; must be `1`. No `omitempty` — `{}` decodes to `0` and is rejected. |
+
+### `NetworkConfig` fields
+
+| Field | JSON key | Type | Description |
+|---|---|---|---|
+| `DNS` | `dns` | `[]string` | Upstream resolvers; comma-joined into `DNS =` line of client configs only. |
+| `MTU` | `mtu` | `int` | Per-interface MTU; shared by server and every client. Default `1280` when 0/absent (applied at generation time, not by loader). |
+
+### `ObfuscationManifest` fields
+
+All numeric fields use pointer types to distinguish "user set to 0" from "user did not set this field".
+
+| Field | JSON key | Type | Description |
+|---|---|---|---|
+| `S1` | `s1` | `*int` | S-prefix 1. `nil` → random `[0,64]`. |
+| `S2` | `s2` | `*int` | S-prefix 2. `nil` → random `[0,64]`. |
+| `S3` | `s3` | `*int` | S-prefix 3. `nil` → random `[0,64]`. |
+| `S4` | `s4` | `*int` | S-prefix 4. `nil` → random `[0,32]`. |
+| `H1` | `h1` | `*HeaderRange` | Header range 1. `nil` → random non-overlapping. |
+| `H2` | `h2` | `*HeaderRange` | Header range 2. |
+| `H3` | `h3` | `*HeaderRange` | Header range 3. |
+| `H4` | `h4` | `*HeaderRange` | Header range 4. |
+| `Jc` | `jc` | `*int` | Junk count. `nil` → random `[0,10]`. |
+| `Jmin` | `jmin` | `*int` | Junk minimum. `nil` → random `[64,1024]`. |
+| `Jmax` | `jmax` | `*int` | Junk maximum. Must be `> jmin`. |
+| `Protocol` | `protocol` | `string` | Decorative at manifest level — **not** consumed by generate. Only per-peer protocol drives I-packet shape. |
+
+### `PeerManifest` fields
+
+| Field | JSON key | Type | Required | Description |
+|---|---|---|---|---|
+| `Keepalive` | `keepalive` | `*int` | no | `PersistentKeepalive` seconds. `nil`/0 → off. |
+| `Address` | `address` | `string` | yes | Interface address as CIDR. |
+| `TunName` | `tun_name` | `string` | no | Server interface name; written as `#_TunName` metadata. |
+| `MainIface` | `main_iface` | `string` | no | Server egress interface. When set, `PostUp`/`PostDown` iptables rules generated. |
+| `Endpoint` | `endpoint` | `string` | no | `host:port`. Server marker (together with non-zero `listen_port`). |
+| `Protocol` | `protocol` | `string` | no | Per-peer obfuscation protocol — this is what generate actually reads. Defaults to `quic` when empty. |
+| `ListenPort` | `listen_port` | `int` | no | UDP listen port. Server marker (together with non-empty `endpoint`). |
+
+### `HeaderRange` fields
+
+| Field | JSON key | Type | Description |
+|---|---|---|---|
+| `Min` | `min` | `uint32` | Range lower bound (inclusive). |
+| `Max` | `max` | `uint32` | Range upper bound (inclusive). |
+
+:::: tip Server-peer detection rule
+A peer is a server peer iff `Endpoint != ""` **and** `ListenPort != 0`. At most one server peer is valid per manifest. `Generate` returns an error (not a panic) when the count is not exactly 1; `ServerPeerName` panics. See [Manifest Reference](/manifest-reference).
+::::
+
+## Crypto / keys
+
+| Symbol | Signature | Purpose |
+|---|---|---|
+| `GenerateKeyPair` | `func GenerateKeyPair() (string, string)` | Generates an X25519 key pair with WireGuard clamping; returns `(privateKey, publicKey)` as 44-char base64. |
+| `DerivePublicKey` | `func DerivePublicKey(privateKey string) string` | Derives the 44-char base64 public key from a base64 private key (applies clamping). |
+| `GeneratePSK` | `func GeneratePSK() string` | Generates a 32-byte preshared key as a 44-char base64 string. |
+
+### Key behavior & gotchas
+
+| Concern | Behavior |
+|---|---|
+| Panic conditions | `GenerateKeyPair`/`GeneratePSK` panic **only** on `crypto/rand` failure. `DerivePublicKey` panics on invalid base64 or non-32-byte input. |
+| WireGuard clamping | Applied before scalar multiplication in both `GenerateKeyPair` and `DerivePublicKey`: `priv[0] &= 248; priv[31] &= 127; priv[31] |= 64`. A key read back from disk is re-clamped on derivation. |
+| Encoding | All keys and PSKs are 44-character standard base64 (32 bytes + padding). |
+| Untrusted input | Callers passing untrusted material to `DerivePublicKey` must validate first or `recover` (the unexported `tryDerivePublicKey` helper does the latter, returning `""` on any panic). |
+
+## Validation
+
+> Full rule descriptions and CLI exit-code semantics live in [Validation & Analysis](/validation).
+
+| Symbol | Signature | Purpose |
+|---|---|---|
+| `ValidatePacketSizes` | `func ValidatePacketSizes(s1, s2, s3, s4 int, iPacketSizes []int, jmin, jmax int) error` | Enforces AWG 2.0 size invariants: four S-padded handshake sizes pairwise distinct, no I-packet equals a padded size, junk range excludes all padded + raw WG sizes. |
+| `ValidateHeaderRange` | `func ValidateHeaderRange(r HeaderRange) error` | Rejects `Max < Min` or any inclusive range overlapping WG message type-ids `[1..4]`. |
+| `ValidateServerConfig` | `func ValidateServerConfig(cfg *ServerConfig) []Finding` | Runs every rule (required fields, S-prefixes, junk range, header ranges); empty slice = clean. Never returns an error. |
+| `PaddedSizes` | `func PaddedSizes(s1, s2, s3, s4 int) [4]int` | Returns the four AWG-padded packet sizes: init (`s1+148`), response (`s2+92`), cookie (`s3+64`), transport (`s4+32`). |
+| `Finding` | `type Finding struct { Message string; Detail string; Code string; Severity Severity; Location Location }` | One validation/analysis observation (JSON-tagged; reused by `analyze`). |
+| `Finding.OneLine` | `func (f Finding) OneLine() string` | Canonical text form `[<SEVERITY> <CODE>] <file>:<line> (key=<key>): <message>` (line/key omitted when empty). |
+| `Severity` | `type Severity string` | Finding impact class. |
+| `Severity` constants | `SeverityError`, `SeverityWarning`, `SeverityInfo` (`"error"` / `"warning"` / `"info"`) | The three severity levels. |
+| `Location` | `type Location struct { File string; Key string; Line int }` | Where a finding originates within a config file. |
+| `PacketSizeCollisionError` | `type PacketSizeCollisionError struct { Kind string; Pair string; Size int }` | One `ValidatePacketSizes` collision; `Kind` ∈ `{"s-pair", "i-packet", "junk-range"}`. |
+| `(*PacketSizeCollisionError).Error` | `func (e *PacketSizeCollisionError) Error() string` | Formats as `packet size collision (<kind>): <pair> at <size> bytes`. |
+| `ErrEmptyJunkRange` | `var ErrEmptyJunkRange = errors.New("junk range is empty (jmin > jmax)")` | Sentinel returned by `ValidatePacketSizes` when `jmin > jmax`. |
+
+### WG message size constants
+
+| Constant | Value | Description |
+|---|---|---|
+| `WGInitiationSize` | `148` | Raw WG initiation message size (before S-padding). |
+| `WGResponseSize` | `92` | Raw WG response message size. |
+| `WGCookieReplySize` | `64` | Raw WG cookie reply message size. |
+| `WGTransportSize` | `32` | Raw WG transport message size. |
+
+Sourced from amneziawg-go's `device/noise-protocol.go`; used by validation to ensure junk ranges avoid real WG traffic.
+
+### `ValidatePacketSizes` return contract
+
+| Outcome | Return value | How to detect |
+|---|---|---|
+| All invariants hold | `nil` | direct check |
+| `jmin > jmax` | `ErrEmptyJunkRange` | `errors.Is(err, amnezigo.ErrEmptyJunkRange)` |
+| First collision (S-pairs → I-packets → junk range) | `*PacketSizeCollisionError` | `var c *amnezigo.PacketSizeCollisionError; errors.As(err, &c)` |
+
+## Analysis
+
+`Analyze` is informational: it profiles a server config and emits only `warning`/`info` findings (never `error`), so the CLI `analyze` command always exits 0. See [Validation & Analysis](/validation).
+
+| Symbol | Signature | Purpose |
+|---|---|---|
+| `Analyze` | `func Analyze(cfg ServerConfig, opts AnalyzeOptions) AnalysisReport` | Produces an `AnalysisReport`; I-packets are freshly generated from the config (not read from disk). Never returns an error. |
+| `AnalyzeOptions` | `type AnalyzeOptions struct { Rand io.Reader; Protocol string; PeerName string; Samples int }` | Configures analysis: randomness source (`nil` ⇒ `crypto/rand`), protocol template, peer filter (empty ⇒ all), sample count. |
+| `AnalysisReport` | `type AnalysisReport struct { Peers []PeerProfile; Findings []Finding; Ordering OrderingDesc; SampleNote string; Config ConfigInfo; Handshake HandshakeProfile; Headers HeaderProfile; Junk JunkProfile }` | Top-level output: config metadata, handshake/junk/header profiles, per-peer I-packet analysis, wire ordering, and heuristic findings. |
+| `FormatText` | `func FormatText(report AnalysisReport) string` | Renders a report as human-readable multi-section text. |
+| `FormatJSON` | `func FormatJSON(report AnalysisReport) (string, error)` | Renders a report as indented JSON (two spaces); wraps marshal errors with `%w`. |
+| `ListProtocols` | `func ListProtocols() []string` | Returns alphabetically-sorted protocol template names (`dns`, `dtls`, `quic`, `random`, `rtp`, `sip`, `stun`). Use to validate user-supplied protocol names or enumerate available templates. |
+
+### `AnalyzeOptions` fields
+
+| Field | Type | Default / behavior |
+|---|---|---|
+| `Rand` | `io.Reader` | `nil` ⇒ `crypto/rand`. Supply a deterministic reader for reproducible I-packets. |
+| `Protocol` | `string` | Empty ⇒ `"random"` (`ProtocolRandom`). Accepted values: `random`, `quic`, `dns`, `dtls`, `stun`, `sip`, `rtp` — see [Protocol constants](#protocol-constants). |
+| `PeerName` | `string` | Empty ⇒ analyze all peers. |
+| `Samples` | `int` | `0` ⇒ snapshot-only (one `PeerSnapshot` per peer). `> 0` ⇒ distribution mode with `Stats` over N samples. |
+
+### Report sub-types
+
+| Type | Fields | Purpose |
+|---|---|---|
+| `ConfigInfo` | `Protocol string`, `MTU int`, `ListenPort int`, `PeerCount int` | Basic config metadata. |
+| `HandshakeProfile` | `Init`, `Response`, `Cookie`, `Transport` (all `PaddedSize`) | The four S-padded handshake sizes. |
+| `PaddedSize` | `SPrefix int`, `RawSize int`, `Padded int` | One padded size entry. |
+| `JunkProfile` | `Jc int`, `Jmin int`, `Jmax int`, `Width int` | Junk parameters and range width. |
+| `HeaderProfile` | `H1`, `H2`, `H3`, `H4` (all `HeaderRangeInfo`) | The four H-ranges. |
+| `HeaderRangeInfo` | `Min uint32`, `Max uint32`, `Width uint32` | One header range. |
+| `PeerProfile` | `Name string`, `Snapshot PeerSnapshot`, `Distrib *PeerDistrib` | Per-peer I-packet analysis. |
+| `PeerSnapshot` | `I1`, `I2`, `I3`, `I4`, `I5 int` | One generation of the five I-packet sizes. |
+| `PeerDistrib` | `I1`–`I5` `Stats`, `Samples int` | Distribution stats over N samples. |
+| `Stats` | `Mean float64`, `Min int`, `Max int`, `Median int` | Summary statistics. |
+| `OrderingDesc` | `Steps []string` | Packet ordering on the wire per handshake. |
+
+### Heuristic finding codes
+
+`Analyze` populates `Finding.Code` with the following string values. **They are string codes, not exported Go constants** — match them by string value.
+
+| Code | Severity | Meaning |
+|---|---|---|
+| `RISK001` | warning | Junk range contains a raw WG size. |
+| `RISK002` | warning | A peer's I-packet cluster spans < 20 B. |
+| `RISK003` | warning | `S4 < 8`. |
+| `RISK004` | warning | Two padded sizes differ by < 5 B. |
+| `RISK005` | info | A padded size is within ±4 B of a raw WG size. |
+| `RISK006` | warning | Junk range width < 32 B. |
+| `RISK007` | warning | An H-range width < 1,000,000. |
+| `RISK008` | info | No peers defined. |
+| `RISK009` | warning | All S-prefixes and junk params are zero (vanilla-WG shape). |
+
+## Presets
+
+> Preset values and selection guidance live in [Presets](/presets).
+
+| Symbol | Signature | Purpose |
+|---|---|---|
+| `Preset` | `type Preset struct { Name string; Description string; DefaultProtocol string; H1, H2, H3, H4 HeaderRange; MTU int; S1, S2, S3, S4 int; Jc, Jmin, Jmax int }` | A named bundle of obfuscation parameters; each yields a config that passes `ValidatePacketSizes`. |
+| `Preset.ToServerObfuscation` | `func (p Preset) ToServerObfuscation() ServerObfuscationConfig` | Converts a preset to a `ServerObfuscationConfig`. Carries `Jc`/`Jmin`/`Jmax`, `S1`–`S4`, `H1`–`H4` only — **not** `MTU`, `Description`, or `DefaultProtocol`. |
+| `GetPreset` | `func GetPreset(name string) (Preset, error)` | Returns the named preset; on unknown names returns an error listing every available preset. |
+| `ListPresets` | `func ListPresets() []Preset` | Returns a defensive copy of all seven built-in presets. |
+
+The seven built-in presets: `lan-conservative`, `home-balanced`, `mobile-aggressive`, `stealth-paranoid`, `standard-1420`, `low-overhead`, `test-minimal`. There is no `preset` field in `Manifest`; to use a preset, copy its values into `ObfuscationManifest` (or evaluate it at the Jsonnet layer).
+
+## Credentials
+
+> Key-reuse model and recovery sources are documented in [Credentials & Key Reuse](/credentials).
+
+| Symbol | Signature | Purpose |
+|---|---|---|
+| `PeerCredentials` | `type PeerCredentials struct { PrivateKey string; PublicKey string; PresharedKey string }` | Cryptographic material for one peer: base64 X25519 private key, derived public key, and a per-connection PSK. |
+| `PersistedCredentials` | `type PersistedCredentials struct { Peers map[string]PeerCredentials; Server PeerCredentials }` | All credentials extracted from existing output configs; reused by `Generate` across runs. |
+| `EmptyCredentials` | `func EmptyCredentials() *PersistedCredentials` | Returns a `PersistedCredentials` with an initialized `Peers` map and zero-value server credentials (first-run / `FullReset` path). |
+| `LoadCredentials` | `func LoadCredentials(outputDir, serverPeerName string) (*PersistedCredentials, error)` | Reads existing output configs from `outputDir` and extracts persisted credentials. |
+
+### `LoadCredentials` behavior
+
+| Situation | Return |
+|---|---|
+| Output dir or server config absent (first run) | `EmptyCredentials()`, `nil` — **not** an error. |
+| Real I/O or parse failure of a present file | `nil`, wrapped error. |
+| Server config present | Server keypair from its `[Interface]`; each peer's `PublicKey`/`PresharedKey`/`Name` from its `[Peer]`; each peer's `PrivateKey` recovered from its own `outputDir/<peer>/awg0.conf` (a client secret). |
+
+## Protocol constants
+
+The protocol template names are available as exported constants. Prefer these over bare string literals when setting `AnalyzeOptions.Protocol` or `PeerManifest.Protocol`.
+
+| Constant | Value |
+|---|---|
+| `ProtocolQUIC` | `"quic"` |
+| `ProtocolDNS` | `"dns"` |
+| `ProtocolDTLS` | `"dtls"` |
+| `ProtocolSTUN` | `"stun"` |
+| `ProtocolSIP` | `"sip"` |
+| `ProtocolRTP` | `"rtp"` |
+| `ProtocolRandom` | `"random"` |
+
+Use `ListProtocols()` to enumerate all seven valid values at runtime. See [Obfuscation](/obfuscation).
+
+## EncodeVPNLink
+
+| Symbol | Signature | Purpose |
+|---|---|---|
+| `EncodeVPNLink` | `func EncodeVPNLink(clientINI []byte, endpoint string, listenPort int, dns []string) string` | Wraps a client AWG INI config into an AmneziaVPN-app-importable vpn:// link. Returns a `vpn://` URL string (scheme + base64url-encoded payload). |
+
+The `last_config` JSON carries both the verbatim INI (in `config`, for display) and structured fields (`client_priv_key`, `server_pub_key`, `allowed_ips`, `Jc`, `I1`, etc.) that the app's connect path reads. I1–I5 CPS tag strings are preserved verbatim, not expanded.
+
+:::: warning
+`EncodeVPNLink` panics if `json.Marshal` fails for `lastConfig` or the outer envelope. This should never happen with valid input but is a theoretical crash path. No error-returning variant exists.
+::::
+
+See [VPN Import Links](/vpn-links) for the full wire format, field semantics, and AmneziaVPN-app compatibility notes.
+
+## Library gotchas
+
+| Concern | Behavior |
+|---|---|
+| Non-atomic writes | `Generate` builds every config in memory first (all-or-nothing compute), but the disk-write pass uses `os.WriteFile` per file (mode `0600`) — a crash mid-pass can leave partially-written output. See [Gotchas](/gotchas). |
+| Sorted peer iteration | Client peers are iterated alphabetically; when `PeerFilter` is set, only the named peers are built. Output ordering is deterministic. |
+| Pointer nil ⇒ random | `ObfuscationManifest` uses `*int` / `*HeaderRange` so "set to 0" ≠ "unset". `nil` triggers random generation in `resolveObfuscation`. |
+| `ServerPeerName` panics | Returns the sole server peer name but **panics** when count ≠ 1. Use `ServerPeer()` first, or call only on validated manifests. |
+| `DerivePublicKey` panics | Panics on invalid base64 or non-32-byte input — no error return. Callers handling untrusted input must `recover` (or use the unexported `tryDerivePublicKey` helper which returns `""` on panic). |
+| `GenerateKeyPair` / `GeneratePSK` panic | Panic only on `crypto/rand` failure (`'crypto: failed to generate random key'`). Extremely unlikely but can crash the calling process. No error-returning variant exists. |
+| `EncodeVPNLink` panics | Panics on `json.Marshal` failure for `lastConfig` or the outer envelope. Theoretical only — no error-returning variant. |
+| Error wrapping | Failures are wrapped with `fmt.Errorf("<context>: %w", err)` (e.g. `resolve obfuscation: %w`, `load credentials: %w`, `build server config: %w`, `write file %s: %w`) — unwrap with `errors.Is` / `errors.As`. |
+| Version enforced | `LoadManifest` / `LoadManifestFromFile` reject any `version` other than `1`. |
+| Protocol constants | `ProtocolQUIC`, `ProtocolDNS`, `ProtocolDTLS`, `ProtocolSTUN`, `ProtocolSIP`, `ProtocolRTP`, `ProtocolRandom` are the exported constants for `AnalyzeOptions.Protocol` and `PeerManifest.Protocol`. Prefer `amnezigo.ProtocolQUIC` etc. over bare string literals; use `ListProtocols()` to enumerate all valid values. See [Obfuscation](/obfuscation). |
+| Output layout | Configs are written as `<OutputDir>/<peer>/awg0.conf`; the INI/metadata structure is documented in [Output Format](/output-format). |
+---
 url: /gotchas
 ---
 # Gotchas & FAQ
@@ -2629,7 +3561,7 @@ that catch hand-edited configs. Each entry has a short explanation and a fix.
 The only commands are `generate`, `validate`, and `analyze`. Older copies of
 `README.md` / `AGENTS.md` still describe the removed commands and a
 `--preset`/`InitWithPreset` flow — treat those sections as stale.
-:::
+::::
 
 
 ## Common Mistakes
@@ -2708,7 +3640,7 @@ present. This is silent — there is no "both found" message.
 Only the dot-prefixed `.amnezigo.jsonnet` is found by `LoadManifest`. A file
 named `amnezigo.jsonnet` is loaded only when you pass its path explicitly
 (e.g. to `LoadManifestFromFile`, or a future explicit-path flag).
-:::
+::::
 
 ### `--peer` filters clients only; the server is always generated
 
@@ -2827,7 +3759,7 @@ The `<rc>` alphabet is `[a-zA-Z]` (52 letters). For a mixed
 letters-and-digits field, combine tags, e.g. `<rc 4><rd 2>`. Also note `<d>`
 is a zero-byte runtime passthrough expanded by AWG 2.0 userspace; the legacy
 kernel module rejects both `<d>` and `<c>`.
-:::
+::::
 
 ### `analyze` always exits 0; findings are advisory
 
@@ -2835,6 +3767,154 @@ No matter how many `RISK001`-`RISK009` findings fire, `analyze` exits `0` on
 success. The findings are warnings/info only. A non-zero exit happens only on
 a config-load or output-format error (e.g. passing a client config instead of
 a server config).
+
+
+## VPN Import Links
+
+The `--vpn-links` flag generates `amnezigo.vpn` files containing `vpn://`
+import links for the AmneziaVPN app. These links use a proprietary envelope
+format with specific structural requirements. The gotchas below cover the
+common pitfalls when working with or hand-crafting these links.
+
+::: danger vpn:// links target AmneziaVPN, not standalone AmneziaWG
+The `amnezigo.vpn` file produced by `--vpn-links` uses an AmneziaVPN-specific
+envelope: a JSON payload wrapped in `qCompress` (4-byte big-endian length
+header + zlib), then `base64.RawURLEncoding` (no padding), prefixed with
+`vpn://`. The container type is `amnezia-awg`. The standalone AmneziaWG client
+and the kernel module **cannot import these links** — they only read `.conf`
+files.
+
+**Fix:** use the AmneziaVPN mobile/desktop app to import `vpn://` links. For
+standalone AWG, use the generated `awg0.conf` directly. See
+[VPN Import Links](/vpn-links) for the envelope structure.
+::::
+
+::: warning The server peer never gets a .vpn file
+`appendVPNLink` is called only for client peers inside the `filteredClients`
+loop. The server config is added to the output set without any `vpn://` link.
+This is by design — the `vpn://` link is a client-side import artifact; the
+server has no peer to import into.
+
+**Fix:** none needed. If you need the server's connection details, read
+`output/<server>/awg0.conf`.
+::::
+
+::: danger allowed_ips is a JSON array, not a comma-separated string
+In the `vpn://` envelope, `last_config.allowed_ips` is a JSON **array** of
+strings (`[]string`), e.g. `["0.0.0.0/0", "::/0"]`. The AmneziaVPN app reads
+it via `getJSONArray()`. If you hand-craft a link with `allowed_ips` as a
+single comma-separated string, the app throws a `JSONException`.
+
+**Fix:** when building or inspecting a `vpn://` envelope, always represent
+`allowed_ips` as a JSON array. Amnezigo splits the INI `AllowedIPs` on `,`
+and trims whitespace to build the array automatically.
+::::
+
+::: danger All AWG obfuscation fields in last_config are strings (except port)
+In the `last_config` object, `Jc`, `Jmin`, `Jmax`, `S1`-`S4`, `H1`-`H4`, and
+`I1`-`I5` are all typed as `string` — **not** numbers. Only `Port` is an
+integer. The AmneziaVPN app reads every obfuscation field via `getString()`.
+Passing numeric values (e.g. `"Jc": 4` instead of `"Jc": "4"`) causes a
+`JSONException` on import.
+
+**Fix:** when hand-crafting or debugging a `vpn://` envelope, quote every AWG
+field value. Amnezigo handles this automatically.
+::::
+
+::: danger last_config is double-serialized JSON — hand-crafting causes error 1000
+The `last_config` field in the outer envelope is itself a **JSON string** —
+a stringified JSON object embedded inside the envelope JSON. The workflow is:
+(1) the structured fields (`client_priv_key`, `client_ip`, `server_pub_key`,
+`allowed_ips`, `Jc`, `I1`, etc.) are marshaled to JSON bytes; (2) those bytes
+are embedded as a string value in the outer envelope; (3) the outer envelope
+is marshaled to JSON. If you place the structured fields directly in the
+envelope without the string nesting, the app cannot parse them and throws
+`JSONException` → **error 1000**.
+
+**Fix:** never inline structured fields into the envelope. Always nest them
+inside a stringified JSON object assigned to `last_config`.
+::::
+
+::: warning DNS is limited to 2 slots (dns1, dns2) — additional servers are silently dropped
+The `vpn://` envelope has only `dns1` and `dns2` fields. `EncodeVPNLink`
+assigns `dns[0]` to `dns1` and `dns[1]` to `dns2`. If your manifest's
+`network.dns` has 3 or more entries, everything beyond index 1 is **silently
+dropped** — no error, no warning.
+
+**Fix:** if you need more than 2 DNS servers, configure the additional ones
+in the AmneziaVPN app after importing the link. The first two will be set
+from the manifest.
+::::
+
+::: warning isObfuscationEnabled is derived from the presence of Jc in the INI
+`EncodeVPNLink` sets `isObfuscationEnabled = (Jc != "")` by checking the
+client INI for a `Jc` line. If the config lacks `Jc` (e.g. a plain WireGuard
+config without AWG obfuscation), `isObfuscationEnabled` is `false` and the
+app will **not** enable AWG extension parameters. The `S`/`H`/`I` fields are
+only populated when obfuscation is enabled.
+
+**Fix:** ensure `Jc` is present in the client config if you want AWG
+obfuscation enabled in the app. Amnezigo-generated configs always include
+`Jc` when obfuscation is configured.
+::::
+
+::: warning CPS tag strings (I1-I5) are preserved verbatim, not expanded
+The `I1`-`I5` values in `last_config` are copied directly from the INI
+key-value map as literal CPS tag strings (e.g. `<b 0x12><r 16>`). They are
+**not** expanded to hex bytes. This is intentional: the `amneziawg-go` UAPI
+handler fully parses CPS tags (`<r>`, `<rc>`, `<rd>`, `<b>`, `<t>`, `<d>`) at
+connect time, so expanding them at config time would freeze random bytes and
+reduce obfuscation quality. `I5` is omitted when empty (`omitempty` tag).
+
+**Fix:** do not pre-expand CPS tags when hand-crafting a `vpn://` envelope.
+Pass them as literal strings.
+::::
+
+:::: warning qCompress format (4-byte BE length + zlib) is Qt-specific
+The `vpn://` payload is compressed using Qt's `qCompress` format: a 4-byte
+big-endian `uint32` uncompressed-length header, followed by zlib-compressed
+data. This matches the AmneziaVPN app (a Qt-based application). The 4-byte
+header lets the Qt decompressor pre-allocate the output buffer. The final
+link is `vpn://` + `base64.RawURLEncoding` (no `=` padding) of the
+`qCompress` output.
+
+**Manual decoding:** strip the `vpn://` prefix, base64url-decode, skip the
+first 4 bytes (length header), then zlib-inflate the remainder.
+::::
+
+::: danger Structured last_config fields are required — raw INI alone causes error 1000
+The AmneziaVPN app's connection path reads structured fields from
+`last_config` (`client_priv_key`, `client_ip`, `server_pub_key`,
+`allowed_ips`, `Jc`, `I1`, etc.) via `getString()` / `getJSONArray()`. The
+raw INI in the envelope's `config` field is for **display only**. Without the
+structured fields, the app throws `JSONException` on the first missing
+`getString()` call → **error 1000**.
+
+**Fix:** always include the full set of structured fields in `last_config`.
+Amnezigo populates them automatically; hand-crafted envelopes must replicate
+the structure exactly.
+::::
+
+:::: warning Endpoint resolution falls back to listenPort when endpoint lacks a port
+`resolveEndpoint` tries `net.SplitHostPort` first. If the endpoint string
+lacks a port (e.g. `vpn.example.com` with no `:51820`), it falls back to the
+`listenPort` argument — which in the pipeline is the server peer's
+`listen_port` from the manifest. So `endpoint = "vpn.example.com"` with
+`listen_port = 55424` resolves to `vpn.example.com:55424`.
+
+**Fix:** you can omit the port from `endpoint` in the manifest; the
+`listen_port` will be used. Include it explicitly only if the public port
+differs from the listen port.
+::::
+
+:::: warning No SSH credentials in the vpn:// envelope (by design)
+`EncodeVPNLink` extracts only WireGuard/AWG fields from the INI. No SSH keys,
+passwords, or server credentials appear in the `vpn://` link. The WireGuard
+private key is intentionally included — the client needs it to connect.
+
+**Fix:** none needed. The `vpn://` link is safe to share with the client
+(though it does contain the client's private key, so treat it as a secret).
+::::
 
 
 ## FAQ
