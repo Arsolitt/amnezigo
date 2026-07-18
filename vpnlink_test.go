@@ -135,6 +135,7 @@ func TestEncodeVPNLink_DecodesToValidJSON(t *testing.T) {
 		"vpn.example.com:51820",
 		51820,
 		[]string{"1.1.1.1", "1.0.0.1"},
+		"",
 	)
 
 	env := envelopeMap(t, link)
@@ -190,6 +191,7 @@ func TestEncodeVPNLink_NoBase64Padding(t *testing.T) {
 		"vpn.example.com:51820",
 		51820,
 		nil,
+		"",
 	)
 
 	encoded := strings.TrimPrefix(link, vpnLinkScheme)
@@ -204,6 +206,7 @@ func TestEncodeVPNLink_NoSSHCredentials(t *testing.T) {
 		"vpn.example.com:51820",
 		51820,
 		nil,
+		"",
 	)
 
 	raw := decodeVPNLink(t, link)
@@ -223,6 +226,7 @@ func TestEncodeVPNLink_PreservesAWG2Fields(t *testing.T) {
 		"vpn.example.com:51820",
 		51820,
 		nil,
+		"",
 	)
 
 	lc := lastConfigMap(t, envelopeMap(t, link))
@@ -262,6 +266,7 @@ func TestEncodeVPNLink_EndpointWithoutPort(t *testing.T) {
 		"vpn.example.com",
 		55424,
 		nil,
+		"",
 	)
 
 	env := envelopeMap(t, link)
@@ -292,6 +297,7 @@ func TestEncodeVPNLink_DNSOmit(t *testing.T) {
 		"vpn.example.com:51820",
 		51820,
 		nil,
+		"",
 	)
 
 	env := envelopeMap(t, link)
@@ -309,6 +315,7 @@ func TestEncodeVPNLink_DNSOmit(t *testing.T) {
 		"vpn.example.com:51820",
 		51820,
 		[]string{"8.8.8.8"},
+		"",
 	)
 	env1 := envelopeMap(t, link1)
 	if env1["dns1"] != "8.8.8.8" {
@@ -316,6 +323,40 @@ func TestEncodeVPNLink_DNSOmit(t *testing.T) {
 	}
 	if _, ok := env1["dns2"]; ok {
 		t.Error("dns2 present with single-element DNS, should be omitted")
+	}
+}
+
+func TestEncodeVPNLink_DescriptionInEnvelope(t *testing.T) {
+	link := EncodeVPNLink(
+		[]byte(sampleClientINI),
+		"vpn.example.com:51820",
+		51820,
+		nil,
+		"My Server",
+	)
+
+	env := envelopeMap(t, link)
+
+	if env["description"] != "My Server" {
+		t.Errorf("description = %v, want %q", env["description"], "My Server")
+	}
+}
+
+func TestEncodeVPNLink_DescriptionOmittedWhenEmpty(t *testing.T) {
+	link := EncodeVPNLink(
+		[]byte(sampleClientINI),
+		"vpn.example.com:51820",
+		51820,
+		nil,
+		"",
+	)
+
+	env := envelopeMap(t, link)
+
+	// omitempty must drop the key entirely (not just empty string) so the
+	// AmneziaVPN app falls back to hostName for the displayed server name.
+	if _, ok := env["description"]; ok {
+		t.Error("description present with empty string, should be omitted (omitempty)")
 	}
 }
 
@@ -400,6 +441,47 @@ func TestGenerate_VPNLinks(t *testing.T) {
 	}
 }
 
+func TestGenerate_VPNLinks_DisplayName(t *testing.T) {
+	manifest, err := LoadManifest(filepath.Join("testdata", "loader", "valid"), nil)
+	if err != nil {
+		t.Fatalf("LoadManifest: %v", err)
+	}
+
+	// Set a display name on the client peer before generating. Peers is a map,
+	// so the in-place mutation is visible to Generate even though the manifest
+	// is passed by value.
+	const wantDescription = "Alice's phone"
+	phonePeer := manifest.Peers["phone"]
+	phonePeer.DisplayName = wantDescription
+	manifest.Peers["phone"] = phonePeer
+
+	result, err := Generate(manifest, GenerateOptions{
+		ProjectDir: filepath.Join("testdata", "loader", "valid"),
+		DryRun:     true,
+		VPNLinks:   true,
+	})
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+
+	// Find the phone peer's .vpn output and decode the envelope.
+	var phoneVPN *FileOutput
+	for i := range result.Files {
+		if result.Files[i].RelPath == "phone/"+outputVPNLinkName {
+			phoneVPN = &result.Files[i]
+			break
+		}
+	}
+	if phoneVPN == nil {
+		t.Fatal("phone peer .vpn file not found in output")
+	}
+
+	env := envelopeMap(t, string(phoneVPN.Content))
+	if env["description"] != wantDescription {
+		t.Errorf("description = %v, want %q", env["description"], wantDescription)
+	}
+}
+
 // TestEncodeVPNLink_StructuredLastConfig verifies that last_config contains
 // the structured JSON fields the AmneziaVPN connect path reads via
 // configWireguard() — not just the raw INI in "config". Without these fields,
@@ -410,6 +492,7 @@ func TestEncodeVPNLink_StructuredLastConfig(t *testing.T) {
 		"vpn.example.com:51820",
 		51820,
 		nil,
+		"",
 	)
 
 	lc := lastConfigMap(t, envelopeMap(t, link))
@@ -498,6 +581,7 @@ func TestEncodeVPNLink_I1I5CPSStringsPreserved(t *testing.T) {
 		"vpn.example.com:51820",
 		51820,
 		nil,
+		"",
 	)
 
 	lc := lastConfigMap(t, envelopeMap(t, link))
@@ -531,7 +615,7 @@ func TestEncodeVPNLink_AllowedIPsJSONArray(t *testing.T) {
 	multiIPINI := strings.Replace(sampleClientINI, "AllowedIPs = 0.0.0.0/0",
 		"AllowedIPs = 0.0.0.0/0, ::/0", 1)
 
-	link := EncodeVPNLink([]byte(multiIPINI), "vpn.example.com:51820", 51820, nil)
+	link := EncodeVPNLink([]byte(multiIPINI), "vpn.example.com:51820", 51820, nil, "")
 	lc := lastConfigMap(t, envelopeMap(t, link))
 
 	allowedIPs, ok := lc["allowed_ips"].([]any)

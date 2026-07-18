@@ -42,13 +42,14 @@ type ObfuscationManifest struct {
 // All other peers are "client peers". At most one server peer is valid
 // per manifest (enforced by validation, not by types).
 type PeerManifest struct {
-	Keepalive  *int   `json:"keepalive,omitempty"`
-	Address    string `json:"address"`
-	TunName    string `json:"tun_name,omitempty"`
-	MainIface  string `json:"main_iface,omitempty"`
-	Endpoint   string `json:"endpoint,omitempty"`
-	Protocol   string `json:"protocol,omitempty"`
-	ListenPort int    `json:"listen_port,omitempty"`
+	Keepalive   *int   `json:"keepalive,omitempty"`
+	Address     string `json:"address"`
+	TunName     string `json:"tun_name,omitempty"`
+	MainIface   string `json:"main_iface,omitempty"`
+	Endpoint    string `json:"endpoint,omitempty"`
+	Protocol    string `json:"protocol,omitempty"`
+	ListenPort  int    `json:"listen_port,omitempty"`
+	DisplayName string `json:"display_name,omitempty"`
 }
 
 // HasAnyValue reports whether any S/H/J field is non-nil.

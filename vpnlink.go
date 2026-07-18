@@ -24,6 +24,7 @@ const (
 // vpn:// import handler (containersModel / importController).
 type vpnEnvelope struct {
 	HostName         string         `json:"hostName"`
+	Description      string         `json:"description,omitempty"`
 	DefaultContainer string         `json:"defaultContainer"`
 	DNS1             string         `json:"dns1,omitempty"`
 	DNS2             string         `json:"dns2,omitempty"`
@@ -101,7 +102,7 @@ type vpnLastConfig struct {
 //
 // I1-I5 CPS tag strings are preserved verbatim — amneziawg-go's UAPI handler
 // fully parses CPS tags (<r>, <rc>, <rd>, <b>, <t>, <d>) at connect time.
-func EncodeVPNLink(clientINI []byte, endpoint string, listenPort int, dns []string) string {
+func EncodeVPNLink(clientINI []byte, endpoint string, listenPort int, dns []string, description string) string {
 	host, port := resolveEndpoint(endpoint, listenPort)
 	kv := parseINIKeyValue(string(clientINI))
 
@@ -175,6 +176,7 @@ func EncodeVPNLink(clientINI []byte, endpoint string, listenPort int, dns []stri
 			},
 		}},
 		DefaultContainer: vpnContainerAWG,
+		Description:      description,
 	}
 	if len(dns) > 0 {
 		envelope.DNS1 = dns[0]
@@ -216,11 +218,13 @@ func parseINIKeyValue(ini string) map[string]string {
 // entry so every client link points at the same server.
 func appendVPNLink(result *GenerateResult, peerName string, clientBytes []byte, manifest Manifest, serverName string) {
 	serverPeer := manifest.Peers[serverName]
+	clientPeer := manifest.Peers[peerName]
 	link := EncodeVPNLink(
 		clientBytes,
 		serverPeer.Endpoint,
 		serverPeer.ListenPort,
 		manifest.Network.DNS,
+		clientPeer.DisplayName,
 	)
 	result.Files = append(result.Files, FileOutput{
 		RelPath: peerName + "/" + outputVPNLinkName,
