@@ -10,6 +10,7 @@
 - [Encoding Pipeline](#encoding-pipeline)
 - [The `last_config` Structured Fields](#the-last_config-structured-fields)
 - [DNS Mapping](#dns-mapping)
+- [Display Name (`description`)](#display-name-description)
 - [Library API: `EncodeVPNLink`](#library-api-encodevpnlink)
 - [CLI Usage](#cli-usage)
 - [Compatibility Caveat](#compatibility-caveat)
@@ -98,6 +99,7 @@ The decoded payload is a JSON object with four nested levels:
 ```text
 vpnEnvelope
 ├── hostName           string         — server endpoint host
+├── description        string?        — displayed server name (omitempty; app falls back to hostName)
 ├── defaultContainer   string         — always "amnezia-awg"
 ├── dns1               string?        — first DNS server (omitempty)
 ├── dns2               string?        — second DNS server (omitempty)
@@ -164,7 +166,7 @@ Client INI ──► vpnLastConfig struct
 |---|---|---|
 | 1 | Build `vpnLastConfig` | Structured fields parsed from client INI + verbatim INI in `Config` field |
 | 2 | Marshal `lastConfig` → JSON | `json.Marshal(lastCfg)` → inner JSON bytes |
-| 3 | Build `vpnEnvelope` | Envelope: `hostName`, `defaultContainer`, `dns1`/`dns2`, `containers[0].awg.last_config` |
+| 3 | Build `vpnEnvelope` | Envelope: `hostName`, `description`, `defaultContainer`, `dns1`/`dns2`, `containers[0].awg.last_config` |
 | 4 | Marshal envelope → JSON | `json.Marshal(envelope)` → outer JSON bytes |
 | 5 | `qCompress` | Prepend 4-byte big-endian uncompressed-length header, then zlib-compress |
 | 6 | Base64URL encode | `base64.RawURLEncoding` — URL-safe alphabet, **no padding** (`=` chars) |
@@ -295,6 +297,40 @@ If `dns` is empty or absent, both fields are omitted from the JSON entirely.
 
 ---
 
+## Display Name (`description`)
+
+The envelope's optional `description` field names the imported server in the
+AmneziaVPN app. On import, the app reads `description` for the displayed server name;
+when it is empty or absent the app falls back to `hostName` (the server endpoint host).
+The envelope serializes `description` with `json:"description,omitempty"`, so the field
+is dropped entirely when empty — preserving the hostName fallback for every existing
+manifest.
+
+| Envelope field | Source | Effect |
+|---|---|---|
+| `description` | `peers.<client>.display_name` (manifest) | Displayed server name in the app's server list |
+| `hostName` (fallback) | server peer `endpoint` | Used when `description` is empty |
+
+Set it via `display_name` on the **client** peer in the manifest:
+
+```json
+{
+  "peers": {
+    "phone": { "address": "10.0.0.2/32", "display_name": "Alice's phone" }
+  }
+}
+```
+
+Only client peers carry a `vpn://` link (the server peer never does), so `display_name`
+is meaningful on client peers only. Setting it on the server peer is accepted but
+ignored. See [Manifest Reference](./manifest-reference.md) for the field spec.
+
+> **Caveat:** The app shows `description` as the server-list **title**, but the
+> collapsed server row's **subtitle** still displays the `hostName`. This is expected
+> app behavior; amnezigo cannot change the subtitle.
+
+---
+
 ## Library API: `EncodeVPNLink`
 
 The `EncodeVPNLink` function is the public entry point for generating `vpn://`
@@ -304,7 +340,7 @@ takes raw client INI bytes and returns the complete `vpn://` URL string.
 ### Signature
 
 ```go
-func EncodeVPNLink(clientINI []byte, endpoint string, listenPort int, dns []string) string
+func EncodeVPNLink(clientINI []byte, endpoint string, listenPort int, dns []string, description string) string
 ```
 
 | Parameter | Type | Description |
@@ -313,6 +349,7 @@ func EncodeVPNLink(clientINI []byte, endpoint string, listenPort int, dns []stri
 | `endpoint` | `string` | Server endpoint. May be `host:port` or bare `host` |
 | `listenPort` | `int` | Fallback port when `endpoint` lacks a port suffix |
 | `dns` | `[]string` | DNS servers. `dns[0]` → `dns1`, `dns[1]` → `dns2`; beyond 2 ignored |
+| `description` | `string` | Displayed server name in the AmneziaVPN app; empty `""` ⇒ app falls back to `hostName`. Serialized as envelope `description` (`omitempty`). |
 
 **Returns:** A `vpn://` URL — the literal scheme `vpn://` followed by a
 base64url-encoded payload with no padding.
@@ -364,6 +401,7 @@ PersistentKeepalive = 25`)
         "vpn.example.com:51820",          // server endpoint
         51820,                            // fallback listen port
         []string{"1.1.1.1", "1.0.0.1"},   // DNS servers
+        "Alice's phone",                  // displayed server name ("" → hostName fallback)
     )
 
     fmt.Println(link)

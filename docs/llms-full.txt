@@ -1539,6 +1539,7 @@ The decoded payload is a JSON object with four nested levels:
 ```text
 vpnEnvelope
 ├── hostName           string         — server endpoint host
+├── description        string?        — displayed server name (omitempty; app falls back to hostName)
 ├── defaultContainer   string         — always "amnezia-awg"
 ├── dns1               string?        — first DNS server (omitempty)
 ├── dns2               string?        — second DNS server (omitempty)
@@ -1604,7 +1605,7 @@ Client INI ──► vpnLastConfig struct
 |---|---|---|
 | 1 | Build `vpnLastConfig` | Structured fields parsed from client INI + verbatim INI in `Config` field |
 | 2 | Marshal `lastConfig` → JSON | `json.Marshal(lastCfg)` → inner JSON bytes |
-| 3 | Build `vpnEnvelope` | Envelope: `hostName`, `defaultContainer`, `dns1`/`dns2`, `containers[0].awg.last_config` |
+| 3 | Build `vpnEnvelope` | Envelope: `hostName`, `description`, `defaultContainer`, `dns1`/`dns2`, `containers[0].awg.last_config` |
 | 4 | Marshal envelope → JSON | `json.Marshal(envelope)` → outer JSON bytes |
 | 5 | `qCompress` | Prepend 4-byte big-endian uncompressed-length header, then zlib-compress |
 | 6 | Base64URL encode | `base64.RawURLEncoding` — URL-safe alphabet, **no padding** (`=` chars) |
@@ -1739,7 +1740,7 @@ takes raw client INI bytes and returns the complete `vpn://` URL string.
 ### Signature
 
 ```go
-func EncodeVPNLink(clientINI []byte, endpoint string, listenPort int, dns []string) string
+func EncodeVPNLink(clientINI []byte, endpoint string, listenPort int, dns []string, description string) string
 ```
 
 | Parameter | Type | Description |
@@ -1748,6 +1749,7 @@ func EncodeVPNLink(clientINI []byte, endpoint string, listenPort int, dns []stri
 | `endpoint` | `string` | Server endpoint. May be `host:port` or bare `host` |
 | `listenPort` | `int` | Fallback port when `endpoint` lacks a port suffix |
 | `dns` | `[]string` | DNS servers. `dns[0]` → `dns1`, `dns[1]` → `dns2`; beyond 2 ignored |
+| `description` | `string` | Displayed server name in the AmneziaVPN app; empty `""` ⇒ app falls back to `hostName`. Serialized as envelope `description` (`omitempty`). |
 
 **Returns:** A `vpn://` URL — the literal scheme `vpn://` followed by a
 base64url-encoded payload with no padding.
@@ -1799,6 +1801,7 @@ PersistentKeepalive = 25`)
         "vpn.example.com:51820",          // server endpoint
         51820,                            // fallback listen port
         []string{"1.1.1.1", "1.0.0.1"},   // DNS servers
+        "Alice's phone",                  // displayed server name ("" → hostName fallback)
     )
 
     fmt.Println(link)
@@ -3185,7 +3188,7 @@ The root package `amnezigo` exposes every business-logic entry point: manifest l
 | `GenerateOptions` | `type GenerateOptions struct { ProjectDir string; OutputDir string; JpathDirs []string; PeerFilter []string; DryRun bool; FullReset bool; VPNLinks bool }` | Configures the generate pipeline: project/output dirs, Jsonnet `jpath`, optional peer filter, dry-run, credential reset, and vpn:// import-link generation. |
 | `GenerateResult` | `type GenerateResult struct { ServerPeer string; Files []FileOutput; ClientPeers []string; Findings []Finding }` | Output of a generate run: server peer name, all file outputs, client peer names, and any findings. |
 | `FileOutput` | `type FileOutput struct { RelPath string; Content []byte }` | A single generated file: path relative to the output dir and its byte content. |
-| `EncodeVPNLink` | `func EncodeVPNLink(clientINI []byte, endpoint string, listenPort int, dns []string) string` | Wraps a client AWG INI config into an AmneziaVPN-app-importable vpn:// link. Returns a `vpn://` URL string (scheme + base64url-encoded payload). See [VPN Import Links](/vpn-links). |
+| `EncodeVPNLink` | `func EncodeVPNLink(clientINI []byte, endpoint string, listenPort int, dns []string, description string) string` | Wraps a client AWG INI config into an AmneziaVPN-app-importable vpn:// link. `description` names the server in the app (empty ⇒ falls back to `hostName`). Returns a `vpn://` URL string (scheme + base64url-encoded payload). See [VPN Import Links](/vpn-links). |
 
 ### `Generate` pipeline steps
 
@@ -3294,7 +3297,7 @@ func main() {
 | `Manifest` | `type Manifest struct { Peers map[string]PeerManifest; Obfuscation ObfuscationManifest; Network NetworkConfig; Version int }` | Top-level declarative config. `Version` must be `1`; peer names are the map keys. |
 | `NetworkConfig` | `type NetworkConfig struct { DNS []string; MTU int }` | Network-level settings shared by all peers (MTU is per-interface; DNS applies to clients). |
 | `ObfuscationManifest` | `type ObfuscationManifest struct { S1, S2, S3, S4 *int; H1, H2, H3, H4 *HeaderRange; Jc, Jmin, Jmax *int; Protocol string }` | Obfuscation profile. Pointer fields distinguish "set to 0" from "unset" (`nil` → random fallback). |
-| `PeerManifest` | `type PeerManifest struct { Keepalive *int; Address string; TunName string; MainIface string; Endpoint string; Protocol string; ListenPort int }` | One peer; its name is the `Manifest.Peers` map key. |
+| `PeerManifest` | `type PeerManifest struct { Keepalive *int; Address string; TunName string; MainIface string; Endpoint string; Protocol string; ListenPort int; DisplayName string }` | One peer; its name is the `Manifest.Peers` map key. |
 | `HeaderRange` | `type HeaderRange struct { Min uint32; Max uint32 }` | Inclusive min-max range for an obfuscation header (H1–H4). |
 | `(*ObfuscationManifest).HasAnyValue` | `func (o *ObfuscationManifest) HasAnyValue() bool` | Reports whether any S/H/J field is non-nil (`false` ⇒ fully random generation). |
 | `(*ObfuscationManifest).ToSharedObfuscation` | `func (o *ObfuscationManifest) ToSharedObfuscation() ServerObfuscationConfig` | Copies non-nil values into a `ServerObfuscationConfig`; nil fields stay zero (signal for random generation). |
@@ -3349,6 +3352,7 @@ All numeric fields use pointer types to distinguish "user set to 0" from "user d
 | `Endpoint` | `endpoint` | `string` | no | `host:port`. Server marker (together with non-zero `listen_port`). |
 | `Protocol` | `protocol` | `string` | no | Per-peer obfuscation protocol — this is what generate actually reads. Defaults to `quic` when empty. |
 | `ListenPort` | `listen_port` | `int` | no | UDP listen port. Server marker (together with non-empty `endpoint`). |
+| `DisplayName` | `display_name` | `string` | no | Displayed server name in the AmneziaVPN app when the client config is imported via a `vpn://` link. Empty → app falls back to `hostName`. Client-peer field; ignored on the server peer. See [VPN Import Links](/vpn-links#display-name-description). |
 
 ### `HeaderRange` fields
 
@@ -3522,7 +3526,7 @@ Use `ListProtocols()` to enumerate all seven valid values at runtime. See [Obfus
 
 | Symbol | Signature | Purpose |
 |---|---|---|
-| `EncodeVPNLink` | `func EncodeVPNLink(clientINI []byte, endpoint string, listenPort int, dns []string) string` | Wraps a client AWG INI config into an AmneziaVPN-app-importable vpn:// link. Returns a `vpn://` URL string (scheme + base64url-encoded payload). |
+| `EncodeVPNLink` | `func EncodeVPNLink(clientINI []byte, endpoint string, listenPort int, dns []string, description string) string` | Wraps a client AWG INI config into an AmneziaVPN-app-importable vpn:// link. `description` names the server in the app (empty ⇒ falls back to `hostName`). Returns a `vpn://` URL string (scheme + base64url-encoded payload). |
 
 The `last_config` JSON carries both the verbatim INI (in `config`, for display) and structured fields (`client_priv_key`, `server_pub_key`, `allowed_ips`, `Jc`, `I1`, etc.) that the app's connect path reads. I1–I5 CPS tag strings are preserved verbatim, not expanded.
 

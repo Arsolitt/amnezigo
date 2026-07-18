@@ -35,7 +35,7 @@ The root package `amnezigo` exposes every business-logic entry point: manifest l
 | `GenerateResult` | `type GenerateResult struct { ServerPeer string; Files []FileOutput; ClientPeers []string; Findings []Finding }` | Output of a generate run: server peer name, all file outputs, client peer names, and any findings. |
 | `FileOutput` | `type FileOutput struct { RelPath string; Content []byte }` | A single generated file: path relative to the output dir and its byte content. |
 | `Generate` | `func Generate(manifest Manifest, opts GenerateOptions) (GenerateResult, error)` | Orchestrates the full pipeline: resolve obfuscation, load/reuse credentials, build server + client configs, and write them unless `DryRun` or `OutputDir == ""`. |
-| `EncodeVPNLink` | `func EncodeVPNLink(clientINI []byte, endpoint string, listenPort int, dns []string) string` | Wraps a client AWG INI config into an AmneziaVPN-app-importable vpn:// link. Returns a `vpn://` URL string (scheme + base64url-encoded payload). See [VPN Import Links](./vpn-links.md). |
+| `EncodeVPNLink` | `func EncodeVPNLink(clientINI []byte, endpoint string, listenPort int, dns []string, description string) string` | Wraps a client AWG INI config into an AmneziaVPN-app-importable vpn:// link. `description` names the server in the app (empty ⇒ falls back to `hostName`). Returns a `vpn://` URL string (scheme + base64url-encoded payload). See [VPN Import Links](./vpn-links.md). |
 
 ### Options detail
 

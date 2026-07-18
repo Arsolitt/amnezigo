@@ -110,6 +110,7 @@ Declares a single peer. The peer **name** is the `peers` map key, not a struct f
 | `Keepalive` | `keepalive` | `*int` | no | `nil` | `PersistentKeepalive` seconds for the client's `[Peer]`. `nil`/`0` ⇒ off. |
 | `TunName` | `tun_name` | `string` | no | `awg0` | Server interface name; written as `#_TunName` metadata. |
 | `MainIface` | `main_iface` | `string` | no | `""` | Server egress interface (e.g. `eth0`). When set, `PostUp`/`PostDown` iptables rules are generated. |
+| `DisplayName` | `display_name` | `string` | no | `""` | Displayed server name in the AmneziaVPN app when the client config is imported via a `vpn://` link. Empty → the app falls back to `hostName`. Meaningful on **client** peers only (the server peer never gets a `vpn://` link); accepted but ignored on the server peer. See [VPN Import Links](./vpn-links.md#display-name-description). |
 
 > **Note:** There is no `PresharedKey`, `PublicKey`, or `PrivateKey` field on `PeerManifest` — crypto material is generated/persisted by the credentials layer, not declared in the manifest.
 
