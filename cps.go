@@ -244,6 +244,13 @@ func calculateCPSLength(cps string) int {
 	return total
 }
 
+// CPSLength returns the on-wire byte length of a CPS tag sequence using the
+// same accounting as generation-time validation (exported for consumers that
+// validate profiles, e.g. mesh genesis tooling).
+func CPSLength(cps string) int {
+	return calculateCPSLength(cps)
+}
+
 // generateRandomTags generates random CPS tags for simple random mode.
 // "d" is intentionally excluded: <d> is a runtime-passthrough marker that only
 // makes sense in templated multi-interval flows where an earlier interval
