@@ -249,15 +249,16 @@ takes no arguments (`NoArgs`).
 amnezigo <Version> (<Commit>)
 ```
 
-* `<Version>` — the release tag (e.g. `v1.0.0`), a GoReleaser snapshot version,
-  or `dev` for a plain `go build` / `go run`.
+* `<Version>` — the release version with the tag's leading `v` stripped (tag
+  `v0.4.0` → `0.4.0`), a GoReleaser snapshot version, or `dev` for a plain
+  `go build` / `go run`.
 * `<Commit>` — the short commit hash the binary was built from, or `none` for an
   unstamped build.
 
 ```shell
-# Identify the installed binary (release build shows the tag)
+# A release binary carries the tag's version and the commit it was built from
 $ amnezigo version
-amnezigo v1.0.0 (abc1234)
+amnezigo 0.4.0 (abc1234)
 
 # A development build shows the defaults
 $ go run ./cmd/amnezigo version

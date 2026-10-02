@@ -47,7 +47,7 @@ $ go install github.com/Arsolitt/amnezigo/cmd/amnezigo@latest
 $ amnezigo version
 ```
 
-`amnezigo version` prints `amnezigo <Version> (<Commit>)`. A binary installed from a tagged release shows the tag, for example `amnezigo v1.0.0 (abc1234)`; a plain `go build` shows `amnezigo dev (none)`.
+`amnezigo version` prints `amnezigo <Version> (<Commit>)`. Release binaries carry the tag's version with its leading `v` stripped — `amnezigo 0.4.0 (abc1234)` for tag `v0.4.0` — while `go install` and plain `go build` produce unstamped binaries that report `amnezigo dev (none)`; use a release binary or `make build` when the exact revision matters.
 
 ### Prebuilt release binaries
 

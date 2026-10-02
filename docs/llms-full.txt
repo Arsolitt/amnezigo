@@ -2170,11 +2170,11 @@ Prints the build stamp baked in at compile time via `-ldflags -X` (see `internal
 amnezigo <Version> (<Commit>)
 ```
 
-* `<Version>` — release tag (e.g. `v1.0.0`), a GoReleaser snapshot version, or `dev` for a plain `go build` / `go run`.
+* `<Version>` — the release version with the tag's leading `v` stripped (tag `v0.4.0` → `0.4.0`), a GoReleaser snapshot version, or `dev` for a plain `go build` / `go run`.
 * `<Commit>` — the short commit hash the binary was built from, or `none` for an unstamped build.
 
 ```shell
-amnezigo version                 # amnezigo v1.0.0 (abc1234)
+amnezigo version                 # amnezigo 0.4.0 (abc1234)  — release binary
 go run ./cmd/amnezigo version    # amnezigo dev (none)
 ```
 
