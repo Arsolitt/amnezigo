@@ -13,9 +13,19 @@ type Preset struct {
 	MTU             int
 	S1, S2, S3, S4  int
 	Jc, Jmin, Jmax  int
+
+	// ContentPadding is the AWG 3.1 ContentPaddingAddition range; {0,0}
+	// disables content padding.
+	ContentPadding U16Range
+	// RandomTrailers enables AWG 3.1 random-trailer padding.
+	RandomTrailers bool
+	// DisableCookies disables AWG 3.1 cookie replies.
+	DisableCookies bool
 }
 
 // ToServerObfuscation converts a Preset into a ServerObfuscationConfig.
+// Presets target AWG 3.1; HeaderProtectionKey is intentionally left empty
+// because the pipeline supplies it separately (see version.go).
 func (p Preset) ToServerObfuscation() ServerObfuscationConfig {
 	return ServerObfuscationConfig{
 		Jc:   p.Jc,
@@ -29,6 +39,11 @@ func (p Preset) ToServerObfuscation() ServerObfuscationConfig {
 		H2:   p.H2,
 		H3:   p.H3,
 		H4:   p.H4,
+
+		Version:        AWG31,
+		ContentPadding: p.ContentPadding,
+		RandomTrailers: p.RandomTrailers,
+		DisableCookies: p.DisableCookies,
 	}
 }
 
@@ -40,15 +55,19 @@ func (p Preset) ToServerObfuscation() ServerObfuscationConfig {
 //
 // Padded sizes per preset (for quick reference during review):
 //
-//	lan-conservative:  S1+148=158, S2+92=102, S3+64=79,  S4+32=37  → all distinct
+//	lan-conservative:  S1+148=160, S2+92=104, S3+64=79,  S4+32=44  → all distinct
 //	home-balanced:     S1+148=178, S2+92=127, S3+64=84,  S4+32=44  → all distinct
 //	mobile-aggressive: S1+148=208, S2+92=152, S3+64=114, S4+32=56  → all distinct
-//	stealth-paranoid:  S1+148=178, S2+92=116, S3+64=84,  S4+32=72  → all distinct
+//	stealth-paranoid:  S1+148=178, S2+92=116, S3+64=84,  S4+32=64  → all distinct
 //	standard-1420:     S1+148=180, S2+92=120, S3+64=84,  S4+32=48  → all distinct
-//	low-overhead:      S1+148=160, S2+92=102, S3+64=72,  S4+32=40  → all distinct
-//	test-minimal:      S1+148=153, S2+92=99,  S3+64=71,  S4+32=39  → all distinct
+//	low-overhead:      S1+148=160, S2+92=104, S3+64=76,  S4+32=44  → all distinct
+//	test-minimal:      S1+148=160, S2+92=105, S3+64=76,  S4+32=44  → all distinct
 //
 // Junk ranges must exclude ALL padded sizes AND raw WG constants (148, 92, 64, 32).
+//
+// All presets target AWG 3.1 and keep S1-S4 >= 12, the header-protection
+// floor (S{n} is the ChaCha20 nonce offset). Where RandomTrailers is enabled
+// the 3.1 reference additionally recommends equal S values (rule TRL001).
 //
 //nolint:mnd // preset configuration data — numeric literals are the domain values themselves
 var presetRegistry = []Preset{
@@ -56,18 +75,21 @@ var presetRegistry = []Preset{
 		Name:            "lan-conservative",
 		Description:     "Small S values, narrow junk range. Designed for corporate LANs with minimal DPI where low overhead is preferred over deep obfuscation.",
 		MTU:             1280,
-		S1:              10,
-		S2:              10,
+		S1:              12,
+		S2:              12,
 		S3:              15,
-		S4:              5,
+		S4:              12,
 		Jc:              3,
-		Jmin:            160,
+		Jmin:            161,
 		Jmax:            240,
 		H1:              HeaderRange{Min: 10, Max: 1000000},
 		H2:              HeaderRange{Min: 2000000, Max: 100000000},
 		H3:              HeaderRange{Min: 200000000, Max: 500000000},
 		H4:              HeaderRange{Min: 700000000, Max: 2000000000},
 		DefaultProtocol: ProtocolRandom,
+		ContentPadding:  U16Range{Min: 0, Max: 0},
+		RandomTrailers:  false,
+		DisableCookies:  true,
 	},
 	{
 		Name:            "home-balanced",
@@ -85,6 +107,9 @@ var presetRegistry = []Preset{
 		H3:              HeaderRange{Min: 400000000, Max: 800000000},
 		H4:              HeaderRange{Min: 1000000000, Max: 2100000000},
 		DefaultProtocol: ProtocolQUIC,
+		ContentPadding:  U16Range{Min: 2, Max: 10},
+		RandomTrailers:  true,
+		DisableCookies:  true,
 	},
 	{
 		Name:            "mobile-aggressive",
@@ -102,17 +127,20 @@ var presetRegistry = []Preset{
 		H3:              HeaderRange{Min: 700000000, Max: 1200000000},
 		H4:              HeaderRange{Min: 1500000000, Max: 2147000000},
 		DefaultProtocol: ProtocolDNS,
+		ContentPadding:  U16Range{Min: 2, Max: 10},
+		RandomTrailers:  true,
+		DisableCookies:  true,
 	},
 	{
 		Name: "stealth-paranoid",
 		Description: "Maximum steady-state masking for hostile DPI (national firewalls, " +
 			"deep statistical inspection). Large S4 pads every transport packet; wide junk " +
-			"range, high junk count, wide header ranges. Highest throughput cost (~3% per packet).",
+			"range, high junk count, wide header ranges. Highest throughput cost (~2.5% per packet).",
 		MTU:             1280,
 		S1:              30,
 		S2:              24,
 		S3:              20,
-		S4:              40,
+		S4:              32,
 		Jc:              10,
 		Jmin:            300,
 		Jmax:            1100,
@@ -121,6 +149,9 @@ var presetRegistry = []Preset{
 		H3:              HeaderRange{Min: 700000000, Max: 1300000000},
 		H4:              HeaderRange{Min: 1500000000, Max: 2147000000},
 		DefaultProtocol: ProtocolQUIC,
+		ContentPadding:  U16Range{Min: 4, Max: 12},
+		RandomTrailers:  true,
+		DisableCookies:  true,
 	},
 	{
 		Name: "standard-1420",
@@ -141,17 +172,20 @@ var presetRegistry = []Preset{
 		H3:              HeaderRange{Min: 400000000, Max: 800000000},
 		H4:              HeaderRange{Min: 1000000000, Max: 2100000000},
 		DefaultProtocol: ProtocolQUIC,
+		ContentPadding:  U16Range{Min: 2, Max: 8},
+		RandomTrailers:  true,
+		DisableCookies:  true,
 	},
 	{
 		Name: "low-overhead",
 		Description: "Minimal-overhead profile for bandwidth-constrained links (satellite, " +
-			"metered, slow cellular). S4 at the RISK003 floor (8 B), low junk count, DNS cover. " +
-			"Trades masking strength for throughput; still fully valid and obfuscated.",
+			"metered, slow cellular). S values at the header-protection floor (12 B), low junk " +
+			"count, DNS cover. Trades masking strength for throughput; still fully valid and obfuscated.",
 		MTU:             1280,
 		S1:              12,
-		S2:              10,
-		S3:              8,
-		S4:              8,
+		S2:              12,
+		S3:              12,
+		S4:              12,
 		Jc:              2,
 		Jmin:            180,
 		Jmax:            320,
@@ -160,15 +194,18 @@ var presetRegistry = []Preset{
 		H3:              HeaderRange{Min: 500000000, Max: 900000000},
 		H4:              HeaderRange{Min: 1100000000, Max: 2100000000},
 		DefaultProtocol: ProtocolDNS,
+		ContentPadding:  U16Range{Min: 2, Max: 4},
+		RandomTrailers:  false,
+		DisableCookies:  true,
 	},
 	{
 		Name:            "test-minimal",
 		Description:     "Smallest valid parameter set for integration testing and CI. Not intended for production use.",
 		MTU:             1280,
-		S1:              5,
-		S2:              7,
-		S3:              7,
-		S4:              7,
+		S1:              12,
+		S2:              13,
+		S3:              12,
+		S4:              12,
 		Jc:              1,
 		Jmin:            200,
 		Jmax:            250,
@@ -177,6 +214,9 @@ var presetRegistry = []Preset{
 		H3:              HeaderRange{Min: 100000, Max: 500000},
 		H4:              HeaderRange{Min: 1000000, Max: 5000000},
 		DefaultProtocol: ProtocolRandom,
+		ContentPadding:  U16Range{Min: 0, Max: 0},
+		RandomTrailers:  false,
+		DisableCookies:  false,
 	},
 }
 

@@ -6,7 +6,7 @@ import (
 )
 
 func TestGenerateSPrefixes(t *testing.T) {
-	s := GenerateSPrefixes()
+	s := GenerateSPrefixes(0)
 
 	// S1, S2, S3: 0-64 range
 	if s.S1 < 0 || s.S1 > 64 {
@@ -58,7 +58,7 @@ func TestGenerateJunkParams(t *testing.T) {
 func TestGenerateSPrefixes_SixPairsDistinct(t *testing.T) {
 	const iterations = 1000
 	for i := range iterations {
-		s := GenerateSPrefixes()
+		s := GenerateSPrefixes(0)
 		padded := PaddedSizes(s.S1, s.S2, s.S3, s.S4)
 		labels := [4]string{"S1+148", "S2+92", "S3+64", "S4+32"}
 		for a := range 4 {
@@ -79,7 +79,7 @@ func TestGenerateSPrefixesWithS1_RespectsFixedS1(t *testing.T) {
 	const iterations = 1000
 	for fixedS1 := range 65 { // exhaustive over the legal user S1 range [0..64]
 		for i := range iterations / 65 {
-			s := GenerateSPrefixesWithS1(fixedS1)
+			s := GenerateSPrefixesWithS1(0, fixedS1)
 			if s.S1 != fixedS1 {
 				t.Fatalf("S1 must equal fixed value: want %d, got %d", fixedS1, s.S1)
 			}
@@ -96,13 +96,111 @@ func TestGenerateSPrefixesWithS1_RespectsFixedS1(t *testing.T) {
 	}
 }
 
+// TestGenerateSPrefixes_MinSFloor asserts that GenerateSPrefixes honours the
+// AWG 3.x header-protection floor: every generated S value stays at or above
+// headerProtectionNonceSize while the six padded pairs remain distinct.
+func TestGenerateSPrefixes_MinSFloor(t *testing.T) {
+	const iterations = 1000
+	for i := range iterations {
+		s := GenerateSPrefixes(headerProtectionNonceSize)
+		values := [4]int{s.S1, s.S2, s.S3, s.S4}
+		for idx, v := range values {
+			if v < headerProtectionNonceSize {
+				t.Fatalf("iteration %d: S%d=%d is below the header-protection floor %d (S=%v)",
+					i, idx+1, v, headerProtectionNonceSize, s)
+			}
+		}
+		padded := PaddedSizes(s.S1, s.S2, s.S3, s.S4)
+		labels := [4]string{"S1+148", "S2+92", "S3+64", "S4+32"}
+		for a := range 4 {
+			for b := a + 1; b < 4; b++ {
+				if padded[a] == padded[b] {
+					t.Fatalf("iteration %d: collision %s == %s == %d (S=%v)",
+						i, labels[a], labels[b], padded[a], s)
+				}
+			}
+		}
+	}
+}
+
+// TestGenerateSPrefixesWithS1_MinSFloor asserts that GenerateSPrefixesWithS1
+// preserves the caller-supplied S1 while keeping every generated S2..S4 at or
+// above the header-protection floor and all six padded pairs distinct.
+func TestGenerateSPrefixesWithS1_MinSFloor(t *testing.T) {
+	tests := []struct {
+		name    string
+		fixedS1 int
+	}{
+		{name: "at floor", fixedS1: headerProtectionNonceSize},
+		{name: "at s4 upper bound", fixedS1: s4RangeMax},
+		{name: "at max legal value", fixedS1: 64},
+	}
+	const iterations = 200
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			for i := range iterations {
+				s := GenerateSPrefixesWithS1(headerProtectionNonceSize, tc.fixedS1)
+				if s.S1 != tc.fixedS1 {
+					t.Fatalf("S1 must equal fixed value: want %d, got %d", tc.fixedS1, s.S1)
+				}
+				if s.S2 < headerProtectionNonceSize ||
+					s.S3 < headerProtectionNonceSize ||
+					s.S4 < headerProtectionNonceSize {
+					t.Fatalf("iteration %d: S2..S4 must be >= %d, got (%d, %d, %d)",
+						i, headerProtectionNonceSize, s.S2, s.S3, s.S4)
+				}
+				padded := PaddedSizes(s.S1, s.S2, s.S3, s.S4)
+				for a := range 4 {
+					for b := a + 1; b < 4; b++ {
+						if padded[a] == padded[b] {
+							t.Fatalf("S1=%d iter=%d: pair %d/%d collision (S=%v)",
+								tc.fixedS1, i, a, b, s)
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestGenerateUniformSPrefixes asserts that GenerateUniformSPrefixes returns
+// one equal value for S1-S4 within [minS, s4RangeMax) and that the four padded
+// sizes stay pairwise distinct even though the raw S values are equal.
+func TestGenerateUniformSPrefixes(t *testing.T) {
+	tests := []struct {
+		name string
+		minS int
+	}{
+		{name: "header protection floor", minS: headerProtectionNonceSize},
+		{name: "legacy zero floor", minS: 0},
+	}
+	const iterations = 1000
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			for i := range iterations {
+				s := GenerateUniformSPrefixes(tc.minS)
+				if s.S1 != s.S2 || s.S2 != s.S3 || s.S3 != s.S4 {
+					t.Fatalf("iteration %d: S1..S4 must be equal, got %v", i, s)
+				}
+				if s.S1 < tc.minS || s.S1 > s4RangeMax-1 {
+					t.Fatalf("iteration %d: S must be in [%d, %d], got %d",
+						i, tc.minS, s4RangeMax-1, s.S1)
+				}
+				if !pairsDistinct(s) {
+					t.Fatalf("iteration %d: padded sizes must be pairwise distinct for S=%v", i, s)
+				}
+			}
+		})
+	}
+}
+
 // TestGenerateJunkParamsWithForbidden_ExcludesPaddedAndRawWGSizes asserts the
 // generated [Jmin..Jmax] range excludes every forbidden size plus the four
 // raw WG message sizes (148, 92, 64, 32).
 func TestGenerateJunkParamsWithForbidden_ExcludesPaddedAndRawWGSizes(t *testing.T) {
 	const iterations = 1000
 	for i := range iterations {
-		s := GenerateSPrefixes()
+		s := GenerateSPrefixes(0)
 		forbidden := PaddedSizes(s.S1, s.S2, s.S3, s.S4)
 		j, err := GenerateJunkParamsWithForbidden(forbidden)
 		if err != nil {

@@ -358,7 +358,7 @@ func runHeuristics(obf ServerObfuscationConfig, report AnalysisReport) []Finding
 	findings = checkRISK004(findings, padded)
 	findings = checkRISK005(findings, padded)
 	findings = checkRISK006(findings, report.Junk.Width)
-	findings = checkRISK007(findings, report.Headers)
+	findings = checkRISK007(findings, report.Headers, obf.HeaderProtectionKey != "")
 	findings = checkRISK008(findings, report.Config.PeerCount)
 	findings = checkRISK009(findings, obf)
 
@@ -486,8 +486,14 @@ func checkRISK006(findings []Finding, junkWidth int) []Finding {
 	return findings
 }
 
-// checkRISK007 checks if H-range widths are too narrow.
-func checkRISK007(findings []Finding, headers HeaderProfile) []Finding {
+// checkRISK007 checks if H-range widths are too narrow. A true headerProtection
+// flag skips the check: with header protection active, H1..H4 = 1..4 is the
+// reference configuration (the message type is hidden by the header cipher), so
+// width-1 warnings would be wrong.
+func checkRISK007(findings []Finding, headers HeaderProfile, headerProtection bool) []Finding {
+	if headerProtection {
+		return findings
+	}
 	hRanges := [4]struct {
 		name string
 		info HeaderRangeInfo

@@ -34,20 +34,60 @@ type FileOutput struct {
 	Content []byte
 }
 
-// resolveObfuscation merges explicit manifest values with randomly generated ones.
-// If ObfuscationManifest has no values (all nil), generates everything randomly.
-// If some values are set, preserves them and generates the rest.
-func resolveObfuscation(obf ObfuscationManifest) (ServerObfuscationConfig, error) {
+// resolveObfuscation merges explicit manifest values with randomly generated
+// ones for the protocol generation selected by obf.AWGVersion (an empty value
+// selects DefaultAWGVersion). Explicit values are preserved, nil fields fall
+// back to the documented per-version defaults, and the persisted
+// header-protection key is reused unless fullReset is set.
+func resolveObfuscation(
+	obf ObfuscationManifest,
+	persisted *PersistedCredentials,
+	fullReset bool,
+) (ServerObfuscationConfig, error) {
+	version, err := ParseAWGVersion(obf.AWGVersion)
+	if err != nil {
+		return ServerObfuscationConfig{}, err
+	}
+	if err := checkObfuscationVersionGates(obf, version); err != nil {
+		return ServerObfuscationConfig{}, err
+	}
+	headerProtection, randomTrailers, disableCookies := resolveObfuscationFlags(obf, version)
+
 	result := ServerObfuscationConfig{
-		S1: resolveInt(obf.S1),
-		S2: resolveInt(obf.S2),
-		S3: resolveInt(obf.S3),
-		S4: resolveInt(obf.S4),
+		Version: version,
+		S1:      resolveInt(obf.S1),
+		S2:      resolveInt(obf.S2),
+		S3:      resolveInt(obf.S3),
+		S4:      resolveInt(obf.S4),
 	}
 
-	result = fillMissingSPrefixes(result)
+	minS := 0
+	if headerProtection {
+		minS = headerProtectionNonceSize
+	}
+	uniform := randomTrailers && obf.S1 == nil && obf.S2 == nil && obf.S3 == nil && obf.S4 == nil
+	result = fillMissingSPrefixes(result, minS, uniform)
+	if err := checkSPrefixFloor(result, headerProtection); err != nil {
+		return ServerObfuscationConfig{}, err
+	}
 
-	result = fillMissingHeaders(obf, result)
+	result = fillMissingHeaders(obf, result, headerProtection)
+
+	if headerProtection {
+		if !fullReset && persisted.HeaderProtectionKey != "" {
+			result.HeaderProtectionKey = persisted.HeaderProtectionKey
+		} else {
+			result.HeaderProtectionKey = GenerateHeaderProtectionKey()
+		}
+	}
+
+	if version >= AWG30 {
+		if err := applyTransportRanges(obf, &result); err != nil {
+			return ServerObfuscationConfig{}, err
+		}
+	}
+	result.RandomTrailers = randomTrailers
+	result.DisableCookies = disableCookies
 
 	junkResult, err := fillMissingJunk(obf, result)
 	if err != nil {
@@ -58,15 +98,97 @@ func resolveObfuscation(obf ObfuscationManifest) (ServerObfuscationConfig, error
 	return result, nil
 }
 
-// fillMissingSPrefixes generates S-prefixes for any zero values.
-// Retries until all zero fields get non-zero values, since GenerateSPrefixes
-// can produce 0 (rand.Int [0,64)).
-func fillMissingSPrefixes(cfg ServerObfuscationConfig) ServerObfuscationConfig {
+// checkObfuscationVersionGates rejects 3.x manifest fields under a lower target
+// version. Engine builds reject unknown INI keys ("Line unrecognized"), so
+// silently accepting a field the target cannot express would hide a
+// configuration mistake.
+func checkObfuscationVersionGates(obf ObfuscationManifest, version AWGVersion) error {
+	if version < AWG30 {
+		switch {
+		case obf.HeaderProtection != nil:
+			return requireVersionGate("header_protection", version, AWG30)
+		case obf.ContentPadding != nil:
+			return requireVersionGate("content_padding", version, AWG30)
+		case obf.RekeyAfterTime != nil:
+			return requireVersionGate("rekey_after_time", version, AWG30)
+		case obf.RekeyTimeout != nil:
+			return requireVersionGate("rekey_timeout", version, AWG30)
+		case obf.RejectAfterTime != nil:
+			return requireVersionGate("reject_after_time", version, AWG30)
+		case obf.KeepaliveTimeout != nil:
+			return requireVersionGate("keepalive_timeout", version, AWG30)
+		case obf.MaxHandshakeAttempts != nil:
+			return requireVersionGate("max_handshake_attempts", version, AWG30)
+		}
+	}
+	if version < AWG31 {
+		switch {
+		case obf.RandomTrailers != nil:
+			return requireVersionGate("random_trailers", version, AWG31)
+		case obf.DisableCookies != nil:
+			return requireVersionGate("disable_cookies", version, AWG31)
+		}
+	}
+	return nil
+}
+
+// requireVersionGate builds the error for a manifest field the selected AWG
+// version does not understand. field is the manifest JSON name.
+func requireVersionGate(field string, have, minVersion AWGVersion) error {
+	return fmt.Errorf("obfuscation.%s requires awg_version %s or later (got %q)", field, minVersion, have)
+}
+
+// resolveObfuscationFlags derives the effective AWG 3.x flags. Each flag
+// defaults to true for every version that understands it and can be turned off
+// by an explicit manifest value.
+func resolveObfuscationFlags(obf ObfuscationManifest, version AWGVersion) (bool, bool, bool) {
+	headerProtection := version >= AWG30
+	if obf.HeaderProtection != nil {
+		headerProtection = *obf.HeaderProtection
+	}
+	randomTrailers := version >= AWG31
+	if obf.RandomTrailers != nil {
+		randomTrailers = *obf.RandomTrailers
+	}
+	disableCookies := version >= AWG31
+	if obf.DisableCookies != nil {
+		disableCookies = *obf.DisableCookies
+	}
+	return headerProtection, randomTrailers, disableCookies
+}
+
+// checkSPrefixFloor rejects S-prefix values below the header-protection floor.
+// The ChaCha20 header cipher nonce is the first S bytes of the packet, so the
+// engine refuses S < 12 whenever header protection is on.
+func checkSPrefixFloor(cfg ServerObfuscationConfig, headerProtection bool) error {
+	if !headerProtection {
+		return nil
+	}
+	floor := headerProtectionNonceSize
+	for i, s := range [4]int{cfg.S1, cfg.S2, cfg.S3, cfg.S4} {
+		if s < floor {
+			return fmt.Errorf("header protection requires S1-S4 >= %d (got S%d=%d)", floor, i+1, s)
+		}
+	}
+	return nil
+}
+
+// fillMissingSPrefixes generates S-prefixes for any zero values, drawing every
+// generated value at or above minS (the header-protection floor). Retries until
+// all zero fields get non-zero values, since GenerateSPrefixes can produce 0
+// when minS is 0. When uniform is set, one value is drawn for all four fields,
+// as the AWG 3.1 random_trailers recommendation requires equal S values.
+func fillMissingSPrefixes(cfg ServerObfuscationConfig, minS int, uniform bool) ServerObfuscationConfig {
 	if cfg.S1 != 0 && cfg.S2 != 0 && cfg.S3 != 0 && cfg.S4 != 0 {
 		return cfg
 	}
 	for range 100 {
-		p := GenerateSPrefixes()
+		var p SPrefixes
+		if uniform {
+			p = GenerateUniformSPrefixes(minS)
+		} else {
+			p = GenerateSPrefixes(minS)
+		}
 		cfg.S1 = pickNonZero(cfg.S1, p.S1)
 		cfg.S2 = pickNonZero(cfg.S2, p.S2)
 		cfg.S3 = pickNonZero(cfg.S3, p.S3)
@@ -78,8 +200,20 @@ func fillMissingSPrefixes(cfg ServerObfuscationConfig) ServerObfuscationConfig {
 	return cfg
 }
 
-// fillMissingHeaders generates header ranges for any nil values.
-func fillMissingHeaders(obf ObfuscationManifest, cfg ServerObfuscationConfig) ServerObfuscationConfig {
+// fillMissingHeaders generates header ranges for any nil values. With header
+// protection active and every H field unset, the H1..H4 = 1..4 ranges are used:
+// the 4-byte message type is encrypted, so the old WireGuard type-id avoidance
+// no longer applies.
+func fillMissingHeaders(
+	obf ObfuscationManifest,
+	cfg ServerObfuscationConfig,
+	headerProtection bool,
+) ServerObfuscationConfig {
+	if headerProtection && obf.H1 == nil && obf.H2 == nil && obf.H3 == nil && obf.H4 == nil {
+		headers := standardHeaderRanges()
+		cfg.H1, cfg.H2, cfg.H3, cfg.H4 = headers[0], headers[1], headers[2], headers[3]
+		return cfg
+	}
 	if obf.H1 == nil || obf.H2 == nil || obf.H3 == nil || obf.H4 == nil {
 		headers := GenerateHeaderRanges()
 		cfg.H1 = resolveHeader(obf.H1, headers[0])
@@ -93,6 +227,91 @@ func fillMissingHeaders(obf ObfuscationManifest, cfg ServerObfuscationConfig) Se
 	cfg.H3 = *obf.H3
 	cfg.H4 = *obf.H4
 	return cfg
+}
+
+// standardHeaderRanges returns the H1..H4 = 1..4 ranges recommended for AWG
+// 3.x header protection. The 4-byte message type is encrypted by the header
+// cipher, so the WireGuard type-ids 1..4 are no longer observable and cannot
+// be matched by a DPI parser.
+//
+//nolint:mnd // protocol values — 1..4 are the WireGuard message type-ids.
+func standardHeaderRanges() [4]HeaderRange {
+	return [4]HeaderRange{{Min: 1, Max: 1}, {Min: 2, Max: 2}, {Min: 3, Max: 3}, {Min: 4, Max: 4}}
+}
+
+// Default AWG 3.x transport-protection ranges: jitter around the WireGuard
+// protocol constants (120 s rekey, 5 s rekey timeout, 180 s reject, 10 s
+// keepalive, 18 handshake attempts). The 3.1 reference warns against pushing
+// these parameters to extremes.
+//
+//nolint:mnd // protocol defaults — the numeric literals are the domain values.
+var (
+	defaultContentPadding       = U16Range{Min: 2, Max: 10}
+	defaultRekeyAfterTime       = U16Range{Min: 120, Max: 180}
+	defaultRekeyTimeout         = U16Range{Min: 5, Max: 8}
+	defaultRejectAfterTime      = U16Range{Min: 180, Max: 240}
+	defaultKeepaliveTimeout     = U16Range{Min: 8, Max: 12}
+	defaultMaxHandshakeAttempts = U16Range{Min: 16, Max: 20}
+)
+
+// applyTransportRanges resolves the six AWG 3.x range parameters into cfg.
+// A nil manifest field selects the version default; U16Range{0, 0} disables the
+// key (the writer omits it).
+func applyTransportRanges(obf ObfuscationManifest, cfg *ServerObfuscationConfig) error {
+	contentPadding, err := resolveU16Range("content_padding", obf.ContentPadding, defaultContentPadding)
+	if err != nil {
+		return err
+	}
+	rekeyAfterTime, err := resolveU16Range("rekey_after_time", obf.RekeyAfterTime, defaultRekeyAfterTime)
+	if err != nil {
+		return err
+	}
+	rekeyTimeout, err := resolveU16Range("rekey_timeout", obf.RekeyTimeout, defaultRekeyTimeout)
+	if err != nil {
+		return err
+	}
+	rejectAfterTime, err := resolveU16Range("reject_after_time", obf.RejectAfterTime, defaultRejectAfterTime)
+	if err != nil {
+		return err
+	}
+	keepaliveTimeout, err := resolveU16Range("keepalive_timeout", obf.KeepaliveTimeout, defaultKeepaliveTimeout)
+	if err != nil {
+		return err
+	}
+	maxHandshakeAttempts, err := resolveU16Range(
+		"max_handshake_attempts",
+		obf.MaxHandshakeAttempts,
+		defaultMaxHandshakeAttempts,
+	)
+	if err != nil {
+		return err
+	}
+	cfg.ContentPadding = contentPadding
+	cfg.RekeyAfterTime = rekeyAfterTime
+	cfg.RekeyTimeout = rekeyTimeout
+	cfg.RejectAfterTime = rejectAfterTime
+	cfg.KeepaliveTimeout = keepaliveTimeout
+	cfg.MaxHandshakeAttempts = maxHandshakeAttempts
+	return nil
+}
+
+// resolveU16Range resolves one AWG 3.x range parameter. A nil explicit value
+// falls back to the version default; an explicit value is validated: {0, 0}
+// disables the key (the writer omits it), mixing one zero bound with a
+// non-zero one is an error, and Max must not be below Min.
+func resolveU16Range(field string, explicit *U16Range, fallback U16Range) (U16Range, error) {
+	if explicit == nil {
+		return fallback, nil
+	}
+	r := *explicit
+	if (r.Min == 0) != (r.Max == 0) {
+		return U16Range{}, fmt.Errorf(
+			"obfuscation.%s: bounds must both be zero or both non-zero (got %d-%d)", field, r.Min, r.Max)
+	}
+	if r.Max < r.Min {
+		return U16Range{}, fmt.Errorf("obfuscation.%s: max (%d) is below min (%d)", field, r.Max, r.Min)
+	}
+	return r, nil
 }
 
 // fillMissingJunk generates junk parameters for any nil values.
@@ -407,6 +626,26 @@ func buildClientConfig(
 	return buf.Bytes(), nil
 }
 
+// loadPersistedCredentials returns the credentials persisted in outputDir, or
+// empty credentials when outputDir is unset or holds no server config yet
+// (first-run path). Only IO/parse failures other than "does not exist" are
+// returned as errors.
+func loadPersistedCredentials(outputDir, serverName string) (*PersistedCredentials, error) {
+	if outputDir == "" {
+		return EmptyCredentials(), nil
+	}
+	persisted, err := LoadCredentials(outputDir, serverName)
+	switch {
+	case err == nil:
+		return persisted, nil
+	case os.IsNotExist(err):
+		// First run: neither the output dir nor a server config exists yet.
+		return EmptyCredentials(), nil
+	default:
+		return nil, fmt.Errorf("load credentials: %w", err)
+	}
+}
+
 // Generate orchestrates the full config generation pipeline.
 // It loads existing credentials, resolves obfuscation, builds all configs,
 // and optionally writes them to disk.
@@ -426,25 +665,17 @@ func Generate(manifest Manifest, opts GenerateOptions) (GenerateResult, error) {
 	}
 	result.ServerPeer = serverName
 
-	// Step 2: Resolve obfuscation
-	obf, err := resolveObfuscation(manifest.Obfuscation)
+	// Step 2: Load or create credentials. The persisted header-protection key
+	// is an input to obfuscation resolution, so this runs before Step 3.
+	persisted, err := loadPersistedCredentials(opts.OutputDir, serverName)
 	if err != nil {
-		return result, fmt.Errorf("resolve obfuscation: %w", err)
+		return result, err
 	}
 
-	// Step 3: Load or create credentials
-	var persisted *PersistedCredentials
-	if opts.OutputDir != "" {
-		persisted, err = LoadCredentials(opts.OutputDir, serverName)
-		if err != nil && !os.IsNotExist(err) {
-			return result, fmt.Errorf("load credentials: %w", err)
-		}
-		// If LoadCredentials failed with IsNotExist, treat as first run
-		if err != nil && os.IsNotExist(err) {
-			persisted = EmptyCredentials()
-		}
-	} else {
-		persisted = EmptyCredentials()
+	// Step 3: Resolve obfuscation
+	obf, err := resolveObfuscation(manifest.Obfuscation, persisted, opts.FullReset)
+	if err != nil {
+		return result, fmt.Errorf("resolve obfuscation: %w", err)
 	}
 
 	// Step 4: Resolve peer credentials
@@ -456,7 +687,13 @@ func Generate(manifest Manifest, opts GenerateOptions) (GenerateResult, error) {
 		return result, fmt.Errorf("build server config: %w", err)
 	}
 
-	// Step 6: Build client configs (sorted by name, filtered by PeerFilter)
+	// Step 6: Validate the generated server config so AWG 3.x findings (such
+	// as TRL001) reach the CLI.
+	if parsed, perr := ParseServerConfig(bytes.NewReader(serverBytes)); perr == nil {
+		result.Findings = append(result.Findings, ValidateServerConfig(&parsed)...)
+	}
+
+	// Step 7: Build client configs (sorted by name, filtered by PeerFilter)
 	var clientPeerNames []string
 	for name := range manifest.Peers {
 		if name != serverName {
@@ -481,7 +718,7 @@ func Generate(manifest Manifest, opts GenerateOptions) (GenerateResult, error) {
 		filteredClients = clientPeerNames
 	}
 
-	// Step 7: Collect all FileOutput
+	// Step 8: Collect all FileOutput
 	result.Files = append(result.Files, FileOutput{
 		RelPath: serverName + "/" + outputConfigName,
 		Content: serverBytes,
@@ -505,7 +742,7 @@ func Generate(manifest Manifest, opts GenerateOptions) (GenerateResult, error) {
 	// Populate ClientPeers
 	result.ClientPeers = filteredClients
 
-	// Step 8: Write files to disk if not dry run and output dir is set
+	// Step 9: Write files to disk if not dry run and output dir is set
 	if !opts.DryRun && opts.OutputDir != "" {
 		for _, file := range result.Files {
 			fullPath := filepath.Join(opts.OutputDir, file.RelPath)

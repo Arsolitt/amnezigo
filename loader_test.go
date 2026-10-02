@@ -143,6 +143,47 @@ func TestLoadManifest_JsonnetImportError(t *testing.T) {
 	}
 }
 
+// TestLoadManifestFromFile_AWG31Fixture pins the 3.1-defaults fixture: it must
+// parse, leave S/H/J unset (so the pipeline resolves the version defaults) and
+// generate a server config carrying the transport-protection keys.
+func TestLoadManifestFromFile_AWG31Fixture(t *testing.T) {
+	path := filepath.Join("testdata", "loader", "valid", "amnezigo-31.json")
+	m, err := LoadManifestFromFile(path, nil)
+	if err != nil {
+		t.Fatalf("LoadManifestFromFile(%q) error: %v", path, err)
+	}
+	if m.Obfuscation.AWGVersion != "3.1" {
+		t.Errorf("AWGVersion = %q, want 3.1", m.Obfuscation.AWGVersion)
+	}
+	if m.Obfuscation.HasAnyValue() {
+		t.Error("fixture must leave S/H/J unset so the pipeline resolves the version defaults")
+	}
+
+	result, err := Generate(m, GenerateOptions{})
+	if err != nil {
+		t.Fatalf("Generate with the 3.1 fixture failed: %v", err)
+	}
+	var serverConf string
+	for _, f := range result.Files {
+		if f.RelPath == "server/awg0.conf" {
+			serverConf = string(f.Content)
+		}
+	}
+	if serverConf == "" {
+		t.Fatal("no server config generated for the 3.1 fixture")
+	}
+	for _, want := range []string{
+		"HeaderProtectionKey = ",
+		"ContentPaddingAddition = 2-10",
+		"RandomTrailers = on",
+		"H1 = 1-1",
+	} {
+		if !strings.Contains(serverConf, want) {
+			t.Errorf("generated server config missing %q", want)
+		}
+	}
+}
+
 func TestLoadManifestFromFile_ExplicitJSON(t *testing.T) {
 	path := filepath.Join("testdata", "loader", "valid", "amnezigo.json")
 	m, err := LoadManifestFromFile(path, nil)

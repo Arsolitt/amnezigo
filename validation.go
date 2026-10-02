@@ -1,6 +1,7 @@
 package amnezigo
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"strings"
@@ -211,6 +212,9 @@ func ValidateServerConfig(cfg *ServerConfig) []Finding {
 	findings = append(findings, validateSPrefixes(cfg)...)
 	findings = append(findings, validateJunkRange(cfg)...)
 	findings = append(findings, validateHeaderRanges(cfg)...)
+	findings = append(findings, validateHeaderProtection(cfg)...)
+	findings = append(findings, validateRandomTrailers(cfg)...)
+	findings = append(findings, validateTransportRanges(cfg)...)
 
 	return findings
 }
@@ -263,17 +267,129 @@ func validateHeaderRanges(cfg *ServerConfig) []Finding {
 		cfg.Obfuscation.H3, cfg.Obfuscation.H4,
 	}
 	for i, r := range ranges {
-		if err := ValidateHeaderRange(r); err != nil {
-			code := "HDR001"
-			if r.Max < r.Min {
-				code = "HDR002"
-			}
+		err := ValidateHeaderRange(r)
+		if err == nil {
+			continue
+		}
+		// With a header-protection key the 4-byte type is encrypted and the
+		// engine uses H1..H4 = 1..4, so WG type-ids are legitimate; only the
+		// structural Max < Min check still applies.
+		if cfg.Obfuscation.HeaderProtectionKey != "" && r.Max >= r.Min {
+			continue
+		}
+		code := "HDR001"
+		if r.Max < r.Min {
+			code = "HDR002"
+		}
+		out = append(out, Finding{
+			Severity: SeverityError,
+			Code:     code,
+			Location: Location{Key: fmt.Sprintf("H%d", i+1)},
+			Message:  err.Error(),
+			Detail:   "H1-H4 ranges must avoid WG message type-ids 1..4.",
+		})
+	}
+	return out
+}
+
+// validateHeaderProtection checks the AWG 3.x header-protection key and the
+// S-prefix floor the ChaCha20 nonce imposes on it.
+func validateHeaderProtection(cfg *ServerConfig) []Finding {
+	o := cfg.Obfuscation
+	if o.HeaderProtectionKey == "" {
+		return nil
+	}
+	var out []Finding
+	if o.S1 < headerProtectionNonceSize || o.S2 < headerProtectionNonceSize ||
+		o.S3 < headerProtectionNonceSize || o.S4 < headerProtectionNonceSize {
+		out = append(out, Finding{
+			Severity: SeverityError,
+			Code:     "HPK001",
+			Location: Location{Key: keyHeaderProtection},
+			Message: fmt.Sprintf(
+				"header protection requires S1-S4 >= %d (got S1=%d, S2=%d, S3=%d, S4=%d)",
+				headerProtectionNonceSize, o.S1, o.S2, o.S3, o.S4),
+			Detail: "Header protection encrypts the 4-byte message header at offset S{n}; " +
+				"the ChaCha20 nonce is the first 12 bytes of the packet.",
+		})
+	}
+	if !validHeaderProtectionKey(o.HeaderProtectionKey) {
+		out = append(out, Finding{
+			Severity: SeverityError,
+			Code:     "HPK003",
+			Location: Location{Key: keyHeaderProtection},
+			Message:  "HeaderProtectionKey is not 44-char base64 of 32 bytes",
+			Detail: "The engine decodes the key into a 32-byte ChaCha20 key; " +
+				"a malformed value cannot protect the header.",
+		})
+	}
+	return out
+}
+
+// validHeaderProtectionKey reports whether key is base64 of exactly keyLength
+// (32) bytes, the ChaCha20 header-key size the engine decodes.
+func validHeaderProtectionKey(key string) bool {
+	raw, err := base64.StdEncoding.DecodeString(key)
+	return err == nil && len(raw) == keyLength
+}
+
+// validateRandomTrailers warns when random trailers are enabled while the
+// S-prefixes differ; the AWG 3.1 reference recommends equal S values there.
+func validateRandomTrailers(cfg *ServerConfig) []Finding {
+	o := cfg.Obfuscation
+	if !o.RandomTrailers {
+		return nil
+	}
+	if o.S1 == o.S2 && o.S2 == o.S3 && o.S3 == o.S4 {
+		return nil
+	}
+	return []Finding{{
+		Severity: SeverityWarning,
+		Code:     "TRL001",
+		Location: Location{Key: keyRandomTrailers},
+		Message: "RandomTrailers is enabled while S1..S4 differ; " +
+			"the AWG 3.1 reference recommends equal S values to avoid packet-type misclassification",
+		Detail: "The receiver classifies packets by size and only accepts size > expected when trailers are enabled, " +
+			"so unequal S values can misclassify padded handshake packets.",
+	}}
+}
+
+// validateTransportRanges checks the six AWG 3.x uint16 ranges for structural
+// errors: Max < Min or exactly one zero bound (mixed "0-N"/"N-0").
+func validateTransportRanges(cfg *ServerConfig) []Finding {
+	o := cfg.Obfuscation
+	ranges := []struct {
+		key string
+		r   U16Range
+	}{
+		{keyContentPadding, o.ContentPadding},
+		{keyRekeyAfterTime, o.RekeyAfterTime},
+		{keyRekeyTimeout, o.RekeyTimeout},
+		{keyRejectAfterTime, o.RejectAfterTime},
+		{keyKeepaliveTimeout, o.KeepaliveTimeout},
+		{keyMaxHandshakeAttempts, o.MaxHandshakeAttempts},
+	}
+	var out []Finding
+	for _, entry := range ranges {
+		if entry.r.Max < entry.r.Min {
 			out = append(out, Finding{
 				Severity: SeverityError,
-				Code:     code,
-				Location: Location{Key: fmt.Sprintf("H%d", i+1)},
-				Message:  err.Error(),
-				Detail:   "H1-H4 ranges must avoid WG message type-ids 1..4.",
+				Code:     "TRM001",
+				Location: Location{Key: entry.key},
+				Message: fmt.Sprintf(
+					"invalid %s range: max (%d) is below min (%d)",
+					entry.key, entry.r.Max, entry.r.Min),
+			})
+			continue
+		}
+		if (entry.r.Min == 0) != (entry.r.Max == 0) {
+			out = append(out, Finding{
+				Severity: SeverityError,
+				Code:     "TRM001",
+				Location: Location{Key: entry.key},
+				Message: fmt.Sprintf(
+					"invalid %s range: bounds must both be zero or both non-zero (got %d-%d)",
+					entry.key, entry.r.Min, entry.r.Max),
 			})
 		}
 	}

@@ -1,7 +1,10 @@
 package amnezigo
 
 import (
+	"encoding/base64"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -31,7 +34,7 @@ func TestFileOutput_ZeroValue(t *testing.T) {
 
 func TestResolveObfuscation_Empty(t *testing.T) {
 	obf := ObfuscationManifest{}
-	result, err := resolveObfuscation(obf)
+	result, err := resolveObfuscation(obf, EmptyCredentials(), false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -84,7 +87,7 @@ func TestResolveObfuscation_ExplicitValues(t *testing.T) {
 		S3: &s3,
 		S4: &s4,
 	}
-	result, err := resolveObfuscation(obf)
+	result, err := resolveObfuscation(obf, EmptyCredentials(), false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -134,7 +137,7 @@ func TestResolveObfuscation_PartialExplicit(t *testing.T) {
 	obf := ObfuscationManifest{
 		S1: &s1,
 	}
-	result, err := resolveObfuscation(obf)
+	result, err := resolveObfuscation(obf, EmptyCredentials(), false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -859,5 +862,464 @@ func TestGenerate_NoServerError(t *testing.T) {
 	}
 	if err != nil && !strings.Contains(err.Error(), "exactly one server peer required") {
 		t.Errorf("expected 'exactly one server peer required' error, got: %v", err)
+	}
+}
+
+// pipeManifest builds the standard single-server, single-client manifest used
+// by the AWG 3.x pipeline tests.
+func pipeManifest(obf ObfuscationManifest) Manifest {
+	return Manifest{
+		Version:     1,
+		Network:     NetworkConfig{MTU: 1280},
+		Obfuscation: obf,
+		Peers: map[string]PeerManifest{
+			"server": {
+				Address:    "10.0.0.1/24",
+				Endpoint:   "vpn.example.com:51820",
+				ListenPort: 51820,
+			},
+			"phone": {
+				Address: "10.0.0.2/32",
+			},
+		},
+	}
+}
+
+// pipeReadOutput reads a generated config file from the output directory.
+func pipeReadOutput(t *testing.T, dir, relPath string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(dir, relPath))
+	if err != nil {
+		t.Fatalf("read generated config %s: %v", relPath, err)
+	}
+	return string(data)
+}
+
+// pipeConfigValue returns the value of the "Key = value" line in content,
+// failing the test when the key is absent.
+func pipeConfigValue(t *testing.T, content, key string) string {
+	t.Helper()
+	prefix := key + " = "
+	for line := range strings.SplitSeq(content, "\n") {
+		if value, ok := strings.CutPrefix(line, prefix); ok {
+			return value
+		}
+	}
+	t.Fatalf("expected %q key in config", key)
+	return ""
+}
+
+func TestGenerate_AWG31Defaults_EmitsTransportProtection(t *testing.T) {
+	outputDir := t.TempDir()
+	manifest := pipeManifest(ObfuscationManifest{AWGVersion: "3.1"})
+	if _, err := Generate(manifest, GenerateOptions{OutputDir: outputDir}); err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+
+	server := pipeReadOutput(t, outputDir, "server/awg0.conf")
+	client := pipeReadOutput(t, outputDir, "phone/awg0.conf")
+
+	for _, tc := range []struct {
+		name    string
+		content string
+	}{
+		{"server", server},
+		{"client", client},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			key := pipeConfigValue(t, tc.content, "HeaderProtectionKey")
+			if len(key) != 44 {
+				t.Errorf("HeaderProtectionKey = %q, want 44 base64 chars", key)
+			}
+			raw, err := base64.StdEncoding.DecodeString(key)
+			if err != nil {
+				t.Errorf("HeaderProtectionKey is not valid base64: %v", err)
+			} else if len(raw) != 32 {
+				t.Errorf("HeaderProtectionKey decodes to %d bytes, want 32", len(raw))
+			}
+
+			for _, field := range []string{"S1", "S2", "S3", "S4"} {
+				value, err := strconv.Atoi(pipeConfigValue(t, tc.content, field))
+				if err != nil {
+					t.Fatalf("%s is not an integer: %v", field, err)
+				}
+				if value < 12 {
+					t.Errorf("%s = %d, want >= 12 under header protection", field, value)
+				}
+			}
+
+			expected := []struct {
+				key  string
+				want string
+			}{
+				{"H1", "1-1"},
+				{"H2", "2-2"},
+				{"H3", "3-3"},
+				{"H4", "4-4"},
+				{"ContentPaddingAddition", "2-10"},
+				{"RekeyAfterTime", "120-180"},
+				{"RekeyTimeout", "5-8"},
+				{"RejectAfterTime", "180-240"},
+				{"KeepaliveTimeout", "8-12"},
+				{"MaxHandshakeAttempts", "16-20"},
+				{"RandomTrailers", "on"},
+				{"DisableCookies", "on"},
+			}
+			for _, want := range expected {
+				if got := pipeConfigValue(t, tc.content, want.key); got != want.want {
+					t.Errorf("%s = %q, want %q", want.key, got, want.want)
+				}
+			}
+		})
+	}
+
+	if pipeConfigValue(t, server, "HeaderProtectionKey") != pipeConfigValue(t, client, "HeaderProtectionKey") {
+		t.Error("expected the server and client configs to share one HeaderProtectionKey")
+	}
+}
+
+func TestGenerate_AWG31_HeaderProtectionKeyPersistsAcrossRuns(t *testing.T) {
+	outputDir := t.TempDir()
+	manifest := pipeManifest(ObfuscationManifest{AWGVersion: "3.1"})
+
+	if _, err := Generate(manifest, GenerateOptions{OutputDir: outputDir}); err != nil {
+		t.Fatalf("first Generate failed: %v", err)
+	}
+	first := pipeConfigValue(t, pipeReadOutput(t, outputDir, "server/awg0.conf"), "HeaderProtectionKey")
+
+	if _, err := Generate(manifest, GenerateOptions{OutputDir: outputDir}); err != nil {
+		t.Fatalf("second Generate failed: %v", err)
+	}
+	second := pipeConfigValue(t, pipeReadOutput(t, outputDir, "server/awg0.conf"), "HeaderProtectionKey")
+	if second != first {
+		t.Errorf("second run replaced the key: got %q, want the persisted %q", second, first)
+	}
+
+	if _, err := Generate(manifest, GenerateOptions{OutputDir: outputDir, FullReset: true}); err != nil {
+		t.Fatalf("full-reset Generate failed: %v", err)
+	}
+	reset := pipeConfigValue(t, pipeReadOutput(t, outputDir, "server/awg0.conf"), "HeaderProtectionKey")
+	if reset == first {
+		t.Errorf("FullReset did not regenerate the key: still %q", reset)
+	}
+}
+
+func TestGenerate_AWG31_HeaderProtectionDisabled(t *testing.T) {
+	outputDir := t.TempDir()
+	manifest := pipeManifest(ObfuscationManifest{AWGVersion: "3.1", HeaderProtection: new(false)})
+	if _, err := Generate(manifest, GenerateOptions{OutputDir: outputDir}); err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+
+	standard := []struct {
+		key  string
+		want string
+	}{
+		{"H1", "1-1"},
+		{"H2", "2-2"},
+		{"H3", "3-3"},
+		{"H4", "4-4"},
+	}
+	for _, relPath := range []string{"server/awg0.conf", "phone/awg0.conf"} {
+		content := pipeReadOutput(t, outputDir, relPath)
+		if contains([]byte(content), "HeaderProtectionKey") {
+			t.Errorf("%s contains HeaderProtectionKey although header protection is disabled", relPath)
+		}
+		if got := pipeConfigValue(t, content, "RandomTrailers"); got != "on" {
+			t.Errorf("%s: RandomTrailers = %q, want %q", relPath, got, "on")
+		}
+		if got := pipeConfigValue(t, content, "DisableCookies"); got != "on" {
+			t.Errorf("%s: DisableCookies = %q, want %q", relPath, got, "on")
+		}
+
+		different := 0
+		for _, h := range standard {
+			if pipeConfigValue(t, content, h.key) != h.want {
+				different++
+			}
+		}
+		if different == 0 {
+			t.Errorf("%s uses the standard header ranges, want generated (non 1..4) ranges", relPath)
+		}
+	}
+}
+
+func TestGenerate_AWG20_NoTransportProtectionKeys(t *testing.T) {
+	outputDir := t.TempDir()
+	manifest := pipeManifest(ObfuscationManifest{AWGVersion: "2.0"})
+	if _, err := Generate(manifest, GenerateOptions{OutputDir: outputDir}); err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+
+	transportKeys := []string{
+		"HeaderProtectionKey",
+		"ContentPaddingAddition",
+		"RekeyAfterTime",
+		"RekeyTimeout",
+		"RejectAfterTime",
+		"KeepaliveTimeout",
+		"MaxHandshakeAttempts",
+		"RandomTrailers",
+		"DisableCookies",
+	}
+	legacyKeys := []string{"Jc", "S1", "H1"}
+	for _, relPath := range []string{"server/awg0.conf", "phone/awg0.conf"} {
+		content := pipeReadOutput(t, outputDir, relPath)
+		for _, key := range transportKeys {
+			if contains([]byte(content), key) {
+				t.Errorf("%s contains AWG 3.x key %q under awg_version 2.0", relPath, key)
+			}
+		}
+		for _, key := range legacyKeys {
+			if !contains([]byte(content), key+" = ") {
+				t.Errorf("%s is missing AWG 2.0 key %q", relPath, key)
+			}
+		}
+	}
+}
+
+func TestResolveObfuscation_AWG31_SBelowHeaderProtectionFloor(t *testing.T) {
+	s1, s2, s3, s4 := 30, 35, 8, 12
+	h1, h2, h3, h4 := HeaderRange{Min: 1, Max: 1}, HeaderRange{Min: 2, Max: 2},
+		HeaderRange{Min: 3, Max: 3}, HeaderRange{Min: 4, Max: 4}
+	obf := ObfuscationManifest{
+		AWGVersion: "3.1",
+		S1:         &s1,
+		S2:         &s2,
+		S3:         &s3,
+		S4:         &s4,
+		H1:         &h1,
+		H2:         &h2,
+		H3:         &h3,
+		H4:         &h4,
+	}
+
+	_, err := resolveObfuscation(obf, EmptyCredentials(), false)
+	if err == nil {
+		t.Fatal("expected an error for S3 below the header-protection floor")
+	}
+	if !strings.Contains(err.Error(), "header protection requires S1-S4 >= 12 (got S3=8)") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestResolveObfuscation_VersionGates(t *testing.T) {
+	contentPadding := U16Range{Min: 2, Max: 10}
+	cases := []struct {
+		name    string
+		obf     ObfuscationManifest
+		wantErr string
+	}{
+		{
+			"content_padding under 2.0",
+			ObfuscationManifest{AWGVersion: "2.0", ContentPadding: &contentPadding},
+			`obfuscation.content_padding requires awg_version 3.0 or later (got "2.0")`,
+		},
+		{
+			"header_protection under 2.0",
+			ObfuscationManifest{AWGVersion: "2.0", HeaderProtection: new(false)},
+			`obfuscation.header_protection requires awg_version 3.0 or later (got "2.0")`,
+		},
+		{
+			"random_trailers under 3.0",
+			ObfuscationManifest{AWGVersion: "3.0", RandomTrailers: new(true)},
+			`obfuscation.random_trailers requires awg_version 3.1 or later (got "3.0")`,
+		},
+		{
+			"disable_cookies under 3.0",
+			ObfuscationManifest{AWGVersion: "3.0", DisableCookies: new(true)},
+			`obfuscation.disable_cookies requires awg_version 3.1 or later (got "3.0")`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := resolveObfuscation(tc.obf, EmptyCredentials(), false)
+			if err == nil {
+				t.Fatalf("expected an error containing %q, got nil", tc.wantErr)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("expected an error containing %q, got: %v", tc.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestResolveObfuscation_U16RangeValidation(t *testing.T) {
+	cases := []struct {
+		name    string
+		obf     ObfuscationManifest
+		wantErr string
+	}{
+		{
+			"content padding max below min",
+			ObfuscationManifest{AWGVersion: "3.1", ContentPadding: &U16Range{Min: 5, Max: 2}},
+			"obfuscation.content_padding: max (2) is below min (5)",
+		},
+		{
+			"keepalive timeout mixed zero bounds",
+			ObfuscationManifest{AWGVersion: "3.1", KeepaliveTimeout: &U16Range{Min: 0, Max: 5}},
+			"obfuscation.keepalive_timeout: bounds must both be zero or both non-zero (got 0-5)",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := resolveObfuscation(tc.obf, EmptyCredentials(), false)
+			if err == nil {
+				t.Fatalf("expected an error containing %q, got nil", tc.wantErr)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("expected an error containing %q, got: %v", tc.wantErr, err)
+			}
+		})
+	}
+}
+
+func TestResolveObfuscation_AWG30_Defaults(t *testing.T) {
+	cfg, err := resolveObfuscation(ObfuscationManifest{AWGVersion: "3.0"}, EmptyCredentials(), false)
+	if err != nil {
+		t.Fatalf("resolveObfuscation failed: %v", err)
+	}
+	if cfg.Version != AWG30 {
+		t.Errorf("Version = %v, want %v", cfg.Version, AWG30)
+	}
+	if len(cfg.HeaderProtectionKey) != 44 {
+		t.Errorf("HeaderProtectionKey = %q, want 44 base64 chars", cfg.HeaderProtectionKey)
+	}
+	if _, err := base64.StdEncoding.DecodeString(cfg.HeaderProtectionKey); err != nil {
+		t.Errorf("HeaderProtectionKey is not valid base64: %v", err)
+	}
+
+	ranges := []struct {
+		name string
+		got  U16Range
+		want U16Range
+	}{
+		{"ContentPadding", cfg.ContentPadding, U16Range{Min: 2, Max: 10}},
+		{"RekeyAfterTime", cfg.RekeyAfterTime, U16Range{Min: 120, Max: 180}},
+		{"RekeyTimeout", cfg.RekeyTimeout, U16Range{Min: 5, Max: 8}},
+		{"RejectAfterTime", cfg.RejectAfterTime, U16Range{Min: 180, Max: 240}},
+		{"KeepaliveTimeout", cfg.KeepaliveTimeout, U16Range{Min: 8, Max: 12}},
+		{"MaxHandshakeAttempts", cfg.MaxHandshakeAttempts, U16Range{Min: 16, Max: 20}},
+	}
+	for _, r := range ranges {
+		if r.got != r.want {
+			t.Errorf("%s = %v, want %v", r.name, r.got, r.want)
+		}
+	}
+	if cfg.RandomTrailers {
+		t.Error("expected RandomTrailers false for awg_version 3.0")
+	}
+	if cfg.DisableCookies {
+		t.Error("expected DisableCookies false for awg_version 3.0")
+	}
+
+	outputDir := t.TempDir()
+	manifest := pipeManifest(ObfuscationManifest{AWGVersion: "3.0"})
+	if _, err := Generate(manifest, GenerateOptions{OutputDir: outputDir}); err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+	server := pipeReadOutput(t, outputDir, "server/awg0.conf")
+	if contains([]byte(server), "RandomTrailers") {
+		t.Error("server config must not contain RandomTrailers under awg_version 3.0")
+	}
+	if contains([]byte(server), "DisableCookies") {
+		t.Error("server config must not contain DisableCookies under awg_version 3.0")
+	}
+	if !contains([]byte(server), "HeaderProtectionKey = ") {
+		t.Error("server config must contain HeaderProtectionKey under awg_version 3.0")
+	}
+}
+
+func TestResolveObfuscation_ContentPaddingDisabled(t *testing.T) {
+	obf := ObfuscationManifest{
+		AWGVersion:     "3.1",
+		ContentPadding: &U16Range{Min: 0, Max: 0},
+	}
+	cfg, err := resolveObfuscation(obf, EmptyCredentials(), false)
+	if err != nil {
+		t.Fatalf("resolveObfuscation failed: %v", err)
+	}
+	if !cfg.ContentPadding.IsZero() {
+		t.Errorf("ContentPadding = %v, want the zero value", cfg.ContentPadding)
+	}
+
+	outputDir := t.TempDir()
+	if _, err := Generate(pipeManifest(obf), GenerateOptions{OutputDir: outputDir}); err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+	server := pipeReadOutput(t, outputDir, "server/awg0.conf")
+	if contains([]byte(server), "ContentPaddingAddition") {
+		t.Error("server config must omit ContentPaddingAddition when the range is disabled")
+	}
+}
+
+func TestGenerate_FindingsPopulatedFromGeneratedConfig(t *testing.T) {
+	t.Run("default 3.1 config is finding-free", func(t *testing.T) {
+		outputDir := t.TempDir()
+		manifest := pipeManifest(ObfuscationManifest{AWGVersion: "3.1"})
+		result, err := Generate(manifest, GenerateOptions{OutputDir: outputDir})
+		if err != nil {
+			t.Fatalf("Generate failed: %v", err)
+		}
+		if len(result.Findings) != 0 {
+			t.Errorf("expected no findings, got %+v", result.Findings)
+		}
+	})
+
+	t.Run("unequal S with random trailers reports TRL001", func(t *testing.T) {
+		s1, s2, s3, s4 := 30, 35, 20, 12
+		manifest := pipeManifest(ObfuscationManifest{
+			AWGVersion: "3.1",
+			S1:         &s1,
+			S2:         &s2,
+			S3:         &s3,
+			S4:         &s4,
+		})
+		outputDir := t.TempDir()
+		result, err := Generate(manifest, GenerateOptions{OutputDir: outputDir})
+		if err != nil {
+			t.Fatalf("Generate failed: %v", err)
+		}
+		if len(result.Findings) != 1 {
+			t.Fatalf("expected exactly one finding, got %d: %+v", len(result.Findings), result.Findings)
+		}
+		finding := result.Findings[0]
+		if finding.Code != "TRL001" {
+			t.Errorf("Code = %q, want TRL001", finding.Code)
+		}
+		if finding.Severity != SeverityWarning {
+			t.Errorf("Severity = %q, want %q", finding.Severity, SeverityWarning)
+		}
+		if !strings.Contains(finding.Message, "RandomTrailers is enabled while S1..S4 differ") {
+			t.Errorf("unexpected message: %q", finding.Message)
+		}
+	})
+}
+
+func TestGenerate_AWG31_RandomModeUsesUniformS(t *testing.T) {
+	outputDir := t.TempDir()
+	manifest := pipeManifest(ObfuscationManifest{AWGVersion: "3.1"})
+	if _, err := Generate(manifest, GenerateOptions{OutputDir: outputDir}); err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+	server := pipeReadOutput(t, outputDir, "server/awg0.conf")
+
+	s1, err := strconv.Atoi(pipeConfigValue(t, server, "S1"))
+	if err != nil {
+		t.Fatalf("S1 is not an integer: %v", err)
+	}
+	if s1 < 12 {
+		t.Errorf("S1 = %d, want >= 12 under header protection", s1)
+	}
+	for _, field := range []string{"S2", "S3", "S4"} {
+		value, err := strconv.Atoi(pipeConfigValue(t, server, field))
+		if err != nil {
+			t.Fatalf("%s is not an integer: %v", field, err)
+		}
+		if value != s1 {
+			t.Errorf("%s = %d, want %d: random trailers require uniform S values", field, value, s1)
+		}
 	}
 }

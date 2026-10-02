@@ -1,6 +1,7 @@
 package amnezigo
 
 import (
+	"path/filepath"
 	"testing"
 )
 
@@ -183,5 +184,77 @@ func TestPresetJunkRange(t *testing.T) {
 					p.Name, p.Jmin, p.Jmax)
 			}
 		})
+	}
+}
+
+// TestPresetsGenerateValidConfigs runs the full pipeline for every preset and
+// validates the emitted server config. Presets pin explicit S values, so those
+// with RandomTrailers enabled surface the documented TRL001 recommendation
+// warning (unequal S under trailers); no finding may be an error.
+func TestPresetsGenerateValidConfigs(t *testing.T) {
+	for _, p := range ListPresets() {
+		t.Run(p.Name, func(t *testing.T) {
+			manifest := Manifest{
+				Version: 1,
+				Network: NetworkConfig{MTU: p.MTU},
+				Obfuscation: ObfuscationManifest{
+					AWGVersion:     "3.1",
+					S1:             new(p.S1),
+					S2:             new(p.S2),
+					S3:             new(p.S3),
+					S4:             new(p.S4),
+					Jc:             new(p.Jc),
+					Jmin:           new(p.Jmin),
+					Jmax:           new(p.Jmax),
+					H1:             new(p.H1),
+					H2:             new(p.H2),
+					H3:             new(p.H3),
+					H4:             new(p.H4),
+					ContentPadding: new(p.ContentPadding),
+					RandomTrailers: new(p.RandomTrailers),
+					DisableCookies: new(p.DisableCookies),
+				},
+				Peers: map[string]PeerManifest{
+					"server": {
+						Address:    "10.0.0.1/24",
+						Endpoint:   "vpn.example.com:51820",
+						ListenPort: 51820,
+					},
+					"client": {
+						Address:  "10.0.0.2/32",
+						Protocol: p.DefaultProtocol,
+					},
+				},
+			}
+
+			outputDir := t.TempDir()
+			result, err := Generate(manifest, GenerateOptions{OutputDir: outputDir})
+			if err != nil {
+				t.Fatalf("Generate with preset %q failed: %v", p.Name, err)
+			}
+			assertPresetFindingsClean(t, p.Name, result.Findings)
+
+			// Validate the emitted server config directly: the file on disk is
+			// the contract, not the in-memory struct.
+			serverCfg, err := LoadServerConfig(filepath.Join(outputDir, "server", outputConfigName))
+			if err != nil {
+				t.Fatalf("preset %q emitted an unparseable server config: %v", p.Name, err)
+			}
+			assertPresetFindingsClean(t, p.Name, ValidateServerConfig(&serverCfg))
+		})
+	}
+}
+
+// assertPresetFindingsClean fails when findings contain an error severity or a
+// warning other than the documented TRL001 recommendation.
+func assertPresetFindingsClean(t *testing.T, name string, findings []Finding) {
+	t.Helper()
+	for _, f := range findings {
+		switch {
+		case f.Severity == SeverityError:
+			t.Errorf("preset %q produced error finding %s: %s", name, f.Code, f.Message)
+		case f.Code != "TRL001":
+			t.Errorf("preset %q produced unexpected finding %s (%s): %s", name, f.Code, f.Severity, f.Message)
+		}
 	}
 }

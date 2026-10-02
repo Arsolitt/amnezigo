@@ -43,6 +43,7 @@ func WriteServerConfig(w io.Writer, cfg ServerConfig) error {
 	fmt.Fprintf(w, "H2 = %d-%d\n", cfg.Obfuscation.H2.Min, cfg.Obfuscation.H2.Max)
 	fmt.Fprintf(w, "H3 = %d-%d\n", cfg.Obfuscation.H3.Min, cfg.Obfuscation.H3.Max)
 	fmt.Fprintf(w, "H4 = %d-%d\n", cfg.Obfuscation.H4.Min, cfg.Obfuscation.H4.Max)
+	writeTransportProtectionKeys(w, cfg.Obfuscation)
 	// I1-I5 are client-only fields, not in ServerObfuscationConfig
 
 	// Write metadata comments
@@ -86,6 +87,46 @@ func writePeerSection(w io.Writer, peer PeerConfig) {
 	}
 }
 
+// onOff renders a boolean as the AWG engine's INI spelling.
+func onOff(b bool) string {
+	if b {
+		return "on"
+	}
+	return "off"
+}
+
+// writeU16RangeKey writes an AWG 3.x uint16 range key, skipping unset ranges
+// so the engine keeps its default.
+func writeU16RangeKey(w io.Writer, name string, r U16Range) {
+	if r.IsZero() {
+		return
+	}
+	fmt.Fprintf(w, "%s = %s\n", name, r)
+}
+
+// writeTransportProtectionKeys emits the AWG 3.x device-level transport
+// protection keys, gated by o.Version. The names are exactly the ones parsed
+// by amneziawg-tools/src/config.c; pre-3.x builds reject unknown keys
+// ("Line unrecognized"), so nothing is emitted below AWG30.
+func writeTransportProtectionKeys(w io.Writer, o ServerObfuscationConfig) {
+	if o.Version < AWG30 {
+		return
+	}
+	if o.HeaderProtectionKey != "" {
+		fmt.Fprintf(w, "%s = %s\n", keyHeaderProtection, o.HeaderProtectionKey)
+	}
+	writeU16RangeKey(w, keyContentPadding, o.ContentPadding)
+	writeU16RangeKey(w, keyRekeyAfterTime, o.RekeyAfterTime)
+	writeU16RangeKey(w, keyRekeyTimeout, o.RekeyTimeout)
+	writeU16RangeKey(w, keyRejectAfterTime, o.RejectAfterTime)
+	writeU16RangeKey(w, keyKeepaliveTimeout, o.KeepaliveTimeout)
+	writeU16RangeKey(w, keyMaxHandshakeAttempts, o.MaxHandshakeAttempts)
+	if o.Version >= AWG31 {
+		fmt.Fprintf(w, "%s = %s\n", keyRandomTrailers, onOff(o.RandomTrailers))
+		fmt.Fprintf(w, "%s = %s\n", keyDisableCookies, onOff(o.DisableCookies))
+	}
+}
+
 // WriteClientConfig writes a client WireGuard configuration to the given writer.
 func WriteClientConfig(w io.Writer, cfg ClientConfig) error {
 	fmt.Fprintln(w, "[Interface]")
@@ -106,6 +147,7 @@ func WriteClientConfig(w io.Writer, cfg ClientConfig) error {
 	fmt.Fprintf(w, "H2 = %d-%d\n", cfg.Interface.Obfuscation.H2.Min, cfg.Interface.Obfuscation.H2.Max)
 	fmt.Fprintf(w, "H3 = %d-%d\n", cfg.Interface.Obfuscation.H3.Min, cfg.Interface.Obfuscation.H3.Max)
 	fmt.Fprintf(w, "H4 = %d-%d\n", cfg.Interface.Obfuscation.H4.Min, cfg.Interface.Obfuscation.H4.Max)
+	writeTransportProtectionKeys(w, cfg.Interface.Obfuscation.ServerObfuscationConfig)
 	// Write I1-I5 in a loop
 	iValues := []struct {
 		name  string

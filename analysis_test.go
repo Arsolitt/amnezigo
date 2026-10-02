@@ -40,6 +40,18 @@ func defaultOpts() AnalyzeOptions {
 	}
 }
 
+// valNarrowHeaderConfig returns a test config with width-1 H1..H4 ranges
+// (1..4) and the given header-protection key ("" disables protection).
+func valNarrowHeaderConfig(key string) ServerConfig {
+	cfg := testServerConfig()
+	cfg.Obfuscation.H1 = HeaderRange{Min: 1, Max: 1}
+	cfg.Obfuscation.H2 = HeaderRange{Min: 2, Max: 2}
+	cfg.Obfuscation.H3 = HeaderRange{Min: 3, Max: 3}
+	cfg.Obfuscation.H4 = HeaderRange{Min: 4, Max: 4}
+	cfg.Obfuscation.HeaderProtectionKey = key
+	return cfg
+}
+
 // --- JSON serialisation stability ---
 
 func TestAnalysisReport_JSONRoundTrip(t *testing.T) {
@@ -224,7 +236,7 @@ func TestRISK007_NarrowHeaderRange(t *testing.T) {
 		H3: HeaderRangeInfo{Min: 500, Max: 600, Width: 101},
 		H4: HeaderRangeInfo{Min: 700, Max: 800, Width: 101},
 	}
-	findings := checkRISK007(nil, headers)
+	findings := checkRISK007(nil, headers, false)
 	assertFindingPresent(t, findings, "RISK007")
 }
 
@@ -235,8 +247,17 @@ func TestRISK007_WideRanges_NoFinding(t *testing.T) {
 		H3: HeaderRangeInfo{Min: 500000000, Max: 600000000, Width: 100000001},
 		H4: HeaderRangeInfo{Min: 700000000, Max: 800000000, Width: 100000001},
 	}
-	findings := checkRISK007(nil, headers)
+	findings := checkRISK007(nil, headers, false)
 	assertFindingAbsent(t, findings, "RISK007")
+}
+
+// TestRISK007_HeaderProtectionSkipsCheck verifies the headerProtection flag
+// suppresses the narrow-width warning while the same profile still triggers it
+// with protection off.
+func TestRISK007_HeaderProtectionSkipsCheck(t *testing.T) {
+	headers := buildHeaderProfile(valNarrowHeaderConfig("").Obfuscation)
+	assertFindingAbsent(t, checkRISK007(nil, headers, true), "RISK007")
+	assertFindingPresent(t, checkRISK007(nil, headers, false), "RISK007")
 }
 
 // TestRISK008_NoPeers triggers when peer count is zero.
@@ -320,6 +341,17 @@ func TestAnalyze_DefaultProtocol(t *testing.T) {
 	if report.Config.Protocol != defaultAnalysisProtocol {
 		t.Errorf("Protocol = %q, want %q", report.Config.Protocol, defaultAnalysisProtocol)
 	}
+}
+
+// TestAnalyze_PopulatesNoRISK007UnderHeaderProtection verifies Analyze threads
+// the header-protection flag into the heuristics: narrow H1..H4 = 1..4 stays
+// quiet with a key and warns without one.
+func TestAnalyze_PopulatesNoRISK007UnderHeaderProtection(t *testing.T) {
+	report := Analyze(valNarrowHeaderConfig(valValidHeaderProtectionKey()), AnalyzeOptions{})
+	assertFindingAbsent(t, report.Findings, "RISK007")
+
+	report = Analyze(valNarrowHeaderConfig(""), AnalyzeOptions{})
+	assertFindingPresent(t, report.Findings, "RISK007")
 }
 
 func TestAnalyze_PeerFilter(t *testing.T) {

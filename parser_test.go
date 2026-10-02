@@ -401,3 +401,247 @@ Bogus = something
 		t.Errorf("Bogus key in [Peer] not reported, got %+v", warnings)
 	}
 }
+
+func TestParseServerConfig_AWG31_RoundTrip(t *testing.T) {
+	cases := []struct {
+		name           string
+		randomTrailers bool
+		disableCookies bool
+	}{
+		{"bools_on", true, true},
+		{"bools_off", false, false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			want := ServerObfuscationConfig{
+				Jc:                   3,
+				Jmin:                 64,
+				Jmax:                 512,
+				S1:                   12,
+				S2:                   13,
+				S3:                   14,
+				S4:                   15,
+				H1:                   HeaderRange{Min: 1, Max: 1},
+				H2:                   HeaderRange{Min: 2, Max: 2},
+				H3:                   HeaderRange{Min: 3, Max: 3},
+				H4:                   HeaderRange{Min: 4, Max: 4},
+				Version:              AWG31,
+				HeaderProtectionKey:  ioTestHPKey,
+				ContentPadding:       U16Range{Min: 2, Max: 10},
+				RekeyAfterTime:       U16Range{Min: 120, Max: 180},
+				RekeyTimeout:         U16Range{Min: 5, Max: 8},
+				RejectAfterTime:      U16Range{Min: 180, Max: 240},
+				KeepaliveTimeout:     U16Range{Min: 8, Max: 12},
+				MaxHandshakeAttempts: U16Range{Min: 16, Max: 20},
+				RandomTrailers:       tc.randomTrailers,
+				DisableCookies:       tc.disableCookies,
+			}
+			cfg := ServerConfig{
+				Interface: InterfaceConfig{
+					PrivateKey: "server_priv_key",
+					Address:    "10.0.0.1/24",
+					ListenPort: 51820,
+					MTU:        1420,
+				},
+				Obfuscation: want,
+			}
+
+			var buf strings.Builder
+			if err := WriteServerConfig(&buf, cfg); err != nil {
+				t.Fatalf("WriteServerConfig failed: %v", err)
+			}
+			parsed, err := ParseServerConfig(strings.NewReader(buf.String()))
+			if err != nil {
+				t.Fatalf("ParseServerConfig failed: %v\nconfig:\n%s", err, buf.String())
+			}
+
+			got := parsed.Obfuscation
+			if got.HeaderProtectionKey != want.HeaderProtectionKey {
+				t.Errorf("HeaderProtectionKey = %q, want %q",
+					got.HeaderProtectionKey, want.HeaderProtectionKey)
+			}
+			ranges := []struct {
+				name string
+				got  U16Range
+				want U16Range
+			}{
+				{"ContentPadding", got.ContentPadding, want.ContentPadding},
+				{"RekeyAfterTime", got.RekeyAfterTime, want.RekeyAfterTime},
+				{"RekeyTimeout", got.RekeyTimeout, want.RekeyTimeout},
+				{"RejectAfterTime", got.RejectAfterTime, want.RejectAfterTime},
+				{"KeepaliveTimeout", got.KeepaliveTimeout, want.KeepaliveTimeout},
+				{"MaxHandshakeAttempts", got.MaxHandshakeAttempts, want.MaxHandshakeAttempts},
+			}
+			for _, r := range ranges {
+				if r.got != r.want {
+					t.Errorf("%s = %+v, want %+v", r.name, r.got, r.want)
+				}
+			}
+			if got.RandomTrailers != tc.randomTrailers {
+				t.Errorf("RandomTrailers = %v, want %v", got.RandomTrailers, tc.randomTrailers)
+			}
+			if got.DisableCookies != tc.disableCookies {
+				t.Errorf("DisableCookies = %v, want %v", got.DisableCookies, tc.disableCookies)
+			}
+		})
+	}
+}
+
+func TestParseServerConfig_RejectsMalformedTransportKeys(t *testing.T) {
+	cases := []struct {
+		name    string
+		line    string
+		wantErr []string
+	}{
+		{
+			"header_protection_key_not_base64",
+			"HeaderProtectionKey = not-base64!!",
+			[]string{"invalid HeaderProtectionKey", "must be 44-char base64 of 32 bytes"},
+		},
+		{
+			"header_protection_key_wrong_length",
+			"HeaderProtectionKey = " + ioTestHPKeyShort,
+			[]string{"invalid HeaderProtectionKey", "must be 44-char base64 of 32 bytes"},
+		},
+		{
+			"content_padding_addition_junk",
+			"ContentPaddingAddition = abc",
+			[]string{`invalid ContentPaddingAddition "abc": expected "N" or "N-M"`},
+		},
+		{
+			"rekey_timeout_max_below_min",
+			"RekeyTimeout = 10-5",
+			[]string{`invalid RekeyTimeout "10-5": max (5) is below min (10)`},
+		},
+		{
+			"random_trailers_junk",
+			"RandomTrailers = maybe",
+			[]string{`invalid RandomTrailers "maybe": expected on/off/0/1`},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			input := "[Interface]\nPrivateKey = aaa\n" + tc.line + "\n"
+			_, err := ParseServerConfig(strings.NewReader(input))
+			if err == nil {
+				t.Fatalf("ParseServerConfig(%q) = nil error, want error containing %v", tc.line, tc.wantErr)
+			}
+			for _, want := range tc.wantErr {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error %q does not contain %q", err.Error(), want)
+				}
+			}
+		})
+	}
+}
+
+func TestParseServerConfig_TransportKeySpellings(t *testing.T) {
+	t.Run("booleans", func(t *testing.T) {
+		cases := []struct {
+			key   string
+			value string
+			want  bool
+		}{
+			{"RandomTrailers", "on", true},
+			{"RandomTrailers", "ON", true},
+			{"RandomTrailers", "1", true},
+			{"RandomTrailers", "off", false},
+			{"RandomTrailers", "OFF", false},
+			{"RandomTrailers", "0", false},
+			{"DisableCookies", "On", true},
+			{"DisableCookies", "0", false},
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.key+"_"+tc.value, func(t *testing.T) {
+				input := "[Interface]\nPrivateKey = aaa\n" + tc.key + " = " + tc.value + "\n"
+				cfg, err := ParseServerConfig(strings.NewReader(input))
+				if err != nil {
+					t.Fatalf("ParseServerConfig failed: %v", err)
+				}
+				var got bool
+				switch tc.key {
+				case "RandomTrailers":
+					got = cfg.Obfuscation.RandomTrailers
+				case "DisableCookies":
+					got = cfg.Obfuscation.DisableCookies
+				default:
+					t.Fatalf("unhandled key %q in test table", tc.key)
+				}
+				if got != tc.want {
+					t.Errorf("%s = %v for value %q, want %v", tc.key, got, tc.value, tc.want)
+				}
+			})
+		}
+	})
+
+	t.Run("ranges", func(t *testing.T) {
+		cases := []struct {
+			value string
+			want  U16Range
+		}{
+			{"120", U16Range{Min: 120, Max: 120}},
+			{"5-8", U16Range{Min: 5, Max: 8}},
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.value, func(t *testing.T) {
+				input := "[Interface]\nPrivateKey = aaa\nMaxHandshakeAttempts = " + tc.value + "\n"
+				cfg, err := ParseServerConfig(strings.NewReader(input))
+				if err != nil {
+					t.Fatalf("ParseServerConfig failed: %v", err)
+				}
+				if got := cfg.Obfuscation.MaxHandshakeAttempts; got != tc.want {
+					t.Errorf("MaxHandshakeAttempts = %+v, want %+v", got, tc.want)
+				}
+			})
+		}
+	})
+}
+
+func TestParseServerConfig_AcceptsWGTypeIDsUnderHeaderProtection(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+	}{
+		{
+			"key_before_headers",
+			"[Interface]\nPrivateKey = aaa\n" +
+				"HeaderProtectionKey = " + ioTestHPKey + "\n" +
+				"H1 = 1-1\nH2 = 2-2\nH3 = 3-3\nH4 = 4-4\n",
+		},
+		{
+			"key_after_headers",
+			"[Interface]\nPrivateKey = aaa\n" +
+				"H1 = 1-1\nH2 = 2-2\nH3 = 3-3\nH4 = 4-4\n" +
+				"HeaderProtectionKey = " + ioTestHPKey + "\n",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := ParseServerConfig(strings.NewReader(tc.input))
+			if err != nil {
+				t.Fatalf("ParseServerConfig failed: %v", err)
+			}
+			if cfg.Obfuscation.HeaderProtectionKey != ioTestHPKey {
+				t.Errorf("HeaderProtectionKey = %q, want %q",
+					cfg.Obfuscation.HeaderProtectionKey, ioTestHPKey)
+			}
+			for i, got := range []HeaderRange{
+				cfg.Obfuscation.H1,
+				cfg.Obfuscation.H2,
+				cfg.Obfuscation.H3,
+				cfg.Obfuscation.H4,
+			} {
+				want := HeaderRange{Min: uint32(i + 1), Max: uint32(i + 1)}
+				if got != want {
+					t.Errorf("H%d = {%d,%d}, want {%d,%d}",
+						i+1, got.Min, got.Max, want.Min, want.Max)
+				}
+			}
+		})
+	}
+}

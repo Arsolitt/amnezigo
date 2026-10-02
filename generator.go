@@ -20,21 +20,25 @@ const (
 	sMaxAttempts       = 1000 // retry budget for the six-pair S-prefix check
 	junkMaxAttempts    = 1000 // retry budget for collision-aware junk-range selection
 	iPacketMaxAttempts = 1000 // retry budget for collision-aware I-packet generation
+
+	// headerProtectionNonceSize is the smallest S-prefix accepted by the
+	// engine when AWG 3.x header protection is active: the header cipher nonce
+	// is the first S bytes of the packet (mirrors device.HeaderCipherNonceSize
+	// in amneziawg-go).
+	headerProtectionNonceSize = 12
 )
 
 // GenerateSPrefixes generates S1-S4 size prefixes such that the four AWG-padded
-// handshake sizes are pairwise distinct.
-func GenerateSPrefixes() SPrefixes {
+// handshake sizes are pairwise distinct. minS is the inclusive lower bound for
+// every value: 0 for AWG 2.0, headerProtectionNonceSize when AWG 3.x header
+// protection is active (the engine rejects S < 12 in that mode).
+func GenerateSPrefixes(minS int) SPrefixes {
 	for range sMaxAttempts {
-		s1Int, _ := rand.Int(rand.Reader, big.NewInt(sPrefixRangeMax))
-		s2Int, _ := rand.Int(rand.Reader, big.NewInt(sPrefixRangeMax))
-		s3Int, _ := rand.Int(rand.Reader, big.NewInt(sPrefixRangeMax))
-		s4Int, _ := rand.Int(rand.Reader, big.NewInt(s4RangeMax))
 		s := SPrefixes{
-			S1: int(s1Int.Int64()),
-			S2: int(s2Int.Int64()),
-			S3: int(s3Int.Int64()),
-			S4: int(s4Int.Int64()),
+			S1: randIntInRange(minS, sPrefixRangeMax),
+			S2: randIntInRange(minS, sPrefixRangeMax),
+			S3: randIntInRange(minS, sPrefixRangeMax),
+			S4: randIntInRange(minS, s4RangeMax),
 		}
 		if pairsDistinct(s) {
 			return s
@@ -44,24 +48,34 @@ func GenerateSPrefixes() SPrefixes {
 }
 
 // GenerateSPrefixesWithS1 generates S2-S4 such that the six pairwise S-padded
-// sizes are distinct, given a caller-supplied S1. Used by GenerateConfig where
-// S1 comes from user input rather than being randomly chosen.
-func GenerateSPrefixesWithS1(fixedS1 int) SPrefixes {
+// sizes are distinct, given a caller-supplied S1. minS is the inclusive lower
+// bound for the generated values (0 for the legacy AWG 2.0 path,
+// headerProtectionNonceSize under AWG 3.x header protection). Used by
+// GenerateConfig where S1 comes from user input rather than being randomly
+// chosen.
+func GenerateSPrefixesWithS1(minS, fixedS1 int) SPrefixes {
 	for range sMaxAttempts {
-		s2Int, _ := rand.Int(rand.Reader, big.NewInt(sPrefixRangeMax))
-		s3Int, _ := rand.Int(rand.Reader, big.NewInt(sPrefixRangeMax))
-		s4Int, _ := rand.Int(rand.Reader, big.NewInt(s4RangeMax))
 		s := SPrefixes{
 			S1: fixedS1,
-			S2: int(s2Int.Int64()),
-			S3: int(s3Int.Int64()),
-			S4: int(s4Int.Int64()),
+			S2: randIntInRange(minS, sPrefixRangeMax),
+			S3: randIntInRange(minS, sPrefixRangeMax),
+			S4: randIntInRange(minS, s4RangeMax),
 		}
 		if pairsDistinct(s) {
 			return s
 		}
 	}
 	panic("failed to generate non-colliding S-prefixes for fixed S1 after sMaxAttempts attempts")
+}
+
+// GenerateUniformSPrefixes draws one value in [minS, s4RangeMax) and returns it
+// as S1=S2=S3=S4. AWG 3.1 random_trailers makes the receiver classify the
+// packet type by size, so the reference recommends equal S values to avoid
+// misclassification. The four padded sizes (148+S, 92+S, 64+S, 32+S) stay
+// pairwise distinct for any S, so no retry loop is needed.
+func GenerateUniformSPrefixes(minS int) SPrefixes {
+	s := randIntInRange(minS, s4RangeMax)
+	return SPrefixes{S1: s, S2: s, S3: s, S4: s}
 }
 
 // pairsDistinct returns true iff the four AWG-padded sizes are pairwise distinct.
@@ -75,6 +89,12 @@ func pairsDistinct(s SPrefixes) bool {
 		}
 	}
 	return true
+}
+
+// randIntInRange returns a uniform random int in [minV, maxExclusive).
+func randIntInRange(minV, maxExclusive int) int {
+	n, _ := rand.Int(rand.Reader, big.NewInt(int64(maxExclusive-minV)))
+	return int(n.Int64()) + minV
 }
 
 // GenerateJunkParams generates Jc, Jmin, Jmax junk parameters without
@@ -173,7 +193,7 @@ func GenerateCPS(protocol string, mtu, s1, _ int) (string, string, string, strin
 // padded size, and the junk range avoids both padded and raw WG sizes.
 func GenerateConfig(protocol string, mtu, s1, jc int) ClientObfuscationConfig {
 	h := GenerateHeaderRanges()
-	s := GenerateSPrefixesWithS1(s1)
+	s := GenerateSPrefixesWithS1(0, s1)
 	forbidden := PaddedSizes(s.S1, s.S2, s.S3, s.S4)
 	j, err := GenerateJunkParamsWithForbidden(forbidden)
 	if err != nil {
@@ -285,7 +305,7 @@ func headerRangesValid(sortedRanges []HeaderRange) bool {
 // sizes.
 func GenerateServerConfig(_, s1, jc int) ServerObfuscationConfig {
 	h := GenerateHeaderRanges()
-	s := GenerateSPrefixesWithS1(s1)
+	s := GenerateSPrefixesWithS1(0, s1)
 	forbidden := PaddedSizes(s.S1, s.S2, s.S3, s.S4)
 	j, err := GenerateJunkParamsWithForbidden(forbidden)
 	if err != nil {

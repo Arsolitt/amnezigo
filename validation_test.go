@@ -1,6 +1,7 @@
 package amnezigo
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -399,6 +400,23 @@ func containsCode(findings []Finding, code string) bool {
 	return false
 }
 
+// valValidHeaderProtectionKey returns a valid 44-char base64
+// header-protection key (32 zero bytes) as the engine decodes it.
+func valValidHeaderProtectionKey() string {
+	return base64.StdEncoding.EncodeToString(make([]byte, keyLength))
+}
+
+// valFindFinding returns the first finding with the given code, or nil when
+// none matches.
+func valFindFinding(findings []Finding, code string) *Finding {
+	for i := range findings {
+		if findings[i].Code == code {
+			return &findings[i]
+		}
+	}
+	return nil
+}
+
 func TestValidateServerConfig_CleanGeneratedConfig(t *testing.T) {
 	cfg := freshServerConfig(t)
 	findings := ValidateServerConfig(&cfg)
@@ -476,6 +494,199 @@ func TestValidateServerConfig_DetectsJunkRangeStructural(t *testing.T) {
 	if !containsCode(findings, "JNK001") {
 		t.Errorf("junk range structural error not detected: %+v", findings)
 	}
+}
+
+// TestValidateServerConfig_HPK001 verifies the header-protection S-prefix
+// floor: a key with any S below the 12-byte ChaCha20 nonce is an error, while
+// S values >= 12 pass.
+func TestValidateServerConfig_HPK001(t *testing.T) {
+	cfg := freshServerConfig(t)
+	cfg.Obfuscation.HeaderProtectionKey = valValidHeaderProtectionKey()
+	cfg.Obfuscation.S3 = 8
+	findings := ValidateServerConfig(&cfg)
+	f := valFindFinding(findings, "HPK001")
+	if f == nil {
+		t.Fatalf("HPK001 not found: %+v", findings)
+	}
+	if f.Severity != SeverityError {
+		t.Errorf("Severity = %q, want %q", f.Severity, SeverityError)
+	}
+	if !strings.Contains(f.Message, "header protection requires S1-S4 >= 12") {
+		t.Errorf("message %q does not mention the S floor", f.Message)
+	}
+	if !strings.Contains(f.Message, "S3=8") {
+		t.Errorf("message %q does not identify S3", f.Message)
+	}
+
+	ok := freshServerConfig(t)
+	ok.Obfuscation.HeaderProtectionKey = valValidHeaderProtectionKey()
+	ok.Obfuscation.S1, ok.Obfuscation.S2 = 12, 13
+	ok.Obfuscation.S3, ok.Obfuscation.S4 = 12, 14
+	okFindings := ValidateServerConfig(&ok)
+	if containsCode(okFindings, "HPK001") {
+		t.Errorf("HPK001 fired for S1-S4 all >= 12: %+v", okFindings)
+	}
+}
+
+// TestValidateServerConfig_HPK003 verifies the key shape check: any non-empty
+// value that is not 44-char base64 of 32 bytes is an error.
+func TestValidateServerConfig_HPK003(t *testing.T) {
+	tests := []struct {
+		name string
+		key  string
+		want bool
+	}{
+		{"malformed_base64", "not-valid-base64!!", true},
+		{"wrong_length", base64.StdEncoding.EncodeToString(make([]byte, keyLength-1)), true},
+		{"valid_key", valValidHeaderProtectionKey(), false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := freshServerConfig(t)
+			cfg.Obfuscation.HeaderProtectionKey = tc.key
+			findings := ValidateServerConfig(&cfg)
+			f := valFindFinding(findings, "HPK003")
+			if !tc.want {
+				if f != nil {
+					t.Errorf("unexpected HPK003: %+v", f)
+				}
+				return
+			}
+			if f == nil {
+				t.Fatalf("HPK003 not found: %+v", findings)
+			}
+			if f.Severity != SeverityError {
+				t.Errorf("Severity = %q, want %q", f.Severity, SeverityError)
+			}
+			wantMsg := "HeaderProtectionKey is not 44-char base64 of 32 bytes"
+			if !strings.Contains(f.Message, wantMsg) {
+				t.Errorf("message %q does not contain %q", f.Message, wantMsg)
+			}
+		})
+	}
+}
+
+// TestValidateServerConfig_TRL001 verifies the random-trailers warning fires
+// only when trailers are on and S1..S4 differ.
+func TestValidateServerConfig_TRL001(t *testing.T) {
+	tests := []struct {
+		name           string
+		randomTrailers bool
+		s1, s2, s3, s4 int
+		want           bool
+	}{
+		{"trailers_on_unequal_s", true, 30, 35, 20, 12, true},
+		{"trailers_on_equal_s", true, 30, 30, 30, 30, false},
+		{"trailers_off_unequal_s", false, 30, 35, 20, 12, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := freshServerConfig(t)
+			cfg.Obfuscation.RandomTrailers = tc.randomTrailers
+			cfg.Obfuscation.S1, cfg.Obfuscation.S2 = tc.s1, tc.s2
+			cfg.Obfuscation.S3, cfg.Obfuscation.S4 = tc.s3, tc.s4
+			findings := ValidateServerConfig(&cfg)
+			f := valFindFinding(findings, "TRL001")
+			if !tc.want {
+				if f != nil {
+					t.Errorf("unexpected TRL001: %+v", f)
+				}
+				return
+			}
+			if f == nil {
+				t.Fatalf("TRL001 not found: %+v", findings)
+			}
+			if f.Severity != SeverityWarning {
+				t.Errorf("Severity = %q, want %q", f.Severity, SeverityWarning)
+			}
+			wantMsg := "RandomTrailers is enabled while S1..S4 differ"
+			if !strings.Contains(f.Message, wantMsg) {
+				t.Errorf("message %q does not contain %q", f.Message, wantMsg)
+			}
+		})
+	}
+}
+
+// TestValidateServerConfig_TRM001 verifies structural checks on the six AWG 3.x
+// ranges: Max < Min and mixed zero bounds are errors, all-zero means disabled.
+func TestValidateServerConfig_TRM001(t *testing.T) {
+	tests := []struct {
+		name    string
+		set     func(o *ServerObfuscationConfig)
+		wantKey string
+		wantMsg string
+	}{
+		{
+			name:    "max_below_min",
+			set:     func(o *ServerObfuscationConfig) { o.RekeyTimeout = U16Range{Min: 10, Max: 5} },
+			wantKey: "RekeyTimeout",
+			wantMsg: "max (5) is below min (10)",
+		},
+		{
+			name:    "mixed_zero_bounds",
+			set:     func(o *ServerObfuscationConfig) { o.ContentPadding = U16Range{Min: 0, Max: 5} },
+			wantKey: "ContentPaddingAddition",
+			wantMsg: "bounds must both be zero or both non-zero (got 0-5)",
+		},
+		{
+			name: "all_zero_bounds",
+			set: func(o *ServerObfuscationConfig) {
+				o.ContentPadding = U16Range{}
+				o.RekeyAfterTime = U16Range{}
+				o.RekeyTimeout = U16Range{}
+				o.RejectAfterTime = U16Range{}
+				o.KeepaliveTimeout = U16Range{}
+				o.MaxHandshakeAttempts = U16Range{}
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := freshServerConfig(t)
+			tc.set(&cfg.Obfuscation)
+			findings := ValidateServerConfig(&cfg)
+			if tc.wantMsg == "" {
+				if containsCode(findings, "TRM001") {
+					t.Errorf("unexpected TRM001: %+v", findings)
+				}
+				return
+			}
+			f := valFindFinding(findings, "TRM001")
+			if f == nil {
+				t.Fatalf("TRM001 not found: %+v", findings)
+			}
+			if f.Severity != SeverityError {
+				t.Errorf("Severity = %q, want %q", f.Severity, SeverityError)
+			}
+			if f.Location.Key != tc.wantKey {
+				t.Errorf("Location.Key = %q, want %q", f.Location.Key, tc.wantKey)
+			}
+			if !strings.Contains(f.Message, tc.wantMsg) {
+				t.Errorf("message %q does not contain %q", f.Message, tc.wantMsg)
+			}
+		})
+	}
+}
+
+// TestValidateServerConfig_HeaderProtectionSuppressesHDR001 verifies that a
+// header-protection key makes H1..H4 = 1..4 legal while structural HDR002
+// (Max < Min) still fires.
+func TestValidateServerConfig_HeaderProtectionSuppressesHDR001(t *testing.T) {
+	cfg := freshServerConfig(t)
+	cfg.Obfuscation.HeaderProtectionKey = valValidHeaderProtectionKey()
+	cfg.Obfuscation.H1 = HeaderRange{Min: 1, Max: 1}
+	cfg.Obfuscation.H2 = HeaderRange{Min: 2, Max: 2}
+	cfg.Obfuscation.H3 = HeaderRange{Min: 3, Max: 3}
+	cfg.Obfuscation.H4 = HeaderRange{Min: 4, Max: 4}
+	findings := ValidateServerConfig(&cfg)
+	assertFindingAbsent(t, findings, "HDR001")
+	assertFindingAbsent(t, findings, "HDR002")
+
+	bad := freshServerConfig(t)
+	bad.Obfuscation.HeaderProtectionKey = valValidHeaderProtectionKey()
+	bad.Obfuscation.H2 = HeaderRange{Min: 5, Max: 1}
+	findings = ValidateServerConfig(&bad)
+	assertFindingPresent(t, findings, "HDR002")
 }
 
 func TestValidateServerConfig_RoundTripGenerated_AllProtocols(t *testing.T) {

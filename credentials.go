@@ -24,6 +24,10 @@ type PersistedCredentials struct {
 	Peers map[string]PeerCredentials
 	// Server holds the server peer's keypair. Zero-value on first run.
 	Server PeerCredentials
+	// HeaderProtectionKey is the AWG 3.x device-level header-protection key
+	// recovered from the server config, reused across runs like the other
+	// credentials. Empty when absent or when the target version predates 3.x.
+	HeaderProtectionKey string
 }
 
 // EmptyCredentials returns a PersistedCredentials with an initialized map and
@@ -64,6 +68,7 @@ func LoadCredentials(outputDir, serverPeerName string) (*PersistedCredentials, e
 			PrivateKey: serverCfg.Interface.PrivateKey,
 			PublicKey:  serverCfg.Interface.PublicKey,
 		}
+		creds.HeaderProtectionKey = serverCfg.Obfuscation.HeaderProtectionKey
 		creds.Peers = loadPeersFromServer(outputDir, serverCfg.Peers)
 		return creds, nil
 	}

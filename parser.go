@@ -3,6 +3,8 @@ package amnezigo
 
 import (
 	"bufio"
+	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -16,6 +18,7 @@ const (
 	sectionInterface = "[Interface]"
 	sectionPeer      = "[Peer]"
 	keyPrivateKey    = "PrivateKey"
+	keyPublicKey     = "PublicKey"
 	keyPresharedKey  = "PresharedKey"
 )
 
@@ -45,17 +48,22 @@ func ParseServerConfig(r io.Reader) (ServerConfig, error) {
 
 // knownInterfaceKeys is the set of keys the parser recognises in [Interface].
 var knownInterfaceKeys = map[string]bool{
-	"PrivateKey": true, "PublicKey": true, "Address": true,
+	keyPrivateKey: true, keyPublicKey: true, "Address": true,
 	"ListenPort": true, "MTU": true, "DNS": true,
 	"PersistentKeepalive": true, "PostUp": true, "PostDown": true,
 	"Jc": true, "Jmin": true, "Jmax": true,
 	"S1": true, "S2": true, "S3": true, "S4": true,
 	"H1": true, "H2": true, "H3": true, "H4": true,
+	// AWG 3.x device-level transport protection keys (see transport_keys.go).
+	keyHeaderProtection: true, keyContentPadding: true,
+	keyRekeyAfterTime: true, keyRekeyTimeout: true, keyRejectAfterTime: true,
+	keyKeepaliveTimeout: true, keyMaxHandshakeAttempts: true,
+	keyRandomTrailers: true, keyDisableCookies: true,
 }
 
 // knownPeerKeys is the set of keys the parser recognises in [Peer].
 var knownPeerKeys = map[string]bool{
-	"PublicKey": true, "PresharedKey": true, "AllowedIPs": true,
+	keyPublicKey: true, keyPresharedKey: true, "AllowedIPs": true,
 }
 
 // ParseServerConfigWithOptions is ParseServerConfig with optional behavior.
@@ -155,7 +163,7 @@ func ParseServerConfigWithOptions(r io.Reader, opts ParseOptions) (ServerConfig,
 			switch key {
 			case "PrivateKey":
 				cfg.Interface.PrivateKey = value
-			case "PublicKey":
+			case keyPublicKey:
 				cfg.Interface.PublicKey = value
 			case "Address":
 				cfg.Interface.Address = value
@@ -213,12 +221,50 @@ func ParseServerConfigWithOptions(r io.Reader, opts ParseOptions) (ServerConfig,
 				cfg.Obfuscation.H3 = parseHeaderRange(value)
 			case "H4":
 				cfg.Obfuscation.H4 = parseHeaderRange(value)
-				// I1-I5 are client-only fields, should be in ParseClientConfig
+			case keyHeaderProtection:
+				decoded, err := base64.StdEncoding.DecodeString(value)
+				if err != nil || len(decoded) != keyLength {
+					return ServerConfig{}, warnings, fmt.Errorf(
+						"invalid %s %q: must be 44-char base64 of 32 bytes", keyHeaderProtection, value)
+				}
+				cfg.Obfuscation.HeaderProtectionKey = value
+			case keyContentPadding:
+				if err := setParsedField(&cfg.Obfuscation.ContentPadding, key, value, parseU16Range); err != nil {
+					return ServerConfig{}, warnings, err
+				}
+			case keyRekeyAfterTime:
+				if err := setParsedField(&cfg.Obfuscation.RekeyAfterTime, key, value, parseU16Range); err != nil {
+					return ServerConfig{}, warnings, err
+				}
+			case keyRekeyTimeout:
+				if err := setParsedField(&cfg.Obfuscation.RekeyTimeout, key, value, parseU16Range); err != nil {
+					return ServerConfig{}, warnings, err
+				}
+			case keyRejectAfterTime:
+				if err := setParsedField(&cfg.Obfuscation.RejectAfterTime, key, value, parseU16Range); err != nil {
+					return ServerConfig{}, warnings, err
+				}
+			case keyKeepaliveTimeout:
+				if err := setParsedField(&cfg.Obfuscation.KeepaliveTimeout, key, value, parseU16Range); err != nil {
+					return ServerConfig{}, warnings, err
+				}
+			case keyMaxHandshakeAttempts:
+				if err := setParsedField(&cfg.Obfuscation.MaxHandshakeAttempts, key, value, parseU16Range); err != nil {
+					return ServerConfig{}, warnings, err
+				}
+			case keyRandomTrailers:
+				if err := setParsedField(&cfg.Obfuscation.RandomTrailers, key, value, parseBoolValue); err != nil {
+					return ServerConfig{}, warnings, err
+				}
+			case keyDisableCookies:
+				if err := setParsedField(&cfg.Obfuscation.DisableCookies, key, value, parseBoolValue); err != nil {
+					return ServerConfig{}, warnings, err
+				}
 			}
 		case sectionPeer:
 			matched = knownPeerKeys[key]
 			switch key {
-			case "PublicKey":
+			case keyPublicKey:
 				currentPeer.PublicKey = value
 			case "PresharedKey":
 				currentPeer.PresharedKey = value
@@ -249,6 +295,12 @@ func ParseServerConfigWithOptions(r io.Reader, opts ParseOptions) (ServerConfig,
 	// Validate H1-H4 ranges do not overlap WG message type-ids (1..4).
 	// Such overlaps would let vanilla WireGuard packets be accepted by the
 	// AWG-aware peer, defeating the obfuscation guarantee.
+	//
+	// The check runs after the scan loop, so HeaderProtectionKey is known
+	// regardless of where its line appeared in the file. With header
+	// protection active the 4-byte message type is encrypted and the engine
+	// expects H1..H4 = 1..4, so WG type-ids in H are legitimate; without a
+	// key the guarantee above still applies.
 	for k, r := range []HeaderRange{
 		cfg.Obfuscation.H1,
 		cfg.Obfuscation.H2,
@@ -256,7 +308,9 @@ func ParseServerConfigWithOptions(r io.Reader, opts ParseOptions) (ServerConfig,
 		cfg.Obfuscation.H4,
 	} {
 		if err := ValidateHeaderRange(r); err != nil {
-			return ServerConfig{}, warnings, fmt.Errorf("invalid H%d: %w", k+1, err)
+			if cfg.Obfuscation.HeaderProtectionKey == "" || r.Max < r.Min {
+				return ServerConfig{}, warnings, fmt.Errorf("invalid H%d: %w", k+1, err)
+			}
 		}
 	}
 
@@ -274,6 +328,49 @@ func parseHeaderRange(value string) HeaderRange {
 		return HeaderRange{}
 	}
 	return HeaderRange{Min: uint32(minVal), Max: uint32(maxVal)}
+}
+
+// parseU16Range parses an AWG 3.x range value in the engine's INI notation:
+// "N" or "N-M", where both bounds are uint16. It mirrors
+// u16_range_from_string in amneziawg-tools/src/type.c.
+func parseU16Range(value string) (U16Range, error) {
+	minPart, maxPart, found := strings.Cut(value, "-")
+	if !found {
+		maxPart = minPart
+	}
+	minVal, errMin := strconv.ParseUint(strings.TrimSpace(minPart), 10, 16)
+	maxVal, errMax := strconv.ParseUint(strings.TrimSpace(maxPart), 10, 16)
+	if errMin != nil || errMax != nil {
+		return U16Range{}, errors.New(`expected "N" or "N-M"`)
+	}
+	if maxVal < minVal {
+		return U16Range{}, fmt.Errorf("max (%d) is below min (%d)", maxVal, minVal)
+	}
+	return U16Range{Min: uint16(minVal), Max: uint16(maxVal)}, nil
+}
+
+// parseBoolValue parses the engine's boolean INI spelling: case-insensitive
+// "on"/"1" for true and "off"/"0" for false, mirroring config.c:parse_bool.
+func parseBoolValue(value string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "on", "1":
+		return true, nil
+	case "off", "0":
+		return false, nil
+	default:
+		return false, fmt.Errorf("expected on/off/0/1, got %q", value)
+	}
+}
+
+// setParsedField parses value with parse and stores the result into dst,
+// wrapping any parse failure with the INI key that carried the value.
+func setParsedField[T any](dst *T, key, value string, parse func(string) (T, error)) error {
+	parsed, err := parse(value)
+	if err != nil {
+		return fmt.Errorf("invalid %s %q: %w", key, value, err)
+	}
+	*dst = parsed
+	return nil
 }
 
 // LoadServerConfig reads and parses a server configuration from the given file path.

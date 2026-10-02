@@ -62,3 +62,15 @@ func GeneratePSK() string {
 	}
 	return base64.StdEncoding.EncodeToString(psk[:])
 }
+
+// GenerateHeaderProtectionKey generates a 32-byte AWG 3.x header-protection
+// key as a 44-character base64 string. The key is a symmetric ChaCha20 key
+// (device/noise-types.go HeaderCipherKey), NOT a Curve25519 scalar — it must
+// NOT be clamped.
+func GenerateHeaderProtectionKey() string {
+	var key [keyLength]byte
+	if _, err := rand.Read(key[:]); err != nil {
+		panic("crypto: failed to generate random key: " + err.Error())
+	}
+	return base64.StdEncoding.EncodeToString(key[:])
+}
