@@ -28,7 +28,7 @@ var exitFn = os.Exit
 func NewValidateCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "validate <config>",
-		Short: "Validate an AmneziaWG server config against AWG 2.0 invariants",
+		Short: "Validate an AmneziaWG server config against AWG size invariants",
 		Long: `Validate runs every check the generator enforces (size collisions,
 header ranges, required fields, deprecated tags) against an existing config.
 

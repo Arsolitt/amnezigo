@@ -8,6 +8,7 @@
 - [amnezigo generate](#amnezigo-generate)
 - [amnezigo validate](#amnezigo-validate)
 - [amnezigo analyze](#amnezigo-analyze)
+- [amnezigo version](#amnezigo-version)
 - [Exit codes](#exit-codes)
 - [Global flags](#global-flags)
 
@@ -15,21 +16,24 @@
 
 ## Command overview
 
-amnezigo exposes exactly **three** subcommands. The old imperative CLI
+amnezigo exposes exactly **four** project subcommands — `generate`, `validate`,
+`analyze`, `version` (cobra additionally registers the built-in `completion`
+and `help` commands). The old imperative CLI
 (`init`, `add`, `edit`, `remove`, `export`, `list`) was removed in commit
 `226e4b8` and no longer exists; do not look for it.
 
 | Command | Synopsis | Args | Exits non-zero? |
 |---|---|---|---|
 | [`amnezigo generate`](#amnezigo-generate) | Read a manifest, emit per-peer `awg0.conf` configs. | `NoArgs` | Yes — on manifest-load or generation error (exit `1`). |
-| [`amnezigo validate <config>`](#amnezigo-validate) | Lint an existing AmneziaWG server config against AWG 2.0 invariants. | `ExactArgs(1)` — path to a server `awg0.conf` | Yes — exit `1` on any error, or on any warning when `--strict` is set. |
+| [`amnezigo validate <config>`](#amnezigo-validate) | Lint an existing AmneziaWG server config against AWG size invariants. | `ExactArgs(1)` — path to a server `awg0.conf` | Yes — exit `1` on any error, or on any warning when `--strict` is set. |
 | [`amnezigo analyze`](#amnezigo-analyze) | Heuristic risk report (`RISK001`–`RISK009`) for a server config. | `NoArgs` | No — always exits `0` on success. Findings are informational. Exits `1` only on config-load or `--output`-format error. |
+| [`amnezigo version`](#amnezigo-version) | Print the build's version and commit stamp. | `NoArgs` | No — always exits `0`. |
 
 The root command itself is:
 
 ```text
-amnezigo — AmneziaWG v2.0 Configuration Generator
-        Declarative AmneziaWG v2.0 configuration generator.
+amnezigo — AmneziaWG v3.1 Configuration Generator
+        Declarative AmneziaWG v3.1 configuration generator.
 ```
 
 ---
@@ -99,6 +103,31 @@ Lints a **server** config (`awg0.conf`) against the same invariants the
 generator enforces — packet-size classification, header-range validity,
 junk-range ordering, S-prefix distinctness, and deprecated/unknown keys. See
 [Validation & Analysis](./validation.md) for the rule catalogue.
+
+The command's help text is:
+
+```text
+Validate runs every check the generator enforces (size collisions,
+header ranges, required fields, deprecated tags) against an existing config.
+
+Exit code:
+  0 — no errors (warnings/info may still be printed)
+  1 — at least one error (or any warning when --strict is set)
+
+Examples:
+  amnezigo validate /etc/amnezia/awg0.conf
+  amnezigo validate awg0.conf --output json
+  amnezigo validate awg0.conf --strict --quiet
+
+Usage:
+  amnezigo validate <config> [flags]
+
+Flags:
+  -h, --help            help for validate
+      --output string   Output format: text|json (default "text")
+      --quiet           Suppress summary line; print findings only
+      --strict          Treat warnings as errors for exit code
+```
 
 ### Flags
 
@@ -204,6 +233,51 @@ $ amnezigo analyze --config output/server/awg0.conf \
 
 ---
 
+## amnezigo version
+
+Prints the build stamp injected at compile time by `-ldflags -X` (see
+`internal/buildinfo`), which identifies the exact release a binary came from.
+
+### Flags
+
+None — the command declares no flags beyond the automatic `-h, --help`, and it
+takes no arguments (`NoArgs`).
+
+### Output
+
+```text
+amnezigo <Version> (<Commit>)
+```
+
+* `<Version>` — the release tag (e.g. `v1.0.0`), a GoReleaser snapshot version,
+  or `dev` for a plain `go build` / `go run`.
+* `<Commit>` — the short commit hash the binary was built from, or `none` for an
+  unstamped build.
+
+```shell
+# Identify the installed binary (release build shows the tag)
+$ amnezigo version
+amnezigo v1.0.0 (abc1234)
+
+# A development build shows the defaults
+$ go run ./cmd/amnezigo version
+amnezigo dev (none)
+```
+
+`version --help` prints the command's own help:
+
+```text
+Print the version and the commit the binary was built from.
+
+Usage:
+  amnezigo version [flags]
+
+Flags:
+  -h, --help   help for version
+```
+
+---
+
 ## Exit codes
 
 | Command | Condition | Exit |
@@ -216,10 +290,11 @@ $ amnezigo analyze --config output/server/awg0.conf \
 | `validate` | Unknown `--output` value, or input file open/parse failure. | `1` |
 | `analyze` | Success (findings are informational and never affect the exit code). | `0` |
 | `analyze` | Config-load failure or invalid `--output` value. | `1` |
+| `version` | Success. | `0` |
 
 `generate` exits via `rootCmd.Execute()` → `os.Exit(1)` on any returned error.
 `validate` exits via the package-level `exitFn` (`os.Exit`; overridable in
-tests). `analyze` simply returns its error to cobra.
+tests). `analyze` and `version` simply return their error to cobra.
 
 ---
 

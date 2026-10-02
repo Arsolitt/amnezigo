@@ -6,13 +6,14 @@
 
 <p align="center">
   <strong>Amnezia</strong> + <strong>Go</strong> = <strong>Amnezigo</strong><br>
-  A CLI tool and Go library for generating <a href="https://github.com/amnezia-vpn/amneziawg">AmneziaWG</a> v2.0 configurations from a declarative manifest.
+  A CLI tool and Go library for generating <a href="https://github.com/amnezia-vpn/amneziawg">AmneziaWG</a> 2.0–3.1 configurations (default 3.1) from a declarative manifest.
 </p>
 
 <p align="center">
   <a href="https://pkg.go.dev/github.com/Arsolitt/amnezigo"><img src="https://pkg.go.dev/badge/github.com/Arsolitt/amnezigo.svg" alt="Go Reference"></a>
   <a href="https://github.com/Arsolitt/amnezigo/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-blue" alt="License: GPL-3.0"></a>
   <a href="https://github.com/Arsolitt/amnezigo"><img src="https://img.shields.io/github/go-mod/go-version/Arsolitt/amnezigo?logo=go&logoColor=white" alt="Go Version"></a>
+  <a href="https://github.com/Arsolitt/amnezigo/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Arsolitt/amnezigo/ci.yml?logo=github" alt="CI"></a>
 </p>
 
 ---
@@ -26,23 +27,30 @@
 - **Protocol templates** — QUIC, DNS, DTLS, STUN, SIP, and RTP handshake shapes
 - **Built-in presets** — tuned parameter sets for LAN, home, mobile, and CI environments
 - **iptables rules** — PostUp/PostDown NAT and forwarding generated when `main_iface` is set
-- **Validation** — `amnezigo validate` checks configs against AWG 2.0 invariants
+- **Validation** — `amnezigo validate` checks configs against AWG size invariants
 - **Heuristic analysis** — `amnezigo analyze` inspects obfuscation strength
 - **IPv4 & IPv6** endpoint auto-detection
 - Usable as a Go library
 
 ## Quick Start
 
-Install the CLI:
+Install the CLI with `go install` (Go 1.26.1+):
 
 ```shell
 go install github.com/Arsolitt/amnezigo/cmd/amnezigo@latest
+amnezigo version
 ```
 
-Or build with Docker:
+Prebuilt binaries are attached to every [release](https://github.com/Arsolitt/amnezigo/releases): raw `amnezigo-linux-amd64` and `amnezigo-darwin-amd64` executables (amd64 only), `checksums.txt`, and `amnezigo-licenses_<version>.tar.gz` with the bundled third-party licenses. The release image is published to GHCR:
 
 ```shell
-docker build -t amnezigo .
+docker run --rm ghcr.io/arsolitt/amnezigo:<version> --help
+```
+
+To build the image from source use the root `Dockerfile`. The runtime base (`amneziavpn/amneziawg-go`) is amd64-only, so the platform must be set explicitly on arm64 hosts:
+
+```shell
+docker build --platform linux/amd64 -t amnezigo .
 ```
 
 Declare your network in `amnezigo.json` — one server peer (sets both `endpoint` and `listen_port`) plus any number of client peers:
@@ -69,7 +77,7 @@ Generate the server and client configs:
 # Writes output/server/awg0.conf and output/<peer>/awg0.conf
 amnezigo generate
 
-# Check a generated config against AWG 2.0 invariants
+# Check a generated config against AWG size invariants
 amnezigo validate output/server/awg0.conf
 
 # Inspect obfuscation strength

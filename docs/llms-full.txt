@@ -3,7 +3,7 @@ url: /overview
 ---
 # Overview
 
-Amnezigo is a declarative configuration generator for **AmneziaWG v2.0** networks. You write a single manifest file describing your whole network — one server, any number of clients, and the obfuscation profile they share — and Amnezigo turns it into ready-to-deploy `awg0.conf` files for every peer.
+Amnezigo is a declarative configuration generator for **AmneziaWG 2.0/3.0/3.1** networks (the target generation is selected per manifest; unset defaults to 3.1). You write a single manifest file describing your whole network — one server, any number of clients, and the obfuscation profile they share — and Amnezigo turns it into ready-to-deploy `awg0.conf` files for every peer.
 
 If you have ever configured AmneziaWG by hand, you know the pain: choosing four S-prefixes, four header ranges, and three junk parameters, then keeping every client's `[Peer]` block inside the server config in sync. Amnezigo replaces that spreadsheet-and-pray workflow with **one file that is the source of truth**.
 
@@ -13,19 +13,20 @@ This page is a gentle tour. It explains what Amnezigo is, introduces the manifes
 
 Amnezigo is a single Go binary that does one thing well: **read a manifest, write configs**. It is a *generator*, not a daemon — it does not run tunnels, manage keys at runtime, or touch the network. You run it on your laptop, copy the generated files to your machines, and start the AmneziaWG interface yourself.
 
-The binary exposes exactly three commands:
+The binary exposes exactly four commands:
 
 | Command | Purpose |
 | --- | --- |
 | `amnezigo generate` | Build `awg0.conf` files from a manifest |
 | `amnezigo validate` | Check an existing config for obfuscation problems |
 | `amnezigo analyze` | Probe a config's runtime obfuscation characteristics |
+| `amnezigo version` | Print the build's version and commit stamp |
 
 :::: tip
-Only those three commands exist. If an old blog post or fork's README mentions `amnezigo init`, `add`, `edit`, `remove`, `export`, or `list`, it is describing a version that no longer exists — those commands were removed during the refactor to the declarative manifest. The `go install` one-liner is still valid; everything else around it is stale.
+Only those four commands exist. If an old blog post or fork's README mentions `amnezigo init`, `add`, `edit`, `remove`, `export`, or `list`, it is describing a version that no longer exists — those commands were removed during the refactor to the declarative manifest.
 ::::
 
-This tour focuses on `generate`, because that is the command you will reach for ninety percent of the time. `validate` and `analyze` are covered in [Validation](/validation) and the [CLI Reference](/cli-reference).
+This tour focuses on `generate`, because that is the command you will reach for ninety percent of the time. `validate`, `analyze`, and `version` are covered in [Validation](/validation) and the [CLI Reference](/cli-reference).
 
 ## The Declarative Manifest Concept
 
@@ -248,12 +249,12 @@ Amnezigo is a **declarative** generator: you describe the topology you want in a
   amnezigo --help
   ```
 
-  You should see the root help: `AmneziaWG v2.0 Configuration Generator`.
+  You should see the root help: `AmneziaWG v3.1 Configuration Generator`, or check the exact build with `amnezigo version`.
 
-- **AmneziaWG 2.0 userspace** (the runtime, not installed by Amnezigo). The generated configs target `amneziawg-go`; the legacy kernel module rejects some emitted tags. You only need the runtime when you actually bring a tunnel up — generating configs needs nothing but the `amnezigo` binary.
+- **AmneziaWG userspace** (the runtime, not installed by Amnezigo). The generated configs target `amneziawg-go` at the generation selected by `obfuscation.awg_version` (default `"3.1"`); the legacy kernel module rejects some emitted tags. You only need the runtime when you actually bring a tunnel up — generating configs needs nothing but the `amnezigo` binary.
 
-:::: tip Only three commands exist
-Amnezigo has exactly three subcommands: `generate`, `validate`, and `analyze`. This guide uses `generate`. If you see references to `init`, `add`, `edit`, `remove`, `export`, or `list` anywhere, those commands were removed — they do not exist.
+:::: tip Only four commands exist
+Amnezigo has exactly four subcommands: `generate`, `validate`, `analyze`, and `version`. This guide uses `generate`. If you see references to `init`, `add`, `edit`, `remove`, `export`, or `list` anywhere, those commands were removed — they do not exist.
 ::::
 
 ## Write a Minimal Manifest
@@ -556,7 +557,7 @@ url: /installation
 ---
 # Installation
 
-Amnezigo is a single static binary — a declarative **AmneziaWG v2.0** configuration generator. It exposes exactly three subcommands: `generate`, `validate`, and `analyze`. There are no `init`, `add`, `export`, or `list` commands.
+Amnezigo is a single static binary — a declarative AmneziaWG **2.0/3.0/3.1** configuration generator (default 3.1). It exposes exactly four subcommands: `generate`, `validate`, `analyze`, and `version`. There are no `init`, `add`, `export`, or `list` commands.
 
 This page walks through every supported install method and verifies the binary at the end.
 
@@ -571,7 +572,7 @@ Amnezigo is written in Go and ships as a single binary with no runtime file depe
 | Go | 1.26.1 or newer (only needed for `go install` and build-from-source) |
 | Module path | `github.com/Arsolitt/amnezigo` |
 | Binary entry point | `cmd/amnezigo/main.go` → calls `cli.Execute()` |
-| AmneziaWG runtime | AmneziaWG **v2.0** userspace (required to actually run generated configs) |
+| AmneziaWG runtime | AmneziaWG userspace (`amneziawg-go`) matching the selected `obfuscation.awg_version` — `"2.0"`, `"3.0"`, or `"3.1"` (default `"3.1"`); required to actually run generated configs |
 
 ::: tip
 You only need the Go toolchain to *build* the binary. Once built, `amnezigo` is self-contained and can be copied to any machine of the same OS/architecture — no Go install required on the target.
@@ -649,41 +650,52 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o ./build/amnezigo ./cmd/amnezigo/
+ARG VERSION=dev
+ARG COMMIT=none
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w -X github.com/Arsolitt/amnezigo/internal/buildinfo.Version=${VERSION} -X github.com/Arsolitt/amnezigo/internal/buildinfo.Commit=${COMMIT}" \
+    -o ./build/amnezigo ./cmd/amnezigo/
 
 # Stage 2 — runtime
-FROM amneziavpn/amneziawg-go:0.2.16
-RUN apk --no-cache add ca-certificates bash
+FROM amneziavpn/amneziawg-go:3.1.20260828
 COPY --from=builder /app/build/amnezigo /usr/local/bin/amnezigo
+ENTRYPOINT ["/usr/local/bin/amnezigo"]
 ```
 
 | Stage | Base image | Purpose |
 | --- | --- | --- |
-| Builder | `golang:1.26-alpine` | Compiles a stripped static binary with CGO disabled |
-| Runtime | `amneziavpn/amneziawg-go:0.2.16` | AmneziaWG v2.0 userspace, plus the `amnezigo` binary at `/usr/local/bin/amnezigo` |
+| Builder | `golang:1.26-alpine` | Compiles a static binary with CGO disabled; the version/commit stamp defaults to `dev`/`none` and can be overridden with `--build-arg VERSION=… --build-arg COMMIT=…` |
+| Runtime | `amneziavpn/amneziawg-go:3.1.20260828` | AmneziaWG userspace base image (Alpine 3.19, amd64-only). It already ships bash, the ca-certificates bundle, and the `awg` tools, so the build adds **no package layer**. The binary lands at `/usr/local/bin/amnezigo`, which is also the image ENTRYPOINT. |
 
 ### Build the image
 
+Both the runtime base image and the published images are amd64-only, so the platform must be explicit on arm64 hosts (Docker then runs the result through Rosetta/containerd emulation):
+
 ```shell
-docker build -t amnezigo .
+docker build --platform linux/amd64 -t amnezigo .
 ```
 
 ### Run amnezigo inside the container
 
-The runtime base image (`amneziavpn/amneziawg-go`) carries its own entrypoint, so invoke the `amnezigo` binary explicitly via `--entrypoint`. To generate configs into your working directory, mount it as a volume and set it as the working directory — `generate` writes to `<project>/output` by default:
+The image sets `ENTRYPOINT ["/usr/local/bin/amnezigo"]`, so subcommands are passed straight to `docker run` — no `--entrypoint` workaround is needed. To generate configs into your working directory, mount it as a volume and set it as the working directory (`generate` writes to `<project>/output` by default):
 
 ```shell
 docker run --rm \
   -v "$(pwd):/work" \
   -w /work \
-  --entrypoint /usr/local/bin/amnezigo \
   amnezigo generate
 ```
 
-Generated files appear under `./output/`. Replace `generate` with `validate` or `analyze` to run those subcommands instead.
+Generated files appear under `./output/`. Replace `generate` with `validate`, `analyze`, or `version` to run another subcommand.
+
+The published image is `ghcr.io/arsolitt/amnezigo:<version>` (built by GoReleaser from `cmd/amnezigo/Dockerfile`; same entrypoint, and it ships `NOTICE`, `LICENSE`, and `licenses/` under `/usr/share/doc/amnezigo/`):
+
+```shell
+docker run --rm ghcr.io/arsolitt/amnezigo:<version> version
+```
 
 ::: warning
-The runtime stage is pinned to `amneziavpn/amneziawg-go:0.2.16`. Generated Amnezigo configs assume the **AWG v2.0** userspace — in particular the `<d>` CPS tag, which the legacy kernel module rejects. Keep the container's AmneziaWG version aligned with v2.0.
+The runtime stage is pinned to `amneziavpn/amneziawg-go:3.1.20260828`. Generated Amnezigo configs target the generation selected by `obfuscation.awg_version` (default `"3.1"`); the `<d>` CPS tag in particular is a userspace feature (AWG 2.0 or newer) that the legacy kernel module rejects. Keep the engine version aligned with the configured target.
 :::
 
 ## Verify the Install
@@ -692,15 +704,17 @@ Confirm the binary is reachable and reports the expected identity:
 
 ```shell
 amnezigo --help
+amnezigo version
 ```
 
-The root command describes itself as **"AmneziaWG v2.0 Configuration Generator"** and lists exactly three subcommands:
+The root command's short description is **"AmneziaWG v3.1 Configuration Generator"**, and its `--help` text begins `Declarative AmneziaWG v3.1 configuration generator.` It lists exactly four subcommands:
 
 | Subcommand | Purpose |
 | --- | --- |
-| `generate` | Build server and client AmneziaWG v2.0 configs from a manifest |
-| `validate` | Check an existing config against AWG v2.0 invariants |
+| `generate` | Build server and client AmneziaWG configs from a manifest |
+| `validate` | Check an existing config against AWG size invariants |
 | `analyze` | Heuristic analysis of an obfuscation config for weaknesses |
+| `version` | Print the build's version and commit stamp |
 
 If you built from source rather than installing to your `PATH`, invoke the binary by path instead:
 
@@ -708,11 +722,33 @@ If you built from source rather than installing to your `PATH`, invoke the binar
 ./build/amnezigo --help
 ```
 
-::: warning
-The repository `README.md` "Quick Start" still shows `amnezigo init`, `amnezigo add`, and `amnezigo export`. Those commands were **removed** — only `generate`, `validate`, and `analyze` exist. The `go install` line itself is still valid; the usage examples below it are stale.
-:::
-
 You are now ready to write a manifest and run `amnezigo generate`. See the manifest reference and quick-start pages for what to put in `amnezigo.json` or `.amnezigo.jsonnet`.
+
+## Release Artifacts & Development Tooling
+
+Releases are tag-driven: `vX.Y.Z` publishes a stable GitHub release plus image tags `:X.Y.Z` and `:latest`; `vX.Y.Z-rc.N` publishes a pre-release with the image tag `:X.Y.Z-rc.N` only.
+
+Every release attaches:
+
+| Asset | Contents |
+| --- | --- |
+| `amnezigo-linux-amd64`, `amnezigo-darwin-amd64` | Raw static executables. The release matrix is **amd64-only** — there are no arm64 binaries. |
+| `checksums.txt` | SHA-256 checksums for every asset. |
+| `amnezigo-licenses_<version>.tar.gz` | `LICENSE`, `NOTICE`, and the `licenses/` attribution bundle. |
+| `ghcr.io/arsolitt/amnezigo:<version>` (container) | The release image, linux/amd64. |
+
+Local development uses the toolchain pinned in `mise.toml` (Go 1.26.8, golangci-lint 2.14.0, GoReleaser 2.18.1):
+
+| Command | Purpose |
+| --- | --- |
+| `mise install` | Install the pinned tool versions. |
+| `make build` / `make test` / `make test-race` / `make test-e2e` | Build the CLI and run the unit, race, and Docker-backed e2e suites. |
+| `make lint` / `make fmt` | Lint and format with the golden `golangci-lint` config (`.golangci.yaml`). |
+| `make notice` (`go run ./hack/noticegen`) | Regenerate `NOTICE` and `licenses/` from the module graph. |
+| `make snapshot` | Build every release artifact locally (`goreleaser release --snapshot --clean`). |
+| `make image` | Build the from-source container image (the target already pins `--platform linux/amd64`). |
+| `mise exec -- goreleaser check` | Validate `.goreleaser.yaml`. |
+
 ---
 url: /manifest-reference
 ---
@@ -1196,7 +1232,7 @@ url: /output-format
 ---
 # Generated Output Format
 
-`amnezigo generate` produces AmneziaWG v2.0 `awg0.conf` files — one per peer — written as standard INI that both `awg-quick` and the `validate`/`analyze` commands can read back. This page documents the exact on-disk layout and the field order of each section, so you can predict what a manifest will generate (and what `amnezigo validate` expects to find).
+`amnezigo generate` produces AmneziaWG `awg0.conf` files — one per peer — written as standard INI that both `awg-quick` and the `validate`/`analyze` commands can read back. The target generation is selected by `obfuscation.awg_version` (`"2.0"`, `"3.0"`, or `"3.1"`; unset defaults to 3.1). This page documents the exact on-disk layout and the field order of each section, so you can predict what a manifest will generate (and what `amnezigo validate` expects to find).
 
 The structure is fixed by the writer (`writer.go`) and the build pipeline (`pipeline.go`); fields are always emitted in the order shown below.
 
@@ -1926,7 +1962,7 @@ url: /cli-reference
 ---
 # CLI Reference
 
-Amnezigo ships a single `amnezigo` binary with exactly three subcommands: `generate`, `validate`, and `analyze`. There are no global flags and no other commands.
+Amnezigo ships a single `amnezigo` binary with exactly four project subcommands: `generate`, `validate`, `analyze`, and `version`. There are no global flags and no other commands (cobra also registers its built-in `completion` and `help`).
 
 ## Global (`amnezigo`)
 
@@ -1934,7 +1970,7 @@ Amnezigo ships a single `amnezigo` binary with exactly three subcommands: `gener
 amnezigo [subcommand] [flags]
 ```
 
-The root command's short description is **AmneziaWG v2.0 Configuration Generator**. Run with no subcommand (or with `-h`/`--help`) to list the subcommands:
+The root command's short description is **AmneziaWG v3.1 Configuration Generator** (its `--help` text opens with `Declarative AmneziaWG v3.1 configuration generator.`). Run with no subcommand (or with `-h`/`--help`) to list the subcommands:
 
 ```shell
 amnezigo
@@ -1945,11 +1981,12 @@ amnezigo
 | `generate` | Read a manifest and write per-peer AmneziaWG configs. |
 | `validate` | Run every generator-enforced invariant check against an existing server config. |
 | `analyze` | Run heuristic weakness analysis on a server config; purely informational. |
+| `version` | Print the build's version and commit stamp; no flags, always exits `0`. |
 
 The root command defines **no global flags**. Any error returned by a subcommand is printed as `Error: <message>` to stderr and the process exits with code `1`.
 
 :::: warning
-Legacy commands mentioned in older docs (`init`, `add`, `edit`, `remove`, `export`, `list`) do **not** exist — they were removed. Only the three commands above are available.
+Legacy commands mentioned in older docs (`init`, `add`, `edit`, `remove`, `export`, `list`) do **not** exist — they were removed. The four commands above are the complete surface.
 ::::
 
 ## amnezigo generate
@@ -2124,6 +2161,24 @@ amnezigo analyze --protocol quic --peer laptop --samples 100
 amnezigo analyze --config awg0.conf --samples 50 --seed 42
 amnezigo analyze --config awg0.conf --protocol dns --samples 0
 ```
+
+## amnezigo version
+
+Prints the build stamp baked in at compile time via `-ldflags -X` (see `internal/buildinfo`). The format is:
+
+```text
+amnezigo <Version> (<Commit>)
+```
+
+* `<Version>` — release tag (e.g. `v1.0.0`), a GoReleaser snapshot version, or `dev` for a plain `go build` / `go run`.
+* `<Commit>` — the short commit hash the binary was built from, or `none` for an unstamped build.
+
+```shell
+amnezigo version                 # amnezigo v1.0.0 (abc1234)
+go run ./cmd/amnezigo version    # amnezigo dev (none)
+```
+
+No flags beyond `-h`/`--help`; arguments: none (`NoArgs`); always exits `0`.
 ---
 url: /credentials
 ---
@@ -2647,7 +2702,7 @@ The widely-cited Habr article on AWG 2.0 incorrectly claims `<rc>` draws from `[
 :::
 
 ::: tip `<d>` requires AWG 2.0 userspace
-`<d>` is a runtime-passthrough marker that only makes sense inside a multi-interval template where an earlier interval produces the value being reused (e.g. QUIC's I2 reuses I1's DCID via `<d>`). The legacy `amneziawg-linux-kernel-module` rejects `<d>` with `unknown tag`. Amnezigo's Dockerfile pins `amneziavpn/amneziawg-go:0.2.16` (userspace) so generated configs work out of the box.
+`<d>` is a runtime-passthrough marker that only makes sense inside a multi-interval template where an earlier interval produces the value being reused (e.g. QUIC's I2 reuses I1's DCID via `<d>`). The legacy `amneziawg-linux-kernel-module` rejects `<d>` with `unknown tag`. Amnezigo's Dockerfile pins `amneziavpn/amneziawg-go:3.1.20260828` (userspace) so generated configs work out of the box.
 :::
 
 **Generated CPS examples** (rendered tag shapes — values inside `<r>`/`<rc>`/`<rd>` are filled by the AmneziaWG receiver at emit time):
@@ -2929,7 +2984,7 @@ Amnezigo ships two diagnostic commands that operate on an **already-generated se
 - **`amnezigo validate`** — enforces the same hard invariants the generator does. Findings are classified `error` / `warning` / `info` and drive the exit code.
 - **`amnezigo analyze`** — runs heuristic *weakness* checks and profiles handshake/junk/header/I-packet parameters. Purely advisory; always exits `0`.
 
-Both read an AmneziaWG v2.0 server INI file — they do **not** consume a manifest. To check a manifest, run [`amnezigo generate`](/quick-start) first (or with `--dry-run`) and validate the produced `awg0.conf`.
+Both read an AmneziaWG server INI file — they do **not** consume a manifest. To check a manifest, run [`amnezigo generate`](/quick-start) first (or with `--dry-run`) and validate the produced `awg0.conf`.
 
 ## amnezigo validate
 
@@ -3560,11 +3615,11 @@ A reference of the sharp edges in Amnezigo: mistakes that produce confusing
 errors, behavior that does not match intuition, and the validation pitfalls
 that catch hand-edited configs. Each entry has a short explanation and a fix.
 
-::: warning Only three commands exist
+::: warning Only four commands exist
 `amnezigo init`, `add`, `edit`, `remove`, `export`, and `list` were removed.
-The only commands are `generate`, `validate`, and `analyze`. Older copies of
-`README.md` / `AGENTS.md` still describe the removed commands and a
-`--preset`/`InitWithPreset` flow — treat those sections as stale.
+The only commands are `generate`, `validate`, `analyze`, and `version`. If a
+copy of `README.md` / `AGENTS.md` still describes the removed commands or a
+`--preset`/`InitWithPreset` flow, treat those sections as stale.
 ::::
 
 

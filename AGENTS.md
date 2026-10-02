@@ -1,14 +1,14 @@
 # Repository Guidelines
 
 Agent guidelines for **amnezigo** — a CLI tool and Go library that generates
-AmneziaWG v2.0 configurations from a declarative manifest. Module:
-`github.com/Arsolitt/amnezigo`, Go 1.26.1, GPL-3.0.
+AmneziaWG 2.0/3.0/3.1 configurations (default 3.1) from a declarative manifest.
+Module: `github.com/Arsolitt/amnezigo`, Go 1.26.1, GPL-3.0.
 
 > The repo completed a **declarative refactor** (plan phase P2): the legacy
 > imperative CLI (`init`/`add`/`edit`/`list`/`export`/`remove`) and the
 > `Manager` API were **removed entirely** (commit `226e4b8`). Only `generate`,
-> `validate`, and `analyze` remain. Any reference to the old commands or
-> `Manager` describes deleted code.
+> `validate`, `analyze`, and `version` remain. Any reference to the old commands
+> or `Manager` describes deleted code.
 
 ## Project Overview
 
@@ -70,42 +70,45 @@ Key supporting modules:
 
 ```
 cmd/amnezigo/main.go   # Entry point: func main() { cli.Execute() }
-internal/cli/          # Cobra commands: generate.go, validate.go, analyze.go, cli.go
+internal/cli/          # Cobra commands: generate.go, validate.go, analyze.go, version.go, cli.go
+internal/buildinfo/    # Version/Commit vars injected at build time via -ldflags -X
+hack/noticegen/        # Stdlib-only NOTICE + licenses/ generator (go run ./hack/noticegen)
 *.go                   # All business logic (root package `amnezigo`)
 testdata/loader/       # Manifest fixtures (valid/, precedence/, invalid-*, …)
-docs/                  # llms-full.txt is the source of truth; other guides are STALE (see below)
+docs/                  # llms-full.txt is the source of truth; other guides are hand-written references
 docs/plans/            # P0–P3 roadmap plans (PR blueprints)
+.github/               # ci.yml (lint, unit, e2e, cross-build, release config, licenses), release.yml
 ```
 
 ## Development Commands
 
-No Makefile. Use the Go toolchain directly:
+Install the pinned toolchain once (`mise.toml`: Go 1.26.8, golangci-lint 2.14.0,
+goreleaser 2.18.1), then use the `Makefile` targets:
 
 ```bash
-# Build (output gitignored under build/)
-go build -o build/amnezigo ./cmd/amnezigo/
+mise install
 
-# Install
-go install github.com/Arsolitt/amnezigo/cmd/amnezigo@latest
+make build        # go build -ldflags "…" -o bin/amnezigo ./cmd/amnezigo
+make test         # go test ./...
+make test-race    # go test -race ./...
+make test-e2e     # go test -tags=e2e ./e2e/...  (drives Docker containers; self-skips without Docker)
+make lint         # golangci-lint run
+make fmt          # golangci-lint fmt
+make notice       # go run ./hack/noticegen  (regenerate NOTICE + licenses/)
+make snapshot     # goreleaser release --snapshot --clean
+make image        # docker build --platform linux/amd64 -t amnezigo .
+make clean        # rm -rf bin dist
 
-# Tests
-go test ./...                       # all
-go test -run TestFunctionName .     # single root-package test (note: `.` not ./internal/...)
-go test -cover ./...                # coverage summary
-go test ./... -race                 # pre-merge gate
-
-# Lint (run --fix first to auto-resolve, then fix the rest)
-gofmt -l .                          # must be empty
-go vet ./...
-golangci-lint run --fix && golangci-lint run
-
-# Docker (multi-stage: golang:1.26-alpine → amneziavpn/amneziawg-go:0.2.16)
-docker build -t amnezigo .
+# Single test (root-package convention: `.`, not ./internal/...)
+go test -run TestFunctionName .
 ```
 
-Production binaries use `CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w"`
-(see `Dockerfile`). Pre-merge quality bar: green tests + `go vet` clean +
-`gofmt -l .` empty + `golangci-lint run` zero errors + `go test ./... -race`.
+`make build` and GoReleaser stamp the binary via
+`-ldflags -X internal/buildinfo.{Version,Commit}` (`make build` derives the
+values from `git describe` / `git rev-parse`). Production binaries use
+`CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w"` (the release
+matrix is amd64-only — see `.goreleaser.yaml`). Pre-merge quality bar: green
+`make test-race` + zero `make lint` errors.
 
 ## Code Conventions & Common Patterns
 
@@ -177,7 +180,7 @@ kernel-module-only and breaks `amneziawg-go` + all AmneziaVPN clients):
 | `<d>` | data passthrough (AWG 2.0 userspace) | 0 |
 
 ### CLI conventions
-- `spf13/cobra` v1.8.0. Commands built via `New*Command()` factories — **no
+- `spf13/cobra` v1.10.2. Commands built via `New*Command()` factories — **no
   `init()`**; flag setup lives inside each factory.
 - Flag names are kebab-case (`--full-reset`, `--dry-run`, `--jpath`).
 - `generate`/`analyze` bind closure-local vars; `validate` binds package-level
@@ -189,10 +192,12 @@ kernel-module-only and breaks `amneziawg-go` + all AmneziaVPN clients):
 | File | Role |
 |------|------|
 | `cmd/amnezigo/main.go` | Entry point → `cli.Execute()` |
-| `internal/cli/cli.go` | Root command + `Execute()`; registers the 3 subcommands |
+| `internal/cli/cli.go` | Root command + `Execute()`; registers the 4 subcommands |
 | `internal/cli/generate.go` | `generate` — manifest → configs pipeline driver |
-| `internal/cli/validate.go` | `validate <config>` — lint a server config against AWG 2.0 invariants |
+| `internal/cli/validate.go` | `validate <config>` — lint a server config against AWG size invariants |
 | `internal/cli/analyze.go` | `analyze` — RISK001–009 heuristics + size profiles |
+| `internal/cli/version.go` | `version` — prints the build stamp (`amnezigo <Version> (<Commit>)`) |
+| `internal/buildinfo/buildinfo.go` | `Version` / `Commit` vars injected at build time via `-ldflags -X` |
 | `manifest.go` | User-facing manifest schema (`Manifest`, `PeerManifest`, `ObfuscationManifest`) |
 | `loader.go` | Manifest discovery + Jsonnet/JSON precedence + version validation |
 | `pipeline.go` | `Generate()` orchestrator — the heart of the system |
@@ -207,18 +212,30 @@ kernel-module-only and breaks `amneziawg-go` + all AmneziaVPN clients):
 | `presets.go` | Named obfuscation bundles (`lan-conservative`, `home-balanced`, `mobile-aggressive`, `stealth-paranoid`, `standard-1420`, `low-overhead`, `test-minimal`) |
 | `testdata/loader/valid/amnezigo.json` | Canonical reference manifest |
 | `docs/llms-full.txt` | **Source-of-truth** AI-friendly doc (current architecture) |
+| `.goreleaser.yaml` | Release pipeline: amd64-only builds (linux/darwin), raw binaries + checksum + license bundle, GHCR image |
+| `Makefile` | Dev targets: `build`, `test`, `test-race`, `test-e2e`, `lint`, `fmt`, `notice`, `snapshot`, `image`, `clean` |
+| `mise.toml` | Pinned tool versions: Go 1.26.8, golangci-lint 2.14.0, goreleaser 2.18.1 |
+| `hack/noticegen/main.go` | Regenerates `NOTICE` + `licenses/` from the module graph |
+| `.github/workflows/ci.yml` | CI: `lint`, `unit_test`, `e2e`, `cross_build`, `release_config`, `licenses` |
+| `.github/workflows/release.yml` | Tag-driven GoReleaser release (`v*`) |
 
 ## Runtime / Tooling Preferences
 
-- **Go 1.26.1** (pinned in `go.mod`; `installation.md` confirms Go 1.26+ required).
+- **Go 1.26.1** in `go.mod`; `mise.toml` pins the local toolchain (Go 1.26.8,
+  golangci-lint 2.14.0, goreleaser 2.18.1) — run `mise install` once.
 - Direct deps: `github.com/google/go-jsonnet` v0.22.0, `github.com/spf13/cobra`
-  v1.8.0, `golang.org/x/crypto` v0.45.0 (curve25519). No test-only deps beyond stdlib.
-- **Linter**: `golangci-lint` v2.6.2 with a strict "golden config" (~70 linters).
-  Notable: `depguard` forbids `math/rand` (non-test), `log` outside main (use
-  `log/slog`); `mnd` flags magic numbers; `golines` enforces **120-char** max line
-  length; `goimports` local prefix `github.com/Arsolitt/amnezigo`.
-- No Makefile; all commands are plain `go` / `golangci-lint` / `docker`.
-- `.gitignore` excludes `bin`, `build`, `*.conf`, `*.config`.
+  v1.10.2, `golang.org/x/crypto` v0.57.0 (curve25519). No test-only deps beyond stdlib.
+- **Linter**: `golangci-lint` v2.14.0 with a strict "golden config" (~70 linters,
+  `.golangci.yaml`). Notable: `depguard` forbids `math/rand` (non-test), `log`
+  outside main (use `log/slog`); `mnd` flags magic numbers; `golines` enforces
+  **120-char** max line length; `goimports` local prefix
+  `github.com/Arsolitt/amnezigo`. `gochecknoglobals`, `gochecknoinits`,
+  `paralleltest`, and `testpackage` are deliberately disabled (see the comments
+  in `.golangci.yaml`).
+- Commands run through `make` (see Development Commands) or the `mise` tools;
+  release metadata lives in `.goreleaser.yaml` (tag convention `vX.Y.Z` stable /
+  `vX.Y.Z-rc.N` prerelease).
+- `.gitignore` excludes `bin`, `build`, `dist`, `*.conf`, `*.config`.
 
 ## Testing & QA
 
@@ -289,9 +306,17 @@ miss any item. (sip.go + sip_test.go is the reference implementation.)
   crypto keys are reused.
 - **Each client's PrivateKey is stored as `#_PrivateKey` in the server config's
   `[Peer]`** — this is the key-reuse recovery source, alongside the client config.
-- **Docs split**: `docs/llms-full.txt` is current. The standalone guides
-  (`installation.md`, `cli-reference.md`, `configuration.md`, `library-usage.md`,
-  `obfuscation.md`) document the **removed** imperative CLI and are stale.
+- **Docs split**: `docs/llms-full.txt` is the source of truth. The standalone
+  guides under `docs/` are hand-written references for the current declarative
+  CLI; pages describing the removed imperative commands are historical only.
+- **The release matrix is amd64-only** (`.goreleaser.yaml`: linux/amd64 and
+  darwin/amd64 raw binaries, `checksums.txt`, plus a
+  `amnezigo-licenses_<version>.tar.gz` bundle). The GHCR images are built from
+  the same single platform.
+- **The container images are amd64-only** — both the from-source `Dockerfile`
+  and the published `ghcr.io/arsolitt/amnezigo` image. On arm64 hosts pass
+  `--platform linux/amd64` to `docker build`; `make image` already pins it.
+  `mise exec -- goreleaser check` validates the release config locally.
 - **`validate` always parses with `Strict:true`** regardless of `--strict`;
   `--strict` only affects the exit code (warnings → exit 1). `--quiet` is
   text/summary-only (ignored in JSON mode).

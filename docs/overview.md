@@ -1,6 +1,6 @@
 # Overview
 
-> What amnezigo is, the declarative model it is built on, and the three commands it exposes.
+> What amnezigo is, the declarative model it is built on, and the commands it exposes.
 
 ## Table of Contents
 
@@ -8,14 +8,14 @@
 - [The Declarative Manifest Concept](#the-declarative-manifest-concept)
 - [What `amnezigo generate` Produces](#what-amnezigo-generate-produces)
 - [Key Concepts](#key-concepts)
-- [The Three Commands](#the-three-commands)
+- [The Commands](#the-commands)
 - [Where To Go Next](#where-to-go-next)
 
 ---
 
 ## What Amnezigo Is
 
-amnezigo is a **configuration generator** for [AmneziaWG](https://github.com/amnezia-vpn/amneziawg) v2.0 — it is **not a daemon** and never runs a tunnel. It reads one declarative manifest, resolves AmneziaWG obfuscation parameters and X25519 cryptography, and emits ready-to-deploy `awg0.conf` files (one server config plus one per client peer). The same logic is also exposed as an importable Go library.
+amnezigo is a **configuration generator** for [AmneziaWG](https://github.com/amnezia-vpn/amneziawg) 2.0/3.0/3.1 (default 3.1) — it is **not a daemon** and never runs a tunnel. It reads one declarative manifest, resolves AmneziaWG obfuscation parameters and X25519 cryptography, and emits ready-to-deploy `awg0.conf` files (one server config plus one per client peer). The same logic is also exposed as an importable Go library.
 
 | Property | Value |
 |---|---|
@@ -23,7 +23,7 @@ amnezigo is a **configuration generator** for [AmneziaWG](https://github.com/amn
 | Module | `github.com/Arsolitt/amnezigo` |
 | Go version | 1.26+ |
 | License | GPL-3.0 |
-| Commands | `generate`, `validate`, `analyze` |
+| Commands | `generate`, `validate`, `analyze`, `version` |
 | Output artifact | INI `awg0.conf` per peer; optional `amnezigo.vpn` import link per client (`--vpn-links`) |
 | Library entry point | `amnezigo.Generate` |
 
@@ -107,13 +107,14 @@ amnezigo.json | .amnezigo.jsonnet
    findings / heuristics
 ```
 
-## The Three Commands
+## The Commands
 
 | Command | Purpose | Reference |
 |---|---|---|
 | `amnezigo generate` | Read the manifest and write per-peer `awg0.conf` files (reusing persisted keys unless `--full-reset`). | [CLI Reference](./cli-reference.md) |
-| `amnezigo validate` | Check one or more generated configs against AmneziaWG v2.0 invariants. | [CLI Reference](./cli-reference.md) |
+| `amnezigo validate` | Check one or more generated configs against AWG size invariants. | [CLI Reference](./cli-reference.md) |
 | `amnezigo analyze` | Inspect obfuscation strength with heuristic risk findings. | [CLI Reference](./cli-reference.md) |
+| `amnezigo version` | Print the build's version and commit stamp. | [CLI Reference](./cli-reference.md) |
 
 The CLI is a thin Cobra wrapper over the root `amnezigo` package (`cmd/amnezigo/main.go` → `cli.Execute()`).
 

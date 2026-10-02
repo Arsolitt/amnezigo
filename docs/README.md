@@ -1,6 +1,6 @@
 # Documentation
 
-> Reference documentation for **Amnezigo** — the AmneziaWG v2.0 configuration generator.
+> Reference documentation for **Amnezigo** — the AmneziaWG 2.0/3.0/3.1 configuration generator (default 3.1).
 
 Amnezigo reads a single declarative manifest and emits ready-to-deploy `awg0.conf`
 files. These pages are the human-readable reference. The AI-friendly single-file
@@ -11,7 +11,7 @@ documentation remains at [llms-full.txt](./llms-full.txt).
 | Page | Description |
 |------|-------------|
 | [Overview](./overview.md) | What amnezigo is, the declarative manifest model, and what `generate` produces |
-| [Installation](./installation.md) | Install via `go install`, build from source, or Docker |
+| [Installation](./installation.md) | Install via `go install`, release binaries, source build, or Docker |
 | [Quick Start](./quick-start.md) | The generate → validate → analyze round-trip on one page |
 
 ## Reference

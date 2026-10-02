@@ -14,13 +14,13 @@
 
 ## The Round-Trip
 
-amnezigo is a config generator with exactly three commands. The end-to-end flow is manifest → `generate` → `validate` → `analyze`:
+amnezigo is a config generator with exactly four commands — `generate`, `validate`, `analyze`, and `version`. The end-to-end flow is manifest → `generate` → `validate` → `analyze`:
 
 | Step | Command | Result |
 |---|---|---|
 | 1. Write manifest | _(create `amnezigo.json`)_ | One declarative manifest: a shared obfuscation profile + exactly one server peer + N client peers. See [Minimal Manifest](#minimal-manifest). |
 | 2. Generate | `$ amnezigo generate` | Reads `amnezigo.json` (or `.amnezigo.jsonnet`), resolves X25519 keys + per-peer CPS, writes one `awg0.conf` per peer under `output/`. |
-| 3. Validate | `$ amnezigo validate output/server/awg0.conf` | Parses the server config with `Strict:true` and runs every AWG 2.0 invariant; exits non-zero on any `error` finding. |
+| 3. Validate | `$ amnezigo validate output/server/awg0.conf` | Parses the server config with `Strict:true` and runs every AWG size invariant; exits non-zero on any `error` finding. |
 | 4. Analyze | `$ amnezigo analyze --config output/server/awg0.conf` | Heuristic risk report (RISK001–009) + size/range/distribution profile. **Exits 0 on successful load; findings never affect the exit code.** |
 
 Run from a project directory that contains the manifest:
@@ -102,7 +102,7 @@ Each `awg0.conf` is an INI file (`[Interface]` / `[Peer]`) carrying `#_`-prefixe
 
 ## Validate & Analyze
 
-### `validate` — AWG 2.0 invariants
+### `validate` — AWG size invariants
 
 `validate` runs the same checks the generator enforces, against an existing server config:
 

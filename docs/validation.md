@@ -19,7 +19,7 @@ amnezigo ships two post-generation inspection tools. They have different scopes,
 
 | Tool | Command | What it checks | Exit code |
 |---|---|---|---|
-| **validate** | `amnezigo validate <config>` | Lints an existing server config against AWG 2.0 invariants (required fields, S-padding collisions, junk-range hygiene, header-range validity, strict-parse warnings). Findings are correctness defects. | `0` no errors · `1` any error, or any warning under `--strict` |
+| **validate** | `amnezigo validate <config>` | Lints an existing server config against AWG size invariants (required fields, S-padding collisions, junk-range hygiene, header-range validity, strict-parse warnings). Findings are correctness defects. | `0` no errors · `1` any error, or any warning under `--strict` |
 | **analyze** | `amnezigo analyze` | Heuristic traffic-analysis risk report on a server config (RISK001–RISK009). Findings are advisory; nothing an analyze finding describes is a defect that breaks the config. | `0` always (on successful run) |
 
 Both tools consume a **server** config (`awg0.conf`), not a client peer config. `analyze` loads it via `amnezigo.LoadServerConfig`; `validate` opens the file you pass and parses it with `Strict: true`.
