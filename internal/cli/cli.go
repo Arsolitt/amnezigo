@@ -21,8 +21,8 @@ var (
 func NewRootCmd() *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:   "amnezigo",
-		Short: "AmneziaWG v2.0 Configuration Generator",
-		Long:  `Declarative AmneziaWG v2.0 configuration generator.`,
+		Short: "AmneziaWG v3.1 Configuration Generator",
+		Long:  `Declarative AmneziaWG v3.1 configuration generator.`,
 	}
 
 	rootCmd.AddCommand(NewGenerateCommand())

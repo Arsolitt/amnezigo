@@ -39,7 +39,7 @@ regenerate all keys. Use --dry-run to compute configs without writing files.`,
 
 	cmd.Flags().StringVar(&projectDir, "project", "", "project directory containing manifest (default: current dir)")
 	cmd.Flags().StringVar(&outputDir, "output", "", "output directory for generated configs (default: project/output)")
-	cmd.Flags().BoolVar(&fullReset, "full-reset", false, "regenerate all credentials")
+	cmd.Flags().BoolVar(&fullReset, "full-reset", false, "regenerate all credentials and keys")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "compute configs without writing files")
 	cmd.Flags().StringSliceVar(&peers, "peer", nil, "generate only for specific peers (can be repeated)")
 	cmd.Flags().StringSliceVar(&jpathDirs, "jpath", nil, "jsonnet library search paths")

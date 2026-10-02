@@ -9,7 +9,7 @@ COPY . .
 
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o ./build/amnezigo ./cmd/amnezigo/
 
-FROM amneziavpn/amneziawg-go:0.2.16
+FROM amneziavpn/amneziawg-go:3.1.20260828
 
 RUN apk --no-cache add ca-certificates bash
 

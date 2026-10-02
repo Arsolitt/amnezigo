@@ -61,34 +61,46 @@ type vpnAwgConfig struct {
 //
 // I1-I5 carry CPS tag strings (e.g. "<r 2><b 0x0100>") verbatim — the
 // amneziawg-go UAPI handler fully parses CPS tags at connect time.
+//
+// AWG 3.x transport-protection fields follow the same convention (string
+// values, JSON names = INI key names) and are omitted for 2.0 configs.
 type vpnLastConfig struct {
-	Config               string   `json:"config"`
-	HostName             string   `json:"hostName"`
-	ClientPrivKey        string   `json:"client_priv_key"`
-	ClientIP             string   `json:"client_ip"`
-	ServerPubKey         string   `json:"server_pub_key"`
-	PSKKey               string   `json:"psk_key,omitempty"`
-	AllowedIPs           []string `json:"allowed_ips"`
-	MTU                  string   `json:"mtu,omitempty"`
-	PersistentKeepAlive  string   `json:"persistent_keep_alive,omitempty"`
-	Jc                   string   `json:"Jc,omitempty"`
-	Jmin                 string   `json:"Jmin,omitempty"`
-	Jmax                 string   `json:"Jmax,omitempty"`
-	S1                   string   `json:"S1,omitempty"`
-	S2                   string   `json:"S2,omitempty"`
-	S3                   string   `json:"S3,omitempty"`
-	S4                   string   `json:"S4,omitempty"`
-	H1                   string   `json:"H1,omitempty"`
-	H2                   string   `json:"H2,omitempty"`
-	H3                   string   `json:"H3,omitempty"`
-	H4                   string   `json:"H4,omitempty"`
-	I1                   string   `json:"I1,omitempty"`
-	I2                   string   `json:"I2,omitempty"`
-	I3                   string   `json:"I3,omitempty"`
-	I4                   string   `json:"I4,omitempty"`
-	I5                   string   `json:"I5,omitempty"`
-	Port                 int      `json:"port"`
-	IsObfuscationEnabled bool     `json:"isObfuscationEnabled"`
+	Config                 string   `json:"config"`
+	HostName               string   `json:"hostName"`
+	ClientPrivKey          string   `json:"client_priv_key"`
+	ClientIP               string   `json:"client_ip"`
+	ServerPubKey           string   `json:"server_pub_key"`
+	PSKKey                 string   `json:"psk_key,omitempty"`
+	AllowedIPs             []string `json:"allowed_ips"`
+	MTU                    string   `json:"mtu,omitempty"`
+	PersistentKeepAlive    string   `json:"persistent_keep_alive,omitempty"`
+	Jc                     string   `json:"Jc,omitempty"`
+	Jmin                   string   `json:"Jmin,omitempty"`
+	Jmax                   string   `json:"Jmax,omitempty"`
+	S1                     string   `json:"S1,omitempty"`
+	S2                     string   `json:"S2,omitempty"`
+	S3                     string   `json:"S3,omitempty"`
+	S4                     string   `json:"S4,omitempty"`
+	H1                     string   `json:"H1,omitempty"`
+	H2                     string   `json:"H2,omitempty"`
+	H3                     string   `json:"H3,omitempty"`
+	H4                     string   `json:"H4,omitempty"`
+	I1                     string   `json:"I1,omitempty"`
+	I2                     string   `json:"I2,omitempty"`
+	I3                     string   `json:"I3,omitempty"`
+	I4                     string   `json:"I4,omitempty"`
+	I5                     string   `json:"I5,omitempty"`
+	HeaderProtectionKey    string   `json:"HeaderProtectionKey,omitempty"`
+	ContentPaddingAddition string   `json:"ContentPaddingAddition,omitempty"`
+	RekeyAfterTime         string   `json:"RekeyAfterTime,omitempty"`
+	RekeyTimeout           string   `json:"RekeyTimeout,omitempty"`
+	RejectAfterTime        string   `json:"RejectAfterTime,omitempty"`
+	KeepaliveTimeout       string   `json:"KeepaliveTimeout,omitempty"`
+	MaxHandshakeAttempts   string   `json:"MaxHandshakeAttempts,omitempty"`
+	RandomTrailers         string   `json:"RandomTrailers,omitempty"`
+	DisableCookies         string   `json:"DisableCookies,omitempty"`
+	Port                   int      `json:"port"`
+	IsObfuscationEnabled   bool     `json:"isObfuscationEnabled"`
 }
 
 // EncodeVPNLink wraps a client AWG INI config into an AmneziaVPN vpn:// import
@@ -157,6 +169,7 @@ func EncodeVPNLink(clientINI []byte, endpoint string, listenPort int, dns []stri
 		lastCfg.I3 = kv["I3"]
 		lastCfg.I4 = kv["I4"]
 		lastCfg.I5 = kv["I5"]
+		applyTransportProtectionFields(&lastCfg, kv)
 	}
 
 	lastCfgJSON, err := json.Marshal(lastCfg)
@@ -193,6 +206,22 @@ func EncodeVPNLink(clientINI []byte, endpoint string, listenPort int, dns []stri
 	compressed := qCompress(envelopeJSON)
 	encoded := base64.RawURLEncoding.EncodeToString(compressed)
 	return vpnLinkScheme + encoded
+}
+
+// applyTransportProtectionFields copies the AWG 3.x device keys from the client
+// INI into the vpn:// last_config envelope. The JSON names equal the INI key
+// names, and the app ignores unknown fields, so pre-3.x configs simply omit
+// them.
+func applyTransportProtectionFields(cfg *vpnLastConfig, kv map[string]string) {
+	cfg.HeaderProtectionKey = kv[keyHeaderProtection]
+	cfg.ContentPaddingAddition = kv[keyContentPadding]
+	cfg.RekeyAfterTime = kv[keyRekeyAfterTime]
+	cfg.RekeyTimeout = kv[keyRekeyTimeout]
+	cfg.RejectAfterTime = kv[keyRejectAfterTime]
+	cfg.KeepaliveTimeout = kv[keyKeepaliveTimeout]
+	cfg.MaxHandshakeAttempts = kv[keyMaxHandshakeAttempts]
+	cfg.RandomTrailers = kv[keyRandomTrailers]
+	cfg.DisableCookies = kv[keyDisableCookies]
 }
 
 // parseINIKeyValue extracts key-value pairs from an INI config string.
