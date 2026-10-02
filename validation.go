@@ -400,8 +400,7 @@ func findingsFromValidationError(err error) []Finding {
 	if err == nil {
 		return nil
 	}
-	var psc *PacketSizeCollisionError
-	if errors.As(err, &psc) {
+	if psc, ok := errors.AsType[*PacketSizeCollisionError](err); ok {
 		code := map[string]string{
 			"s-pair":     "PSC001",
 			"i-packet":   "PSC003",

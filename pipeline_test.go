@@ -467,7 +467,7 @@ func TestBuildServerConfig(t *testing.T) {
 // third-octet bug: extractSubnet previously replaced parts[2] (the third octet)
 // instead of the last octet, so a server at 10.0.50.1/24 produced iptables rules
 // referencing the wrong network 10.0.0.1/24. ExtractSubnet (helpers.go) computes
-// the correct network address via net.ParseCIDR.
+// the correct network address via [net.ParseCIDR].
 func TestBuildServerConfig_IptablesUsesNetworkAddress(t *testing.T) {
 	manifest := Manifest{
 		Peers: map[string]PeerManifest{

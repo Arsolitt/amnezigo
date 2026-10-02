@@ -53,38 +53,38 @@ func RTPTemplate() I1I5Template {
 	return I1I5Template{
 		// I1 — full RTP audio packet, G.711 μ-law 10 ms frame (~92 B)
 		I1: []TagSpec{
-			{Type: "bytes", Value: "8000"}, // V=2, P=0, X=0, CC=0 | M=0, PT=0 (PCMU)
-			{Type: "random", Value: "2"},   // sequence number (16-bit)
-			{Type: "timestamp", Value: ""}, // timestamp (32-bit)
-			{Type: "random", Value: "4"},   // SSRC (32-bit)
-			{Type: "random", Value: "80"},  // payload (G.711 10 ms frame)
+			{Type: tagTypeBytes, Value: "8000"}, // V=2, P=0, X=0, CC=0 | M=0, PT=0 (PCMU)
+			{Type: tagTypeRandom, Value: "2"},   // sequence number (16-bit)
+			{Type: tagTypeTimestamp, Value: ""}, // timestamp (32-bit)
+			{Type: tagTypeRandom, Value: "4"},   // SSRC (32-bit)
+			{Type: tagTypeRandom, Value: "80"},  // payload (G.711 10 ms frame)
 		},
 
 		// I2 — smaller RTP frame (~52 B)
 		I2: []TagSpec{
-			{Type: "bytes", Value: "8000"},
-			{Type: "random", Value: "2"},   // sequence number
-			{Type: "timestamp", Value: ""}, // timestamp
-			{Type: "random", Value: "4"},   // SSRC
-			{Type: "random", Value: "40"},  // payload
+			{Type: tagTypeBytes, Value: "8000"},
+			{Type: tagTypeRandom, Value: "2"},   // sequence number
+			{Type: tagTypeTimestamp, Value: ""}, // timestamp
+			{Type: tagTypeRandom, Value: "4"},   // SSRC
+			{Type: tagTypeRandom, Value: "40"},  // payload
 		},
 
 		// I3 — comfort-noise / SID frame (~36 B)
 		I3: []TagSpec{
-			{Type: "bytes", Value: "8000"},
-			{Type: "random", Value: "2"},   // sequence number
-			{Type: "timestamp", Value: ""}, // timestamp
-			{Type: "random", Value: "4"},   // SSRC
-			{Type: "random", Value: "24"},  // payload
+			{Type: tagTypeBytes, Value: "8000"},
+			{Type: tagTypeRandom, Value: "2"},   // sequence number
+			{Type: tagTypeTimestamp, Value: ""}, // timestamp
+			{Type: tagTypeRandom, Value: "4"},   // SSRC
+			{Type: tagTypeRandom, Value: "24"},  // payload
 		},
 
 		// I4 — minimal RTP keepalive (~20 B)
 		I4: []TagSpec{
-			{Type: "bytes", Value: "8000"},
-			{Type: "random", Value: "2"},   // sequence number
-			{Type: "timestamp", Value: ""}, // timestamp
-			{Type: "random", Value: "4"},   // SSRC
-			{Type: "random", Value: "8"},   // payload
+			{Type: tagTypeBytes, Value: "8000"},
+			{Type: tagTypeRandom, Value: "2"},   // sequence number
+			{Type: tagTypeTimestamp, Value: ""}, // timestamp
+			{Type: tagTypeRandom, Value: "4"},   // SSRC
+			{Type: tagTypeRandom, Value: "8"},   // payload
 		},
 
 		// I5 — empty per named-template convention

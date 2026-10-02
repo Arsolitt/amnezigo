@@ -46,6 +46,23 @@ const (
 	cpsRcAlphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 )
 
+// Tag type names accepted by TagSpec.Type in protocol templates. mapTagType
+// translates them into the single-letter (or two-letter) CPS tags that
+// AmneziaWG understands.
+//
+// These are deliberately separate from the protocol name constants in
+// protocols.go: ProtocolRandom names a whole template ("random" mode), while
+// tagTypeRandom names one tag within a template. They happen to share the
+// same spelling and must not be conflated.
+const (
+	tagTypeBytes        = "bytes"         // literal hex-encoded bytes
+	tagTypeRandom       = "random"        // N random bytes
+	tagTypeRandomChars  = "random_chars"  // N random ASCII letters (see cpsRcAlphabet)
+	tagTypeRandomDigits = "random_digits" // N random decimal digits
+	tagTypeTimestamp    = "timestamp"     // 4-byte Unix timestamp
+	tagTypeData         = "data"          // runtime passthrough, AWG 2.0 only
+)
+
 // calculateMaxISize calculates the maximum I packet size based on MTU constraints.
 // Formula: maxISize = MTU - reserve - handshakeSize - S1.
 func calculateMaxISize(mtu, s1 int) int {
@@ -190,17 +207,17 @@ func cpsAcceptable(cps string, maxSize int, forbidden [4]int) bool {
 // "data" maps to "d" (runtime passthrough, AWG 2.0 only).
 func mapTagType(tagType string) string {
 	switch tagType {
-	case "bytes":
+	case tagTypeBytes:
 		return "b"
-	case "random":
+	case tagTypeRandom:
 		return "r"
-	case "random_chars":
+	case tagTypeRandomChars:
 		return "rc"
-	case "random_digits":
+	case tagTypeRandomDigits:
 		return "rd"
-	case "timestamp":
+	case tagTypeTimestamp:
 		return "t"
-	case "data":
+	case tagTypeData:
 		return "d"
 	default:
 		return ""

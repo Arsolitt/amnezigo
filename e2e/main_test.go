@@ -80,7 +80,13 @@ func runMain(m *testing.M) int {
 
 	if buildErr == nil {
 		cliPath = filepath.Join(tmpDir, "amnezigo")
-		if out, err := runCommand("go", []string{"build", "-o", cliPath, "./cmd/amnezigo"}, root, nil, cliBuildTimeout); err != nil {
+		if out, err := runCommand(
+			"go",
+			[]string{"build", "-o", cliPath, "./cmd/amnezigo"},
+			root,
+			nil,
+			cliBuildTimeout,
+		); err != nil {
 			buildErr = fmt.Errorf("build amnezigo CLI: %v\n%s", err, out)
 		}
 	}

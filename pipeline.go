@@ -498,8 +498,8 @@ func buildServerConfig(
 
 	for _, peerName := range peerNames {
 		peer := manifest.Peers[peerName]
-		peerCreds, ok := creds[peerName]
-		if !ok {
+		peerCreds, found := creds[peerName]
+		if !found {
 			return nil, fmt.Errorf("credentials for peer %s not found", peerName)
 		}
 

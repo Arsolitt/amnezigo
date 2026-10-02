@@ -15,66 +15,66 @@ func DNSTemplate() I1I5Template {
 	return I1I5Template{
 		// I1: Full DNS query with transaction ID and query structure
 		I1: []TagSpec{
-			{Type: "random", Value: "2"},       // Transaction ID (2 random bytes)
-			{Type: "bytes", Value: "0100"},     // Flags: standard query, recursion desired
-			{Type: "bytes", Value: "0001"},     // Questions: 1
-			{Type: "bytes", Value: "0000"},     // Answer RRs: 0
-			{Type: "bytes", Value: "0000"},     // Authority RRs: 0
-			{Type: "bytes", Value: "0000"},     // Additional RRs: 0
-			{Type: "bytes", Value: "03"},       // First label length: 3
-			{Type: "random_chars", Value: "3"}, // Random chars (3 bytes) - e.g., "www"
-			{Type: "bytes", Value: "07"},       // Second label length: 7
-			{Type: "random_chars", Value: "7"}, // Random chars (7 bytes) - e.g., "example"
-			{Type: "bytes", Value: "03"},       // Third label length: 3
-			{Type: "random_chars", Value: "3"}, // Random chars (3 bytes) - e.g., "com"
-			{Type: "bytes", Value: "00"},       // Root label terminator
-			{Type: "bytes", Value: "0001"},     // Query type: A (1)
-			{Type: "bytes", Value: "0001"},     // Query class: IN (1)
+			{Type: tagTypeRandom, Value: "2"},      // Transaction ID (2 random bytes)
+			{Type: tagTypeBytes, Value: "0100"},    // Flags: standard query, recursion desired
+			{Type: tagTypeBytes, Value: "0001"},    // Questions: 1
+			{Type: tagTypeBytes, Value: "0000"},    // Answer RRs: 0
+			{Type: tagTypeBytes, Value: "0000"},    // Authority RRs: 0
+			{Type: tagTypeBytes, Value: "0000"},    // Additional RRs: 0
+			{Type: tagTypeBytes, Value: "03"},      // First label length: 3
+			{Type: tagTypeRandomChars, Value: "3"}, // Random chars (3 bytes) - e.g., "www"
+			{Type: tagTypeBytes, Value: "07"},      // Second label length: 7
+			{Type: tagTypeRandomChars, Value: "7"}, // Random chars (7 bytes) - e.g., "example"
+			{Type: tagTypeBytes, Value: "03"},      // Third label length: 3
+			{Type: tagTypeRandomChars, Value: "3"}, // Random chars (3 bytes) - e.g., "com"
+			{Type: tagTypeBytes, Value: "00"},      // Root label terminator
+			{Type: tagTypeBytes, Value: "0001"},    // Query type: A (1)
+			{Type: tagTypeBytes, Value: "0001"},    // Query class: IN (1)
 		},
 
 		// I2: Shorter DNS query with shorter domain
 		I2: []TagSpec{
-			{Type: "random", Value: "2"},       // Transaction ID
-			{Type: "bytes", Value: "0100"},     // Flags
-			{Type: "bytes", Value: "0001"},     // Questions: 1
-			{Type: "bytes", Value: "0000"},     // Answer RRs: 0
-			{Type: "bytes", Value: "0000"},     // Authority RRs: 0
-			{Type: "bytes", Value: "0000"},     // Additional RRs: 0
-			{Type: "bytes", Value: "04"},       // First label length: 4
-			{Type: "random_chars", Value: "4"}, // Random chars
-			{Type: "bytes", Value: "00"},       // Root label
-			{Type: "bytes", Value: "0001"},     // Query type: A
-			{Type: "bytes", Value: "0001"},     // Query class: IN
+			{Type: tagTypeRandom, Value: "2"},      // Transaction ID
+			{Type: tagTypeBytes, Value: "0100"},    // Flags
+			{Type: tagTypeBytes, Value: "0001"},    // Questions: 1
+			{Type: tagTypeBytes, Value: "0000"},    // Answer RRs: 0
+			{Type: tagTypeBytes, Value: "0000"},    // Authority RRs: 0
+			{Type: tagTypeBytes, Value: "0000"},    // Additional RRs: 0
+			{Type: tagTypeBytes, Value: "04"},      // First label length: 4
+			{Type: tagTypeRandomChars, Value: "4"}, // Random chars
+			{Type: tagTypeBytes, Value: "00"},      // Root label
+			{Type: tagTypeBytes, Value: "0001"},    // Query type: A
+			{Type: tagTypeBytes, Value: "0001"},    // Query class: IN
 		},
 
 		// I3: Minimal DNS query with random digits in domain
 		I3: []TagSpec{
-			{Type: "random_digits", Value: "2"}, // Transaction ID (2 random digits)
-			{Type: "bytes", Value: "0100"},      // Flags
-			{Type: "bytes", Value: "0001"},      // Questions: 1
-			{Type: "bytes", Value: "0000"},      // Answer RRs: 0
-			{Type: "bytes", Value: "0000"},      // Authority RRs: 0
-			{Type: "bytes", Value: "0000"},      // Additional RRs: 0
-			{Type: "bytes", Value: "02"},        // Label length: 2
-			{Type: "random_digits", Value: "2"}, // Random digits
-			{Type: "bytes", Value: "00"},        // Root label
-			{Type: "bytes", Value: "0001"},      // Query type: A
-			{Type: "bytes", Value: "0001"},      // Query class: IN
+			{Type: tagTypeRandomDigits, Value: "2"}, // Transaction ID (2 random digits)
+			{Type: tagTypeBytes, Value: "0100"},     // Flags
+			{Type: tagTypeBytes, Value: "0001"},     // Questions: 1
+			{Type: tagTypeBytes, Value: "0000"},     // Answer RRs: 0
+			{Type: tagTypeBytes, Value: "0000"},     // Authority RRs: 0
+			{Type: tagTypeBytes, Value: "0000"},     // Additional RRs: 0
+			{Type: tagTypeBytes, Value: "02"},       // Label length: 2
+			{Type: tagTypeRandomDigits, Value: "2"}, // Random digits
+			{Type: tagTypeBytes, Value: "00"},       // Root label
+			{Type: tagTypeBytes, Value: "0001"},     // Query type: A
+			{Type: tagTypeBytes, Value: "0001"},     // Query class: IN
 		},
 
 		// I4: Tiny DNS query - shortest possible valid query
 		I4: []TagSpec{
-			{Type: "random", Value: "2"},       // Transaction ID
-			{Type: "bytes", Value: "0100"},     // Flags
-			{Type: "bytes", Value: "0001"},     // Questions: 1
-			{Type: "bytes", Value: "0000"},     // Answer RRs: 0
-			{Type: "bytes", Value: "0000"},     // Authority RRs: 0
-			{Type: "bytes", Value: "0000"},     // Additional RRs: 0
-			{Type: "bytes", Value: "01"},       // Label length: 1
-			{Type: "random_chars", Value: "1"}, // Single random char
-			{Type: "bytes", Value: "00"},       // Root label
-			{Type: "bytes", Value: "0001"},     // Query type: A
-			{Type: "bytes", Value: "0001"},     // Query class: IN
+			{Type: tagTypeRandom, Value: "2"},      // Transaction ID
+			{Type: tagTypeBytes, Value: "0100"},    // Flags
+			{Type: tagTypeBytes, Value: "0001"},    // Questions: 1
+			{Type: tagTypeBytes, Value: "0000"},    // Answer RRs: 0
+			{Type: tagTypeBytes, Value: "0000"},    // Authority RRs: 0
+			{Type: tagTypeBytes, Value: "0000"},    // Additional RRs: 0
+			{Type: tagTypeBytes, Value: "01"},      // Label length: 1
+			{Type: tagTypeRandomChars, Value: "1"}, // Single random char
+			{Type: tagTypeBytes, Value: "00"},      // Root label
+			{Type: tagTypeBytes, Value: "0001"},    // Query type: A
+			{Type: tagTypeBytes, Value: "0001"},    // Query class: IN
 		},
 
 		// I5: Empty

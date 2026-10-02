@@ -1,5 +1,25 @@
 package amnezigo
 
+// Hex-encoded wire fragments reused across the SIP template intervals. TagSpec
+// values of type tagTypeBytes are decoded to raw bytes on emission, so the
+// ASCII fragments below are spelled out as lowercase hex.
+const (
+	sipHexOptions        = "4f5054494f4e53"                   // "OPTIONS"
+	sipHexSpaceOptions   = "204f5054494f4e53"                 // " OPTIONS" (CSeq method, leading space)
+	sipHexSIPScheme      = "7369703a"                         // "sip:"
+	sipHexSIPSchemeAngle = "3c7369703a"                       // "<sip:"
+	sipHexVersion20      = "2f322e30"                         // "/2.0"
+	sipHexCRLF           = "0d0a"                             // CRLF line terminator
+	sipHexCRLFCRLF       = "0d0a0d0a"                         // CRLF CRLF (end of headers)
+	sipHexVia            = "5669613a20"                       // "Via: "
+	sipHexUDPTransport   = "5349502f322e302f554450"           // "SIP/2.0/UDP"
+	sipHexBranchParam    = "3b6272616e63683d"                 // ";branch="
+	sipHexBranchCookie   = "7a39684734624b"                   // "z9hG4bK" (RFC 3261 § 8.1.1.7 magic cookie)
+	sipHexCallID         = "43616c6c2d49443a20"               // "Call-ID: "
+	sipHexCSeq           = "435365713a20"                     // "CSeq: "
+	sipHexContentLength  = "436f6e74656e742d4c656e6774683a20" // "Content-Length: "
+)
+
 // SIPTemplate returns an I1I5Template mimicking a SIP OPTIONS request.
 //
 // Wire-format reference: RFC 3261 § 7.1 (Request-Line grammar), § 27.4 (registered
@@ -38,178 +58,178 @@ func SIPTemplate() I1I5Template {
 		// I1 — full OPTIONS request with all common headers (~360 B)
 		I1: []TagSpec{
 			// Request-Line: "OPTIONS sip:" + user + "@" + host + " SIP/2.0\r\n"
-			{Type: "bytes", Value: "4f5054494f4e53"}, // "OPTIONS"
-			{Type: "bytes", Value: "20"},             // " "
-			{Type: "bytes", Value: "7369703a"},       // "sip:"
-			{Type: "random_chars", Value: "8"},       // user (8 letters)
-			{Type: "bytes", Value: "40"},             // "@"
-			{Type: "random_chars", Value: "10"},      // host (10 letters)
-			{Type: "bytes", Value: "2e"},             // "."
-			{Type: "random_chars", Value: "3"},       // TLD (3 letters)
-			{Type: "bytes", Value: "20534950"},       // " SIP"
-			{Type: "bytes", Value: "2f322e30"},       // "/2.0"
-			{Type: "bytes", Value: "0d0a"},           // CRLF
+			{Type: tagTypeBytes, Value: sipHexOptions},   // "OPTIONS"
+			{Type: tagTypeBytes, Value: "20"},            // " "
+			{Type: tagTypeBytes, Value: sipHexSIPScheme}, // "sip:"
+			{Type: tagTypeRandomChars, Value: "8"},       // user (8 letters)
+			{Type: tagTypeBytes, Value: "40"},            // "@"
+			{Type: tagTypeRandomChars, Value: "10"},      // host (10 letters)
+			{Type: tagTypeBytes, Value: "2e"},            // "."
+			{Type: tagTypeRandomChars, Value: "3"},       // TLD (3 letters)
+			{Type: tagTypeBytes, Value: "20534950"},      // " SIP"
+			{Type: tagTypeBytes, Value: sipHexVersion20}, // "/2.0"
+			{Type: tagTypeBytes, Value: sipHexCRLF},      // CRLF
 			// Via header
-			{Type: "bytes", Value: "5669613a20"},             // "Via: "
-			{Type: "bytes", Value: "5349502f322e302f554450"}, // "SIP/2.0/UDP"
-			{Type: "bytes", Value: "20"},                     // " "
-			{Type: "random_chars", Value: "10"},              // host token
-			{Type: "bytes", Value: "3b6272616e63683d"},       // ";branch="
-			{Type: "bytes", Value: "7a39684734624b"},         // "z9hG4bK" (RFC 3261 § 8.1.1.7 magic cookie)
-			{Type: "random_chars", Value: "16"},              // branch random token
-			{Type: "bytes", Value: "0d0a"},                   // CRLF
+			{Type: tagTypeBytes, Value: sipHexVia},          // "Via: "
+			{Type: tagTypeBytes, Value: sipHexUDPTransport}, // "SIP/2.0/UDP"
+			{Type: tagTypeBytes, Value: "20"},               // " "
+			{Type: tagTypeRandomChars, Value: "10"},         // host token
+			{Type: tagTypeBytes, Value: sipHexBranchParam},  // ";branch="
+			{Type: tagTypeBytes, Value: sipHexBranchCookie}, // "z9hG4bK" (RFC 3261 § 8.1.1.7 magic cookie)
+			{Type: tagTypeRandomChars, Value: "16"},         // branch random token
+			{Type: tagTypeBytes, Value: sipHexCRLF},         // CRLF
 			// From header
-			{Type: "bytes", Value: "46726f6d3a20"}, // "From: "
-			{Type: "bytes", Value: "3c7369703a"},   // "<sip:"
-			{Type: "random_chars", Value: "8"},     // user
-			{Type: "bytes", Value: "40"},           // "@"
-			{Type: "random_chars", Value: "10"},    // host
-			{Type: "bytes", Value: "3e"},           // ">"
-			{Type: "bytes", Value: "3b7461673d"},   // ";tag="
-			{Type: "random_chars", Value: "12"},    // tag random token
-			{Type: "bytes", Value: "0d0a"},         // CRLF
+			{Type: tagTypeBytes, Value: "46726f6d3a20"},       // "From: "
+			{Type: tagTypeBytes, Value: sipHexSIPSchemeAngle}, // "<sip:"
+			{Type: tagTypeRandomChars, Value: "8"},            // user
+			{Type: tagTypeBytes, Value: "40"},                 // "@"
+			{Type: tagTypeRandomChars, Value: "10"},           // host
+			{Type: tagTypeBytes, Value: "3e"},                 // ">"
+			{Type: tagTypeBytes, Value: "3b7461673d"},         // ";tag="
+			{Type: tagTypeRandomChars, Value: "12"},           // tag random token
+			{Type: tagTypeBytes, Value: sipHexCRLF},           // CRLF
 			// To header
-			{Type: "bytes", Value: "546f3a20"},   // "To: "
-			{Type: "bytes", Value: "3c7369703a"}, // "<sip:"
-			{Type: "random_chars", Value: "8"},   // user
-			{Type: "bytes", Value: "40"},         // "@"
-			{Type: "random_chars", Value: "10"},  // host
-			{Type: "bytes", Value: "3e"},         // ">"
-			{Type: "bytes", Value: "0d0a"},       // CRLF
+			{Type: tagTypeBytes, Value: "546f3a20"},           // "To: "
+			{Type: tagTypeBytes, Value: sipHexSIPSchemeAngle}, // "<sip:"
+			{Type: tagTypeRandomChars, Value: "8"},            // user
+			{Type: tagTypeBytes, Value: "40"},                 // "@"
+			{Type: tagTypeRandomChars, Value: "10"},           // host
+			{Type: tagTypeBytes, Value: "3e"},                 // ">"
+			{Type: tagTypeBytes, Value: sipHexCRLF},           // CRLF
 			// Call-ID
-			{Type: "bytes", Value: "43616c6c2d49443a20"}, // "Call-ID: "
-			{Type: "random_chars", Value: "20"},          // call-id random
-			{Type: "bytes", Value: "40"},                 // "@"
-			{Type: "random_chars", Value: "10"},          // host
-			{Type: "bytes", Value: "0d0a"},               // CRLF
+			{Type: tagTypeBytes, Value: sipHexCallID}, // "Call-ID: "
+			{Type: tagTypeRandomChars, Value: "20"},   // call-id random
+			{Type: tagTypeBytes, Value: "40"},         // "@"
+			{Type: tagTypeRandomChars, Value: "10"},   // host
+			{Type: tagTypeBytes, Value: sipHexCRLF},   // CRLF
 			// CSeq
-			{Type: "bytes", Value: "435365713a20"},     // "CSeq: "
-			{Type: "random_digits", Value: "3"},        // sequence number digits
-			{Type: "bytes", Value: "204f5054494f4e53"}, // " OPTIONS"
-			{Type: "bytes", Value: "0d0a"},             // CRLF
+			{Type: tagTypeBytes, Value: sipHexCSeq},         // "CSeq: "
+			{Type: tagTypeRandomDigits, Value: "3"},         // sequence number digits
+			{Type: tagTypeBytes, Value: sipHexSpaceOptions}, // " OPTIONS"
+			{Type: tagTypeBytes, Value: sipHexCRLF},         // CRLF
 			// Max-Forwards
-			{Type: "bytes", Value: "4d61782d466f7277617264733a20"}, // "Max-Forwards: "
-			{Type: "bytes", Value: "3730"},                         // "70"
-			{Type: "bytes", Value: "0d0a"},                         // CRLF
+			{Type: tagTypeBytes, Value: "4d61782d466f7277617264733a20"}, // "Max-Forwards: "
+			{Type: tagTypeBytes, Value: "3730"},                         // "70"
+			{Type: tagTypeBytes, Value: sipHexCRLF},                     // CRLF
 			// User-Agent
-			{Type: "bytes", Value: "557365722d4167656e743a20"}, // "User-Agent: "
-			{Type: "random_chars", Value: "12"},                // UA random token
-			{Type: "bytes", Value: "0d0a"},                     // CRLF
+			{Type: tagTypeBytes, Value: "557365722d4167656e743a20"}, // "User-Agent: "
+			{Type: tagTypeRandomChars, Value: "12"},                 // UA random token
+			{Type: tagTypeBytes, Value: sipHexCRLF},                 // CRLF
 			// Content-Length
-			{Type: "bytes", Value: "436f6e74656e742d4c656e6774683a20"}, // "Content-Length: "
-			{Type: "bytes", Value: "30"},                               // "0"
-			{Type: "bytes", Value: "0d0a0d0a"},                         // CRLF CRLF (end-of-headers)
+			{Type: tagTypeBytes, Value: sipHexContentLength}, // "Content-Length: "
+			{Type: tagTypeBytes, Value: "30"},                // "0"
+			{Type: tagTypeBytes, Value: sipHexCRLFCRLF},      // CRLF CRLF (end-of-headers)
 		},
 
 		// I2 — drops User-Agent, shortens random tokens (~240 B)
 		I2: []TagSpec{
 			// Request-Line
-			{Type: "bytes", Value: "4f5054494f4e53"}, // "OPTIONS"
-			{Type: "bytes", Value: "20"},             // " "
-			{Type: "bytes", Value: "7369703a"},       // "sip:"
-			{Type: "random_chars", Value: "6"},       // user
-			{Type: "bytes", Value: "40"},             // "@"
-			{Type: "random_chars", Value: "8"},       // host
-			{Type: "bytes", Value: "2e"},             // "."
-			{Type: "random_chars", Value: "3"},       // TLD
-			{Type: "bytes", Value: "20534950"},       // " SIP"
-			{Type: "bytes", Value: "2f322e30"},       // "/2.0"
-			{Type: "bytes", Value: "0d0a"},           // CRLF
+			{Type: tagTypeBytes, Value: sipHexOptions},   // "OPTIONS"
+			{Type: tagTypeBytes, Value: "20"},            // " "
+			{Type: tagTypeBytes, Value: sipHexSIPScheme}, // "sip:"
+			{Type: tagTypeRandomChars, Value: "6"},       // user
+			{Type: tagTypeBytes, Value: "40"},            // "@"
+			{Type: tagTypeRandomChars, Value: "8"},       // host
+			{Type: tagTypeBytes, Value: "2e"},            // "."
+			{Type: tagTypeRandomChars, Value: "3"},       // TLD
+			{Type: tagTypeBytes, Value: "20534950"},      // " SIP"
+			{Type: tagTypeBytes, Value: sipHexVersion20}, // "/2.0"
+			{Type: tagTypeBytes, Value: sipHexCRLF},      // CRLF
 			// Via header
-			{Type: "bytes", Value: "5669613a20"},             // "Via: "
-			{Type: "bytes", Value: "5349502f322e302f554450"}, // "SIP/2.0/UDP"
-			{Type: "bytes", Value: "20"},                     // " "
-			{Type: "random_chars", Value: "8"},               // host token
-			{Type: "bytes", Value: "3b6272616e63683d"},       // ";branch="
-			{Type: "bytes", Value: "7a39684734624b"},         // "z9hG4bK"
-			{Type: "random_chars", Value: "12"},              // branch random token
-			{Type: "bytes", Value: "0d0a"},                   // CRLF
+			{Type: tagTypeBytes, Value: sipHexVia},          // "Via: "
+			{Type: tagTypeBytes, Value: sipHexUDPTransport}, // "SIP/2.0/UDP"
+			{Type: tagTypeBytes, Value: "20"},               // " "
+			{Type: tagTypeRandomChars, Value: "8"},          // host token
+			{Type: tagTypeBytes, Value: sipHexBranchParam},  // ";branch="
+			{Type: tagTypeBytes, Value: sipHexBranchCookie}, // "z9hG4bK"
+			{Type: tagTypeRandomChars, Value: "12"},         // branch random token
+			{Type: tagTypeBytes, Value: sipHexCRLF},         // CRLF
 			// From header
-			{Type: "bytes", Value: "46726f6d3a20"}, // "From: "
-			{Type: "bytes", Value: "3c7369703a"},   // "<sip:"
-			{Type: "random_chars", Value: "6"},     // user
-			{Type: "bytes", Value: "40"},           // "@"
-			{Type: "random_chars", Value: "8"},     // host
-			{Type: "bytes", Value: "3e"},           // ">"
-			{Type: "bytes", Value: "3b7461673d"},   // ";tag="
-			{Type: "random_chars", Value: "8"},     // tag
-			{Type: "bytes", Value: "0d0a"},         // CRLF
+			{Type: tagTypeBytes, Value: "46726f6d3a20"},       // "From: "
+			{Type: tagTypeBytes, Value: sipHexSIPSchemeAngle}, // "<sip:"
+			{Type: tagTypeRandomChars, Value: "6"},            // user
+			{Type: tagTypeBytes, Value: "40"},                 // "@"
+			{Type: tagTypeRandomChars, Value: "8"},            // host
+			{Type: tagTypeBytes, Value: "3e"},                 // ">"
+			{Type: tagTypeBytes, Value: "3b7461673d"},         // ";tag="
+			{Type: tagTypeRandomChars, Value: "8"},            // tag
+			{Type: tagTypeBytes, Value: sipHexCRLF},           // CRLF
 			// Call-ID
-			{Type: "bytes", Value: "43616c6c2d49443a20"}, // "Call-ID: "
-			{Type: "random_chars", Value: "16"},          // call-id
-			{Type: "bytes", Value: "0d0a"},               // CRLF
+			{Type: tagTypeBytes, Value: sipHexCallID}, // "Call-ID: "
+			{Type: tagTypeRandomChars, Value: "16"},   // call-id
+			{Type: tagTypeBytes, Value: sipHexCRLF},   // CRLF
 			// CSeq
-			{Type: "bytes", Value: "435365713a20"},     // "CSeq: "
-			{Type: "random_digits", Value: "2"},        // sequence number
-			{Type: "bytes", Value: "204f5054494f4e53"}, // " OPTIONS"
-			{Type: "bytes", Value: "0d0a"},             // CRLF
+			{Type: tagTypeBytes, Value: sipHexCSeq},         // "CSeq: "
+			{Type: tagTypeRandomDigits, Value: "2"},         // sequence number
+			{Type: tagTypeBytes, Value: sipHexSpaceOptions}, // " OPTIONS"
+			{Type: tagTypeBytes, Value: sipHexCRLF},         // CRLF
 			// Content-Length
-			{Type: "bytes", Value: "436f6e74656e742d4c656e6774683a20"}, // "Content-Length: "
-			{Type: "bytes", Value: "30"},                               // "0"
-			{Type: "bytes", Value: "0d0a0d0a"},                         // CRLF CRLF
+			{Type: tagTypeBytes, Value: sipHexContentLength}, // "Content-Length: "
+			{Type: tagTypeBytes, Value: "30"},                // "0"
+			{Type: tagTypeBytes, Value: sipHexCRLFCRLF},      // CRLF CRLF
 		},
 
 		// I3 — minimal but RFC-conformant (~170 B)
 		I3: []TagSpec{
 			// Request-Line
-			{Type: "bytes", Value: "4f5054494f4e53"}, // "OPTIONS"
-			{Type: "bytes", Value: "20"},             // " "
-			{Type: "bytes", Value: "7369703a"},       // "sip:"
-			{Type: "random_chars", Value: "4"},       // user
-			{Type: "bytes", Value: "40"},             // "@"
-			{Type: "random_chars", Value: "6"},       // host
-			{Type: "bytes", Value: "20534950"},       // " SIP"
-			{Type: "bytes", Value: "2f322e30"},       // "/2.0"
-			{Type: "bytes", Value: "0d0a"},           // CRLF
+			{Type: tagTypeBytes, Value: sipHexOptions},   // "OPTIONS"
+			{Type: tagTypeBytes, Value: "20"},            // " "
+			{Type: tagTypeBytes, Value: sipHexSIPScheme}, // "sip:"
+			{Type: tagTypeRandomChars, Value: "4"},       // user
+			{Type: tagTypeBytes, Value: "40"},            // "@"
+			{Type: tagTypeRandomChars, Value: "6"},       // host
+			{Type: tagTypeBytes, Value: "20534950"},      // " SIP"
+			{Type: tagTypeBytes, Value: sipHexVersion20}, // "/2.0"
+			{Type: tagTypeBytes, Value: sipHexCRLF},      // CRLF
 			// Via header
-			{Type: "bytes", Value: "5669613a20"},             // "Via: "
-			{Type: "bytes", Value: "5349502f322e302f554450"}, // "SIP/2.0/UDP"
-			{Type: "bytes", Value: "20"},                     // " "
-			{Type: "random_chars", Value: "6"},               // host token
-			{Type: "bytes", Value: "3b6272616e63683d"},       // ";branch="
-			{Type: "bytes", Value: "7a39684734624b"},         // "z9hG4bK"
-			{Type: "random_chars", Value: "8"},               // branch token
-			{Type: "bytes", Value: "0d0a"},                   // CRLF
+			{Type: tagTypeBytes, Value: sipHexVia},          // "Via: "
+			{Type: tagTypeBytes, Value: sipHexUDPTransport}, // "SIP/2.0/UDP"
+			{Type: tagTypeBytes, Value: "20"},               // " "
+			{Type: tagTypeRandomChars, Value: "6"},          // host token
+			{Type: tagTypeBytes, Value: sipHexBranchParam},  // ";branch="
+			{Type: tagTypeBytes, Value: sipHexBranchCookie}, // "z9hG4bK"
+			{Type: tagTypeRandomChars, Value: "8"},          // branch token
+			{Type: tagTypeBytes, Value: sipHexCRLF},         // CRLF
 			// Call-ID
-			{Type: "bytes", Value: "43616c6c2d49443a20"}, // "Call-ID: "
-			{Type: "random_chars", Value: "10"},          // call-id
-			{Type: "bytes", Value: "0d0a"},               // CRLF
+			{Type: tagTypeBytes, Value: sipHexCallID}, // "Call-ID: "
+			{Type: tagTypeRandomChars, Value: "10"},   // call-id
+			{Type: tagTypeBytes, Value: sipHexCRLF},   // CRLF
 			// CSeq
-			{Type: "bytes", Value: "435365713a20"},     // "CSeq: "
-			{Type: "random_digits", Value: "1"},        // sequence number
-			{Type: "bytes", Value: "204f5054494f4e53"}, // " OPTIONS"
-			{Type: "bytes", Value: "0d0a"},             // CRLF
+			{Type: tagTypeBytes, Value: sipHexCSeq},         // "CSeq: "
+			{Type: tagTypeRandomDigits, Value: "1"},         // sequence number
+			{Type: tagTypeBytes, Value: sipHexSpaceOptions}, // " OPTIONS"
+			{Type: tagTypeBytes, Value: sipHexCRLF},         // CRLF
 			// Content-Length
-			{Type: "bytes", Value: "436f6e74656e742d4c656e6774683a20"}, // "Content-Length: "
-			{Type: "bytes", Value: "30"},                               // "0"
-			{Type: "bytes", Value: "0d0a0d0a"},                         // CRLF CRLF
+			{Type: tagTypeBytes, Value: sipHexContentLength}, // "Content-Length: "
+			{Type: tagTypeBytes, Value: "30"},                // "0"
+			{Type: tagTypeBytes, Value: sipHexCRLFCRLF},      // CRLF CRLF
 		},
 
 		// I4 — request-line + minimal headers only (~120 B)
 		I4: []TagSpec{
 			// Request-Line
-			{Type: "bytes", Value: "4f5054494f4e53"}, // "OPTIONS"
-			{Type: "bytes", Value: "20"},             // " "
-			{Type: "bytes", Value: "7369703a"},       // "sip:"
-			{Type: "random_chars", Value: "4"},       // user
-			{Type: "bytes", Value: "20534950"},       // " SIP"
-			{Type: "bytes", Value: "2f322e30"},       // "/2.0"
-			{Type: "bytes", Value: "0d0a"},           // CRLF
+			{Type: tagTypeBytes, Value: sipHexOptions},   // "OPTIONS"
+			{Type: tagTypeBytes, Value: "20"},            // " "
+			{Type: tagTypeBytes, Value: sipHexSIPScheme}, // "sip:"
+			{Type: tagTypeRandomChars, Value: "4"},       // user
+			{Type: tagTypeBytes, Value: "20534950"},      // " SIP"
+			{Type: tagTypeBytes, Value: sipHexVersion20}, // "/2.0"
+			{Type: tagTypeBytes, Value: sipHexCRLF},      // CRLF
 			// Via header (minimal)
-			{Type: "bytes", Value: "5669613a20"},             // "Via: "
-			{Type: "bytes", Value: "5349502f322e302f554450"}, // "SIP/2.0/UDP"
-			{Type: "bytes", Value: "20"},                     // " "
-			{Type: "random_chars", Value: "4"},               // host token
-			{Type: "bytes", Value: "0d0a"},                   // CRLF
+			{Type: tagTypeBytes, Value: sipHexVia},          // "Via: "
+			{Type: tagTypeBytes, Value: sipHexUDPTransport}, // "SIP/2.0/UDP"
+			{Type: tagTypeBytes, Value: "20"},               // " "
+			{Type: tagTypeRandomChars, Value: "4"},          // host token
+			{Type: tagTypeBytes, Value: sipHexCRLF},         // CRLF
 			// Call-ID (minimal)
-			{Type: "bytes", Value: "43616c6c2d49443a20"}, // "Call-ID: "
-			{Type: "random_chars", Value: "8"},           // call-id
-			{Type: "bytes", Value: "0d0a"},               // CRLF
+			{Type: tagTypeBytes, Value: sipHexCallID}, // "Call-ID: "
+			{Type: tagTypeRandomChars, Value: "8"},    // call-id
+			{Type: tagTypeBytes, Value: sipHexCRLF},   // CRLF
 			// CSeq
-			{Type: "bytes", Value: "435365713a20"},     // "CSeq: "
-			{Type: "random_digits", Value: "1"},        // sequence number
-			{Type: "bytes", Value: "204f5054494f4e53"}, // " OPTIONS"
-			{Type: "bytes", Value: "0d0a0d0a"},         // CRLF CRLF
+			{Type: tagTypeBytes, Value: sipHexCSeq},         // "CSeq: "
+			{Type: tagTypeRandomDigits, Value: "1"},         // sequence number
+			{Type: tagTypeBytes, Value: sipHexSpaceOptions}, // " OPTIONS"
+			{Type: tagTypeBytes, Value: sipHexCRLFCRLF},     // CRLF CRLF
 		},
 
 		// I5 — empty per named-template convention

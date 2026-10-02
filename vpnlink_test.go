@@ -524,8 +524,8 @@ func TestEncodeVPNLink_StructuredLastConfig(t *testing.T) {
 	}
 
 	// allowed_ips must be a JSON array, not a comma-separated string.
-	allowedIPs, ok := lc["allowed_ips"].([]any)
-	if !ok {
+	allowedIPs, isArray := lc["allowed_ips"].([]any)
+	if !isArray {
 		t.Fatalf("last_config.allowed_ips is not a JSON array, got %T", lc["allowed_ips"])
 	}
 	if len(allowedIPs) == 0 {

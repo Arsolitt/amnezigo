@@ -340,10 +340,10 @@ func TestGenerateCPSWithProtocol(t *testing.T) {
 	// Test different protocols
 	protocols := []string{"quic", "dns", "dtls", "stun"}
 	for _, protocol := range protocols {
-		i1, _, _, _, _ := GenerateCPS(protocol, 1280, 32, 5)
+		gotI1, _, _, _, _ := GenerateCPS(protocol, 1280, 32, 5)
 
 		// All protocols should generate non-empty I1
-		if i1 == "" {
+		if gotI1 == "" {
 			t.Errorf("I1 should not be empty for %s protocol", protocol)
 		}
 	}

@@ -1,14 +1,14 @@
 # This file is licensed under the terms of the MIT license https://opensource.org/license/mit
-# Copyright (c) 2021-2025 Marat Reymers
+# Copyright (c) 2021-2025 Marat Reimers
 
-## Golden config for golangci-lint v2.6.2
+## Golden config for golangci-lint v2.14.0
 #
 # This is the best config for golangci-lint based on my experience and opinion.
 # It is very strict, but not extremely strict.
 # Feel free to adapt it to suit your needs.
-# If this config helps you, please consider keeping a link to this file (see the next comment).
+# If this config helps you, please consider keeping a link to this repo (see the next comment).
 
-# Based on https://gist.github.com/maratori/47a4d00457a92aa426dbd48a18776322
+# Based on https://github.com/maratori/golangci-lint-config
 
 version: "2"
 
@@ -32,6 +32,9 @@ formatters:
   # All settings can be found here https://github.com/golangci/golangci-lint/blob/HEAD/.golangci.reference.yml
   settings:
     goimports:
+      # A list of prefixes, which, if set, checks import paths
+      # with the given prefixes are grouped after 3rd-party packages.
+      # Default: []
       local-prefixes:
         - github.com/Arsolitt/amnezigo
 
@@ -47,6 +50,7 @@ linters:
     - bidichk # checks for dangerous unicode character sequences
     - bodyclose # checks whether HTTP response body is closed successfully
     - canonicalheader # checks whether net/http.Header uses canonical header
+    - clickhouselint # detects common mistakes with the ClickHouse native Go driver API
     - copyloopvar # detects places where loop variables are copied (Go 1.22+)
     - cyclop # checks function and package cyclomatic complexity
     - depguard # checks if package imports are in a list of acceptable packages
@@ -59,11 +63,13 @@ linters:
     - exhaustive # checks exhaustiveness of enum switch statements
     - exptostd # detects functions from golang.org/x/exp/ that can be replaced by std functions
     - fatcontext # detects nested contexts in loops
-    #- forbidigo # forbids identifiers
+    - forbidigo # forbids identifiers
     - funcorder # checks the order of functions, methods, and constructors
     - funlen # tool for detection of long functions
     - gocheckcompilerdirectives # validates go compiler directive comments (//go:)
-    # - gochecknoglobals # checks that no global variables exist
+    # Disabled: the package intentionally keeps package-level state (preset and
+    # template registries, sentinel errors, compiled regexes).
+    #- gochecknoglobals # checks that no global variables exist
     #- gochecknoinits # checks that no init functions are present in Go code
     - gochecksumtype # checks exhaustiveness on Go "sum types"
     - gocognit # computes and checks the cognitive complexity of functions
@@ -100,7 +106,7 @@ linters:
     - promlinter # checks Prometheus metrics naming via promlint
     - protogetter # reports direct reads from proto message fields when getters should be used
     - reassign # checks that package variables are not reassigned
-    #- recvcheck # checks for receiver type consistency
+    - recvcheck # checks for receiver type consistency
     - revive # fast, configurable, extensible, flexible, and beautiful linter for Go, drop-in replacement of golint
     - rowserrcheck # checks whether Err of rows is checked successfully
     - sloglint # ensure consistent code style when using log/slog
@@ -108,8 +114,7 @@ linters:
     - sqlclosecheck # checks that sql.Rows and sql.Stmt are closed
     - staticcheck # is a go vet on steroids, applying a ton of static analysis checks
     - testableexamples # checks if examples are testable (have an expected output)
-    #- testifylint # checks usage of github.com/stretchr/testify
-    #- testpackage # makes you use a separate _test package
+    - testifylint # checks usage of github.com/stretchr/testify
     - tparallel # detects inappropriate usage of t.Parallel() method in your Go test codes
     - unconvert # removes unnecessary type conversions
     - unparam # reports unused function parameters
@@ -123,7 +128,7 @@ linters:
     ## you may want to enable
     #- arangolint # opinionated best practices for arangodb client
     #- decorder # checks declaration order and count of types, constants, variables and functions
-    #- exhaustruct # [highly recommend to enable] checks if all structure fields are initialized
+    #- exhaustruct_v5 # [highly recommend to enable] checks if all structure fields are initialized
     #- ginkgolinter # [if you use ginkgo/gomega] enforces standards of using ginkgo and gomega
     #- godox # detects usage of FIXME, TODO and other keywords inside comments
     #- goheader # checks is file header matches to pattern
@@ -144,8 +149,9 @@ linters:
     #- dupword # [useless without config] checks for duplicate words in the source code
     #- err113 # [too strict] checks the errors handling expressions
     #- errchkjson # [don't see profit + I'm against of omitting errors like in the first example https://github.com/breml/errchkjson] checks types passed to the json encoding functions. Reports unsupported types and optionally reports occasions, where the check for the returned error can be omitted
+    #- exhaustruct # [use exhaustruct_v5 instead] checks if all structure fields are initialized
     #- forcetypeassert # [replaced by errcheck] finds forced type assertions
-    #- gomodguard # [use more powerful depguard] allow and block lists linter for direct Go module dependencies
+    #- gomodguard_v2: [use more powerful depguard] allow and blocklist linter for direct Go module dependencies
     #- gosmopolitan # reports certain i18n/l10n anti-patterns in your Go codebase
     #- grouper # analyzes expression groups
     #- importas # enforces consistent import aliases
@@ -153,10 +159,10 @@ linters:
     #- maintidx # measures the maintainability index of each function
     #- misspell # [useless] finds commonly misspelled English words in comments
     #- nlreturn # [too strict and mostly code is not more readable] checks for a new line before return and branch statements to increase code clarity
-    #- paralleltest # [too many false positives] detects missing usage of t.Parallel() method in your Go test
+    #- paralleltest # disabled: repo policy, tests intentionally do not call t.Parallel()
     #- tagliatelle # checks the struct tags
+    #- testpackage # disabled: white-box tests are the convention in this repo
     #- thelper # detects golang test helpers without t.Helper() call and checks the consistency of test helpers
-    #- wsl # [too strict and mostly code is not more readable] whitespace linter forces you to use empty lines
     #- wsl_v5 # [too strict and mostly code is not more readable] add or remove empty lines
 
   # All settings can be found here https://github.com/golangci/golangci-lint/blob/HEAD/.golangci.reference.yml
@@ -236,15 +242,15 @@ linters:
         - switch
         - map
 
-    exhaustruct:
-      # List of regular expressions to match type names that should be excluded from processing.
+    exhaustruct_v5:
+      # List of regular expressions to match type names that should be skipped from checking.
       # Anonymous structs can be matched by '<anonymous>' alias.
       # Has precedence over `include`.
       # Each regular expression must match the full type name, including package path.
       # For example, to match type `net/http.Cookie` regular expression should be `.*/http\.Cookie`,
       # but not `http\.Cookie`.
       # Default: []
-      exclude:
+      ignore-patterns:
         # std libs
         - ^net/http.Client$
         - ^net/http.Cookie$
@@ -271,6 +277,9 @@ linters:
       # Allows empty structures in return statements.
       # Default: false
       allow-empty-returns: true
+      # Allow empty literals the blank identifier receives.
+      # Default: false
+      allow-empty-blank-assignments: true
 
     funcorder:
       # Checks if the exported methods of a structure are placed before the non-exported ones.
@@ -318,6 +327,9 @@ linters:
         # Assert no unused link in godocs.
         # https://github.com/godoc-lint/godoc-lint?tab=readme-ov-file#no-unused-link
         - no-unused-link
+        # Require proper doc links to standard library declarations where applicable.
+        # https://github.com/godoc-lint/godoc-lint?tab=readme-ov-file#require-stdlib-doclink
+        - require-stdlib-doclink
 
     govet:
       # Enable all analyzers.
@@ -328,13 +340,12 @@ linters:
       # Default: []
       disable:
         - fieldalignment # too strict
-        - structtag
       # Settings per analyzer.
       settings:
         shadow:
           # Whether to be strict about shadowing; can be noisy.
           # Default: false
-          strict: false
+          strict: true
 
     inamedparam:
       # Skips check for interface methods with only a single parameter.
@@ -381,6 +392,9 @@ linters:
       # Optimizes into strings concatenation.
       # Default: true
       strconcat: false
+      # Enable/disable optimization of error formatting.
+      # Default: true
+      error-format: false # https://github.com/catenacyber/perfsprint/issues/62
 
     reassign:
       # Patterns for global variable names that are checked for reassignment.
@@ -396,21 +410,15 @@ linters:
         - github.com/jmoiron/sqlx
 
     sloglint:
-      # Enforce not using global loggers.
-      # Values:
-      # - "": disabled
-      # - "all": report all global loggers
-      # - "default": report only the default slog logger
-      # https://github.com/go-simpler/sloglint?tab=readme-ov-file#no-global
-      # Default: ""
-      no-global: ""
-      # Enforce using methods that accept a context.
-      # Values:
-      # - "": disabled
-      # - "all": report all contextless calls
-      # - "scope": report only if a context exists in the scope of the outermost function
-      # https://github.com/go-simpler/sloglint?tab=readme-ov-file#context-only
-      # Default: ""
+      # Report the use of global loggers.
+      # https://github.com/go-simpler/sloglint#no-global-logger
+      # Values: "all", "default"
+      # Default: "" (disabled)
+      no-global: all
+      # Report the use of functions without a context.Context.
+      # https://github.com/go-simpler/sloglint#context-only
+      # Values: "all", "scope"
+      # Default: "" (disabled)
       context: scope
 
     staticcheck:
@@ -471,10 +479,6 @@ linters:
           - wrapcheck
           - gocognit
           - nestif
-      - path: 'internal/utils/*'
-        text: 'var-naming: avoid meaningless package names'
-        linters:
-            - revive
       - path: '_test\.go'
         linters:
           - reassign

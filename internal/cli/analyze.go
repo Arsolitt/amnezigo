@@ -9,7 +9,7 @@ import (
 	"github.com/Arsolitt/amnezigo"
 )
 
-// randReader wraps math/rand/v2.Rand to satisfy io.Reader for seeded analysis.
+// randReader wraps [math/rand/v2.Rand] to satisfy [io.Reader] for seeded analysis.
 type randReader struct {
 	rng *rand.Rand
 }
