@@ -12,7 +12,7 @@ func TestRootCmd_RegisteredCommands(t *testing.T) {
 		names = append(names, cmd.Name())
 	}
 
-	for _, exp := range []string{"analyze", "generate", "validate"} {
+	for _, exp := range []string{"analyze", "generate", "validate", "version"} {
 		if !slices.Contains(names, exp) {
 			t.Errorf("missing command: %s", exp)
 		}
