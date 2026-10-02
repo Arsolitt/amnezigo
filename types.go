@@ -1,11 +1,40 @@
 package amnezigo
 
-import "time"
+import (
+	"strconv"
+	"time"
+)
 
 // HeaderRange represents a min-max range for obfuscation headers.
 type HeaderRange struct {
 	Min uint32 `json:"min"`
 	Max uint32 `json:"max"`
+}
+
+// U16Range is an inclusive uint16 range for the AWG 3.x range parameters
+// (ContentPaddingAddition and the five timer parameters). It serializes as
+// "N" when Min == Max and "Min-Max" otherwise, matching
+// u16_range_to_string in amneziawg-tools/src/type.c.
+//
+// The zero value (Min == 0 && Max == 0) means unset/disabled: the key is
+// omitted from the emitted config and the engine keeps its default.
+type U16Range struct {
+	Min uint16 `json:"min"`
+	Max uint16 `json:"max"`
+}
+
+// IsZero reports whether the range is the unset/disabled zero value.
+func (r U16Range) IsZero() bool {
+	return r.Min == 0 && r.Max == 0
+}
+
+// String renders the range in the engine's INI notation: "N" when the bounds
+// are equal, "Min-Max" otherwise.
+func (r U16Range) String() string {
+	if r.Min == r.Max {
+		return strconv.FormatUint(uint64(r.Min), 10)
+	}
+	return strconv.FormatUint(uint64(r.Min), 10) + "-" + strconv.FormatUint(uint64(r.Max), 10)
 }
 
 // ServerConfig represents the full WireGuard server configuration.
@@ -49,6 +78,20 @@ type ServerObfuscationConfig struct {
 	Jc, Jmin, Jmax int
 	S1, S2, S3, S4 int
 	H1, H2, H3, H4 HeaderRange
+
+	// AWG 3.x device-level transport protection (see version.go). The zero
+	// Version disables emission of every field below, which keeps legacy
+	// hand-built configs emitting exactly the 2.0 key set.
+	Version              AWGVersion
+	HeaderProtectionKey  string // base64 32-byte key; "" = header protection disabled
+	ContentPadding       U16Range
+	RekeyAfterTime       U16Range
+	RekeyTimeout         U16Range
+	RejectAfterTime      U16Range
+	KeepaliveTimeout     U16Range
+	MaxHandshakeAttempts U16Range
+	RandomTrailers       bool
+	DisableCookies       bool
 }
 
 // ClientObfuscationConfig represents client-side obfuscation parameters,

@@ -4,6 +4,7 @@
     "mtu": 1280
   },
   "obfuscation": {
+    "awg_version": "2.0",
     "protocol": "quic",
     "s1": 30, "s2": 35, "s3": 20, "s4": 12,
     "h1": {"min": 100, "max": 5000000},

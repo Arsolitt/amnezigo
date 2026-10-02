@@ -19,6 +19,11 @@ type NetworkConfig struct {
 //
 // Parameters use pointer types to distinguish "user set to 0"
 // from "user did not set this field".
+//
+// The AWG 3.x fields follow the same convention: nil selects the version
+// default, an explicit U16Range{0, 0} disables the corresponding engine key,
+// and HeaderProtection/RandomTrailers/DisableCookies default to true for the
+// versions that support them. See resolveObfuscation for the exact order.
 type ObfuscationManifest struct {
 	S1       *int         `json:"s1,omitempty"`
 	S2       *int         `json:"s2,omitempty"`
@@ -32,6 +37,23 @@ type ObfuscationManifest struct {
 	Jmin     *int         `json:"jmin,omitempty"`
 	Jmax     *int         `json:"jmax,omitempty"`
 	Protocol string       `json:"protocol,omitempty"`
+
+	// AWGVersion pins the target protocol generation ("2.0", "3.0" or "3.1").
+	// Unset selects DefaultAWGVersion.
+	AWGVersion string `json:"awg_version,omitempty"`
+
+	// AWG 3.0+ device-level transport protection.
+	HeaderProtection     *bool     `json:"header_protection,omitempty"`
+	ContentPadding       *U16Range `json:"content_padding,omitempty"`
+	RekeyAfterTime       *U16Range `json:"rekey_after_time,omitempty"`
+	RekeyTimeout         *U16Range `json:"rekey_timeout,omitempty"`
+	RejectAfterTime      *U16Range `json:"reject_after_time,omitempty"`
+	KeepaliveTimeout     *U16Range `json:"keepalive_timeout,omitempty"`
+	MaxHandshakeAttempts *U16Range `json:"max_handshake_attempts,omitempty"`
+
+	// AWG 3.1-only transport protection.
+	RandomTrailers *bool `json:"random_trailers,omitempty"`
+	DisableCookies *bool `json:"disable_cookies,omitempty"`
 }
 
 // PeerManifest declares a single network peer in the manifest.

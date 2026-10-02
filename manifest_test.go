@@ -641,3 +641,65 @@ func TestObfuscationManifest_ToSharedObfuscation_AllSet(t *testing.T) {
 		t.Errorf("Junk params not preserved: Jmin=%d Jmax=%d", cfg.Jmin, cfg.Jmax)
 	}
 }
+
+// TestObfuscationManifest_AWG31Fields_JSONRoundTrip pins the JSON names of the
+// AWG 3.x manifest fields and the invariant that HasAnyValue and
+// ToSharedObfuscation stay S/H/J-only (the pipeline resolves 3.x fields
+// itself, because it needs the persisted header-protection key).
+func TestObfuscationManifest_AWG31Fields_JSONRoundTrip(t *testing.T) {
+	raw := `{
+		"awg_version": "3.1",
+		"header_protection": false,
+		"content_padding": {"min": 2, "max": 10},
+		"rekey_after_time": {"min": 120, "max": 180},
+		"rekey_timeout": {"min": 5, "max": 8},
+		"reject_after_time": {"min": 180, "max": 240},
+		"keepalive_timeout": {"min": 8, "max": 12},
+		"max_handshake_attempts": {"min": 16, "max": 20},
+		"random_trailers": true,
+		"disable_cookies": true
+	}`
+	var om ObfuscationManifest
+	if err := json.Unmarshal([]byte(raw), &om); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if om.AWGVersion != "3.1" {
+		t.Errorf("AWGVersion = %q, want 3.1", om.AWGVersion)
+	}
+	if om.HeaderProtection == nil || *om.HeaderProtection {
+		t.Errorf("HeaderProtection = %v, want explicit false", om.HeaderProtection)
+	}
+	if om.ContentPadding == nil || *om.ContentPadding != (U16Range{Min: 2, Max: 10}) {
+		t.Errorf("ContentPadding = %v, want {2 10}", om.ContentPadding)
+	}
+	if om.RekeyAfterTime == nil || *om.RekeyAfterTime != (U16Range{Min: 120, Max: 180}) {
+		t.Errorf("RekeyAfterTime = %v, want {120 180}", om.RekeyAfterTime)
+	}
+	if om.RekeyTimeout == nil || *om.RekeyTimeout != (U16Range{Min: 5, Max: 8}) {
+		t.Errorf("RekeyTimeout = %v, want {5 8}", om.RekeyTimeout)
+	}
+	if om.RejectAfterTime == nil || *om.RejectAfterTime != (U16Range{Min: 180, Max: 240}) {
+		t.Errorf("RejectAfterTime = %v, want {180 240}", om.RejectAfterTime)
+	}
+	if om.KeepaliveTimeout == nil || *om.KeepaliveTimeout != (U16Range{Min: 8, Max: 12}) {
+		t.Errorf("KeepaliveTimeout = %v, want {8 12}", om.KeepaliveTimeout)
+	}
+	if om.MaxHandshakeAttempts == nil || *om.MaxHandshakeAttempts != (U16Range{Min: 16, Max: 20}) {
+		t.Errorf("MaxHandshakeAttempts = %v, want {16 20}", om.MaxHandshakeAttempts)
+	}
+	if om.RandomTrailers == nil || !*om.RandomTrailers {
+		t.Errorf("RandomTrailers = %v, want true", om.RandomTrailers)
+	}
+	if om.DisableCookies == nil || !*om.DisableCookies {
+		t.Errorf("DisableCookies = %v, want true", om.DisableCookies)
+	}
+
+	// 3.x fields must not leak into the S/H/J projection helpers.
+	if om.HasAnyValue() {
+		t.Error("HasAnyValue must report false when only AWG 3.x fields are set")
+	}
+	cfg := om.ToSharedObfuscation()
+	if cfg.Version != 0 || cfg.HeaderProtectionKey != "" || cfg.RandomTrailers || cfg.DisableCookies {
+		t.Errorf("ToSharedObfuscation must stay S/H/J-only, got %+v", cfg)
+	}
+}
