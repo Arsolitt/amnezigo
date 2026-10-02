@@ -1,0 +1,51 @@
+name: Bug report
+description: Something in amnezigo does not work as documented
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened
+      description: A clear and concise description of the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: What you expected to happen instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: The exact command line and the smallest manifest that triggers the problem.
+      placeholder: |
+        1. run `amnezigo generate --project ./example --output out/`
+        2. observe ...
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: manifest
+    attributes:
+      label: Manifest
+      description: The manifest that triggers the problem — `amnezigo.json`, or the evaluated JSON of an `.amnezigo.jsonnet` file.
+      render: json
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "Output of `amnezigo version`."
+      placeholder: "amnezigo v0.1.0 (abc1234)"
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: "OS and architecture, e.g. `linux/amd64`."
+    validations:
+      required: true

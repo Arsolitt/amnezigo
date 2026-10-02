@@ -1,0 +1,53 @@
+name: Release
+
+# Tag driven:
+#   vX.Y.Z       -> GitHub release (Latest) + image tags :X.Y.Z and :latest
+#   vX.Y.Z-rc.N  -> GitHub pre-release      + image tag  :X.Y.Z-rc.N only
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+env:
+  GORELEASER_VERSION: v2.18.1
+
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the GitHub release and upload assets
+      packages: write # push ghcr.io/arsolitt/amnezigo
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # full history and tags for the changelog
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Set up Docker buildx
+        uses: docker/setup-buildx-action@v4
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          version: ${{ env.GORELEASER_VERSION }}
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # A commit can carry several tags — an -rc.N promoted to the final
+          # release sits on the RC's commit — and GoReleaser then resolves the
+          # annotated RC first, so it re-publishes into that release and every
+          # asset upload fails with 422 already_exists. Pin the version to the
+          # tag that triggered this run.
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
