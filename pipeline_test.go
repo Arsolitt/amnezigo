@@ -158,12 +158,15 @@ func TestResolveObfuscation_PartialExplicit(t *testing.T) {
 		t.Error("expected S4 != 0")
 	}
 
-	// All S values should be distinct
-	sValues := []int{result.S1, result.S2, result.S3, result.S4}
-	for i := range sValues {
-		for j := i + 1; j < len(sValues); j++ {
-			if sValues[i] == sValues[j] {
-				t.Errorf("S values should be distinct: S[%d]=%d equals S[%d]=%d", i, sValues[i], j, sValues[j])
+	// Padded sizes must stay pairwise distinct — the engine classifies packets
+	// by size, so the raw S values themselves are allowed to repeat (a
+	// generated S{n} may equal the pinned S1 without colliding once padded).
+	padded := PaddedSizes(result.S1, result.S2, result.S3, result.S4)
+	for i := range padded {
+		for j := i + 1; j < len(padded); j++ {
+			if padded[i] == padded[j] {
+				t.Errorf("padded sizes should be distinct: padded[%d]=%d equals padded[%d]=%d (S=%v)",
+					i, padded[i], j, padded[j], result)
 			}
 		}
 	}
