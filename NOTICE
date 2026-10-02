@@ -1,0 +1,41 @@
+amnezigo
+========
+
+amnezigo is a declarative AmneziaWG v3.1 configuration generator, released as
+the amnezigo CLI and as a Go library. This file lists the third-party
+components linked into the released binaries and the license files they ship.
+The full text of every third-party license is bundled in licenses/ next to this
+file.
+
+amnezigo itself is licensed under the GNU General Public License version 3
+(SPDX: GPL-3.0-only, LICENSE).
+
+Third-party components
+======================
+
+github.com/google/go-jsonnet v0.22.0 — Apache-2.0 — licenses/github.com/google/go-jsonnet/LICENSE
+github.com/spf13/cobra v1.10.2 — Apache-2.0 — licenses/github.com/spf13/cobra/LICENSE.txt
+github.com/spf13/pflag v1.0.10 — BSD-3-Clause — licenses/github.com/spf13/pflag/LICENSE
+go.yaml.in/yaml/v2 v2.4.4 — Apache-2.0 AND MIT — licenses/go.yaml.in/yaml/v2/LICENSE, licenses/go.yaml.in/yaml/v2/LICENSE.libyaml, licenses/go.yaml.in/yaml/v2/NOTICE
+golang.org/x/crypto v0.57.0 — BSD-3-Clause — licenses/golang.org/x/crypto/LICENSE, licenses/golang.org/x/crypto/PATENTS
+golang.org/x/sys v0.48.0 — BSD-3-Clause — licenses/golang.org/x/sys/LICENSE, licenses/golang.org/x/sys/PATENTS
+sigs.k8s.io/yaml v1.6.0 — Apache-2.0 AND BSD-3-Clause AND MIT — licenses/sigs.k8s.io/yaml/LICENSE
+
+Third-party attribution notices
+===============================
+
+## go.yaml.in/yaml/v2 v2.4.4
+
+Copyright 2011-2016 Canonical Ltd.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
