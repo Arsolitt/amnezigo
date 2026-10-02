@@ -1,0 +1,39 @@
+# Build context for `docker build -t amnezigo .` (Dockerfile): the builder stage
+# compiles ./cmd/amnezigo, so only the Go module and its sources are kept.
+
+# VCS / CI
+.git
+.github
+
+# Build outputs
+bin
+build
+dist
+*.test
+*.out
+
+# Not needed to compile the binary
+docs
+e2e
+testdata
+assets
+banks
+hack
+AGENTS.md
+README.md
+*.md
+.golangci.yaml
+.goreleaser.yaml
+Makefile
+mise.toml
+
+# Local state, configs, and generated artifacts
+*.conf
+*.config
+*.key
+*.jsonnet
+*.libsonnet
+
+# The daemon reads these, the builder stage does not.
+Dockerfile
+.dockerignore

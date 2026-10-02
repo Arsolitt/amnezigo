@@ -1,0 +1,81 @@
+# GoReleaser configuration.
+#
+# Tag convention: vX.Y.Z for stable releases, vX.Y.Z-rc.N for prereleases
+# (`prerelease: auto` below classifies the -rc.N suffix automatically).
+#
+# Release:      git tag -s vX.Y.Z[-rc.N] -m "..." && git push origin vX.Y.Z[-rc.N]
+# Local check:  goreleaser check
+# Local dry run (builds everything, publishes nothing):
+#               goreleaser release --snapshot --clean
+version: 2
+
+project_name: amnezigo
+
+builds:
+  - id: amnezigo
+    main: ./cmd/amnezigo
+    binary: amnezigo
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    ldflags:
+      - -s -w
+      - -X github.com/Arsolitt/amnezigo/internal/buildinfo.Version={{ .Version }}
+      - -X github.com/Arsolitt/amnezigo/internal/buildinfo.Commit={{ .ShortCommit }}
+    goos: [linux, darwin]
+    goarch: [amd64]
+
+archives:
+  # Raw binaries, asset names: amnezigo-linux-amd64, amnezigo-darwin-amd64.
+  - id: binaries
+    ids: [amnezigo]
+    formats: [binary]
+    name_template: "{{ .Binary }}-{{ .Os }}-{{ .Arch }}"
+
+  # Single license bundle attached to every release (binaries cannot carry files).
+  - id: licenses
+    meta: true
+    formats: [tar.gz]
+    name_template: "amnezigo-licenses_{{ .Version }}"
+    files:
+      - LICENSE
+      - NOTICE
+      - licenses/**/*
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot.{{ .ShortCommit }}"
+
+dockers_v2:
+  - id: amnezigo
+    ids: [amnezigo]
+    dockerfile: cmd/amnezigo/Dockerfile
+    images:
+      - ghcr.io/arsolitt/amnezigo
+    tags:
+      - "{{ .Version }}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    platforms:
+      - linux/amd64
+    extra_files:
+      - NOTICE
+      - LICENSE
+      - licenses
+    labels:
+      org.opencontainers.image.title: amnezigo
+      org.opencontainers.image.description: AmneziaWG v3.1 configuration generator
+      org.opencontainers.image.source: "{{ .GitURL }}"
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.licenses: GPL-3.0
+    sbom: false
+
+release:
+  prerelease: auto
+  make_latest: "{{ not .Prerelease }}"
+  footer: |
+    amnezigo is licensed GPL-3.0. The corresponding source for the binaries and
+    the container image published here is available in this repository at the
+    matching tag. Third-party licenses: `amnezigo-licenses_{{ .Version }}.tar.gz`.

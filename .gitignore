@@ -3,4 +3,5 @@ bin
 *.config
 /amnezigo
 build
+dist
 /banks
