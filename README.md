@@ -152,7 +152,7 @@ Human-readable reference docs live under [`docs/`](docs/README.md):
 
 ## Using with AI Assistants
 
-> **Note:** The single-file dump at [`docs/llms-full.txt`](docs/llms-full.txt) predates the AWG 3.1 transport-protection layer and is not a current reference for the 3.x fields. The pages above are the up-to-date documentation.
+The single-file dump at [`docs/llms-full.txt`](docs/llms-full.txt) is the AI-facing reference, covering the 2.0/3.0/3.1 configuration surface.
 
 It is recommended to copy the following prompt and send it to an AI assistant — this can significantly improve the quality of generated AmneziaWG configurations:
 
