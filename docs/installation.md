@@ -13,32 +13,32 @@
 - [Verify the Install](#verify-the-install)
 - [Build Entry Point](#build-entry-point)
 - [Development Builds](#development-builds)
-- [Next Steps](#next-steps)
+- [Related](#related)
 
 ---
 
 ## Prerequisites
 
 | Requirement | Detail |
-|---|---|
+| --- | --- |
 | Go toolchain | **1.26.1 or newer** (pinned as `go 1.26.1` in `go.mod`; `mise.toml` pins Go 1.26.8 for local development). Required for `go install` and source builds. Not needed when using a release binary or the Docker image. |
 | Git | Required to clone the repository for source and Docker builds. |
 | Docker | Required only for the image build; both the runtime base image and the release images are amd64-only (see [Docker](#docker)). |
 | AmneziaWG runtime | **To actually run** a generated config, you need the AmneziaWG userspace (`amneziawg-go`) or the kernel module **matching the manifest's `obfuscation.awg_version`** — `"2.0"`, `"3.0"`, or `"3.1"` (unset defaults to `"3.1"`). See note below. |
 | Operating system | Any Go-supported OS. The release matrix is linux/amd64 and darwin/amd64; the container images are linux/amd64 only. |
 
-> **Warning:** amnezigo **only generates** `awg0.conf` files. It does **not** install, enable, or manage the AmneziaWG runtime, set up network interfaces, or bring tunnels up/down. The runtime stage of both images pins `amneziavpn/amneziawg-go:3.1.20260828` (Alpine 3.19, amd64-only), which already ships the `awg` tools — so a generated `<d>` passthrough tag (which requires AWG 2.0 userspace and is rejected by the legacy kernel module) works out of the box. See [Obfuscation](./obfuscation.md).
+> **Warning:** amnezigo **only generates** `awg0.conf` files. It does **not** install, enable, or manage the AmneziaWG runtime, set up network interfaces, or bring tunnels up/down. The runtime stage of both images pins `amneziavpn/amneziawg-go:3.1.20260828` (Alpine 3.19, amd64-only), which already ships the `awg` tools — so a generated `<d>` passthrough tag (which requires AWG 2.0 userspace and is rejected by the legacy kernel module) works out of the box. See [Transport Protection (AWG 3.x)](./transport-protection.md) for the version model and [Obfuscation](./obfuscation.md) for the CPS grammar.
 
 ## Install Methods
 
 | Method | Command | Notes |
-|---|---|---|
-| `go install` | `go install github.com/Arsolitt/amnezigo/cmd/amnezigo@latest` | Installs the binary to `$GOPATH/bin` (or `$GOBIN`). Go 1.26+ required. |
+| --- | --- | --- |
+| `go install` | `go install github.com/Arsolitt/amnezigo/cmd/amnezigo@latest` | Installs the binary to `$GOPATH/bin` (or `$GOBIN`). Go 1.26.1+ required. |
 | Release binaries | Download from the [releases page](https://github.com/Arsolitt/amnezigo/releases) | Raw `amnezigo-linux-amd64` / `amnezigo-darwin-amd64` binaries, `checksums.txt`, and `amnezigo-licenses_<version>.tar.gz`. amd64 only. |
 | Build from source (dev) | `make build` | Produces `bin/amnezigo` from a working-tree clone, with the version/commit stamp injected via `-ldflags`. |
 | Build from source (production) | `CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o build/amnezigo ./cmd/amnezigo/` | Static, stripped binary; mirrors the container build stage. |
-| Docker (from source) | `docker build --platform linux/amd64 -t amnezigo .` | Multi-stage image; run via `docker run --rm amnezigo <command>`. |
-| Docker (published) | `docker run --rm ghcr.io/arsolitt/amnezigo:<version> --help` | Release image built by GoReleaser; `amd64` only. |
+| Docker (from source) | `docker build --platform linux/amd64 -t amnezigo .` | Multi-stage image; run via `docker run --rm --user $(id -u):$(id -g) amnezigo <command>`. |
+| Docker (published) | `docker run --rm --user $(id -u):$(id -g) ghcr.io/arsolitt/amnezigo:<version> --help` | Release image built by GoReleaser; tagged `<version>` (leading `v` stripped, e.g. `1.0.0`) and `latest` for stable releases. `amd64` only. |
 
 ### go install
 
@@ -47,14 +47,14 @@ $ go install github.com/Arsolitt/amnezigo/cmd/amnezigo@latest
 $ amnezigo version
 ```
 
-`amnezigo version` prints `amnezigo <Version> (<Commit>)`. Release binaries carry the tag's version with its leading `v` stripped — `amnezigo 0.4.0 (abc1234)` for tag `v0.4.0` — while `go install` and plain `go build` produce unstamped binaries that report `amnezigo dev (none)`; use a release binary or `make build` when the exact revision matters.
+`amnezigo version` prints `amnezigo <Version> (<Commit>)`. Release binaries carry the tag's version with its leading `v` stripped — `amnezigo 0.4.0 (abc1234)` for tag `v0.4.0` — while `go install` and plain `go build` produce unstamped binaries that report `amnezigo dev (none)`; use a release binary or `make build` when the exact revision matters. A `make build` binary is stamped from `git describe`, so a build from a non-tag commit can report a string like `amnezigo v0.3.0-5-g81451b7-dirty (81451b7)`, whereas release binaries always carry the clean, `v`-stripped version.
 
 ### Prebuilt release binaries
 
 Every tagged release attaches raw, statically linked executables — there is no archive to extract:
 
 | Asset | Contents |
-|---|---|
+| --- | --- |
 | `amnezigo-linux-amd64` | Linux x86-64 executable. |
 | `amnezigo-darwin-amd64` | macOS x86-64 executable (runs on Apple Silicon through Rosetta 2). |
 | `checksums.txt` | SHA-256 checksums for every asset. |
@@ -80,7 +80,7 @@ $ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o build/amnez
 The root `Dockerfile` is multi-stage:
 
 | Stage | Base image | Purpose |
-|---|---|---|
+| --- | --- | --- |
 | `builder` | `golang:1.26-alpine` | Compiles a static binary: `CGO_ENABLED=0 GOOS=linux go build -ldflags="..." -o ./build/amnezigo ./cmd/amnezigo/`. The version stamp defaults to `dev`/`none`; override it with `--build-arg VERSION=vX.Y.Z --build-arg COMMIT=$(git rev-parse --short HEAD)`. |
 | runtime | `amneziavpn/amneziawg-go:3.1.20260828` | AmneziaWG userspace base image (Alpine 3.19, amd64-only). It already ships bash, the ca-certificates bundle and the `awg` tools, so the build adds **no package layer**. Copies the binary to `/usr/local/bin/amnezigo` and sets `ENTRYPOINT ["/usr/local/bin/amnezigo"]`. |
 
@@ -88,19 +88,21 @@ Because both the base image and the published images are amd64-only, the build m
 
 ```shell
 $ docker build --platform linux/amd64 -t amnezigo .
-$ docker run --rm amnezigo generate --help
+$ docker run --rm --user $(id -u):$(id -g) amnezigo generate --help
 ```
 
-The published image `ghcr.io/arsolitt/amnezigo:<version>` is built by GoReleaser from `cmd/amnezigo/Dockerfile`, sets the same `ENTRYPOINT ["/usr/local/bin/amnezigo"]`, and ships `NOTICE`, `LICENSE`, and `licenses/` under `/usr/share/doc/amnezigo/`:
+The published image `ghcr.io/arsolitt/amnezigo:<version>` is built by GoReleaser from `cmd/amnezigo/Dockerfile`, sets the same `ENTRYPOINT ["/usr/local/bin/amnezigo"]`, and ships `NOTICE`, `LICENSE`, and `licenses/` under `/usr/share/doc/amnezigo/`. The image tags use the release version with the leading `v` stripped (tag `v1.0.0` → `1.0.0`), and stable releases also get `latest` — prereleases (`vX.Y.Z-rc.N`) are version-tagged only:
 
 ```shell
-$ docker run --rm ghcr.io/arsolitt/amnezigo:<version> --help
+$ docker run --rm --user $(id -u):$(id -g) ghcr.io/arsolitt/amnezigo:<version> --help
 
 # Real runs mount the project directory as the working directory:
-$ docker run --rm -v "$(pwd):/work" -w /work ghcr.io/arsolitt/amnezigo:<version> generate
+$ docker run --rm --user $(id -u):$(id -g) -v "$(pwd):/work" -w /work ghcr.io/arsolitt/amnezigo:<version> generate
 ```
 
-> **Note:** the entrypoint is the binary itself, so subcommands are passed directly (`docker run … amnezigo generate`). Use `--entrypoint /bin/sh` if you need a shell inside the container.
+> **Warning:** neither Dockerfile declares a `USER`, deliberately: the CLI reads and writes configs in the mounted working directory, so a fixed in-image account would break that. Without `--user $(id -u):$(id -g)`, `generate` writes root-owned files into your project directory.
+
+> **Note:** the entrypoint is the binary itself, so subcommands are passed directly (`docker run --rm --user $(id -u):$(id -g) … amnezigo generate`). Use `--entrypoint /bin/sh` if you need a shell inside the container.
 
 ## Verify the Install
 
@@ -163,7 +165,7 @@ $ mise install
 The `Makefile` wraps the common tasks:
 
 | Target | Command | Purpose |
-|---|---|---|
+| --- | --- | --- |
 | `make build` | `go build -ldflags "…" -o bin/amnezigo ./cmd/amnezigo` | Build the CLI with the version stamp. |
 | `make test` | `go test ./...` | Run the unit tests. |
 | `make test-race` | `go test -race ./...` | Race-enabled tests (pre-merge gate). |
@@ -181,8 +183,13 @@ Validate the release configuration (and the tag convention `vX.Y.Z` for stable r
 $ mise exec -- goreleaser check
 ```
 
-## Next Steps
+> **Note:** CI skips its jobs for pushes and pull requests that only touch `docs/**` or `README.md`, so a documentation-only change shows no CI run by design.
+
+## Related
 
 - [Quick Start](./quick-start.md) — generate your first configs from a manifest.
 - [CLI Reference](./cli-reference.md) — full flag tables for `generate`, `validate`, `analyze`, and `version`.
 - [Manifest Reference](./manifest-reference.md) — every manifest field with semantics and defaults.
+- [Transport Protection (AWG 3.x)](./transport-protection.md) — the version model, the ten 3.x manifest knobs, and runtime requirements.
+- [Credentials & Key Reuse](./credentials.md) — what `generate` persists in the output tree and when `--full-reset` is needed.
+- [Gotchas](./gotchas.md) — project-wide pitfalls, including the amd64-only matrix and Docker file ownership.

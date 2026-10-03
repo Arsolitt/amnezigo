@@ -3,8 +3,8 @@
 > Reference documentation for **Amnezigo** — the AmneziaWG 2.0/3.0/3.1 configuration generator (default 3.1).
 
 Amnezigo reads a single declarative manifest and emits ready-to-deploy `awg0.conf`
-files. These pages are the human-readable reference. The AI-friendly single-file
-documentation remains at [llms-full.txt](./llms-full.txt).
+files. These pages are the human-readable reference. An AI-friendly single-file
+documentation export is also available at [llms-full.txt](./llms-full.txt).
 
 ## Getting started
 
@@ -26,6 +26,7 @@ documentation remains at [llms-full.txt](./llms-full.txt).
 | [VPN Import Links](./vpn-links.md) | The `vpn://` import link format and the `--vpn-links` flag |
 | [Obfuscation](./obfuscation.md) | S/H/J parameters, size invariants, CPS grammar, protocol templates |
 | [Presets](./presets.md) | The 7 named obfuscation bundles and their exact values |
+| [Transport Protection](./transport-protection.md) | AWG 3.x transport protection: version gating, keys, INI fields, validation codes |
 
 ## Guides
 
